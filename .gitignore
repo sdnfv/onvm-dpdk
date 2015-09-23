@@ -1,0 +1,5 @@
+# build directories
+**/build/**
+
+# built target
+**/x86_64-native-linuxapp-gcc/**
