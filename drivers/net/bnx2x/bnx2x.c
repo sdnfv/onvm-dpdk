@@ -1,37 +1,16 @@
 /*-
- * Copyright (c) 2007-2013 QLogic Corporation. All rights reserved.
+ * Copyright (c) 2007-2013 Broadcom Corporation.
  *
  * Eric Davis        <edavis@broadcom.com>
  * David Christensen <davidch@broadcom.com>
  * Gary Zambrano     <zambrano@broadcom.com>
  *
  * Copyright (c) 2013-2015 Brocade Communications Systems, Inc.
+ * Copyright (c) 2015 QLogic Corporation.
  * All rights reserved.
+ * www.qlogic.com
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- * 3. Neither the name of Broadcom Corporation nor the name of its contributors
- *    may be used to endorse or promote products derived from this software
- *    without specific prior written consent.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS'
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS
- * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
- * THE POSSIBILITY OF SUCH DAMAGE.
+ * See LICENSE.bnx2x_pmd for copyright and licensing details.
  */
 
 #define BNX2X_DRIVER_VERSION "1.78.18"
@@ -42,12 +21,33 @@
 #include "ecore_init.h"
 #include "ecore_init_ops.h"
 
+#include "rte_version.h"
 #include "rte_pci_dev_ids.h"
 
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <zlib.h>
+
+#define BNX2X_PMD_VER_PREFIX "BNX2X PMD"
+#define BNX2X_PMD_VERSION_MAJOR 1
+#define BNX2X_PMD_VERSION_MINOR 0
+#define BNX2X_PMD_VERSION_PATCH 0
+
+static inline const char *
+bnx2x_pmd_version(void)
+{
+	static char version[32];
+
+	snprintf(version, sizeof(version), "%s %s_%d.%d.%d",
+			BNX2X_PMD_VER_PREFIX,
+			BNX2X_DRIVER_VERSION,
+			BNX2X_PMD_VERSION_MAJOR,
+			BNX2X_PMD_VERSION_MINOR,
+			BNX2X_PMD_VERSION_PATCH);
+
+	return version;
+}
 
 static z_stream zlib_stream;
 
@@ -2169,32 +2169,40 @@ int bnx2x_tx_encap(struct bnx2x_tx_queue *txq, struct rte_mbuf **m_head, int m_p
 				struct ether_hdr *eh
 				    = rte_pktmbuf_mtod(m0, struct ether_hdr *);
 
-				tx_start_bd->vlan_or_ethertype = eh->ether_type;
+				tx_start_bd->vlan_or_ethertype
+				    = rte_cpu_to_le_16(rte_be_to_cpu_16(eh->ether_type));
 			}
 		}
 
 		bd_prod = NEXT_TX_BD(bd_prod);
 		if (IS_VF(sc)) {
 			struct eth_tx_parse_bd_e2 *tx_parse_bd;
-			uint8_t *data = rte_pktmbuf_mtod(m0, uint8_t *);
+			const struct ether_hdr *eh = rte_pktmbuf_mtod(m0, struct ether_hdr *);
+			uint8_t mac_type = UNICAST_ADDRESS;
 
 			tx_parse_bd =
 			    &txq->tx_ring[TX_BD(bd_prod, txq)].parse_bd_e2;
+			if (is_multicast_ether_addr(&eh->d_addr)) {
+				if (is_broadcast_ether_addr(&eh->d_addr))
+					mac_type = BROADCAST_ADDRESS;
+				else
+					mac_type = MULTICAST_ADDRESS;
+			}
 			tx_parse_bd->parsing_data =
-			    (1 << ETH_TX_PARSE_BD_E2_ETH_ADDR_TYPE_SHIFT);
+			    (mac_type << ETH_TX_PARSE_BD_E2_ETH_ADDR_TYPE_SHIFT);
 
 			rte_memcpy(&tx_parse_bd->data.mac_addr.dst_hi,
-				   &data[0], 2);
+				   &eh->d_addr.addr_bytes[0], 2);
 			rte_memcpy(&tx_parse_bd->data.mac_addr.dst_mid,
-				   &data[2], 2);
+				   &eh->d_addr.addr_bytes[2], 2);
 			rte_memcpy(&tx_parse_bd->data.mac_addr.dst_lo,
-				   &data[4], 2);
+				   &eh->d_addr.addr_bytes[4], 2);
 			rte_memcpy(&tx_parse_bd->data.mac_addr.src_hi,
-				   &data[6], 2);
+				   &eh->s_addr.addr_bytes[0], 2);
 			rte_memcpy(&tx_parse_bd->data.mac_addr.src_mid,
-				   &data[8], 2);
+				   &eh->s_addr.addr_bytes[2], 2);
 			rte_memcpy(&tx_parse_bd->data.mac_addr.src_lo,
-				   &data[10], 2);
+				   &eh->s_addr.addr_bytes[4], 2);
 
 			tx_parse_bd->data.mac_addr.dst_hi =
 			    rte_cpu_to_be_16(tx_parse_bd->data.mac_addr.dst_hi);
@@ -4335,7 +4343,7 @@ static void bnx2x_eq_int(struct bnx2x_softc *sc)
 /* handle eq element */
 		switch (opcode) {
 		case EVENT_RING_OPCODE_STAT_QUERY:
-			PMD_DRV_LOG(DEBUG, "got statistics completion event %d",
+			PMD_DEBUG_PERIODIC_LOG(DEBUG, "got statistics completion event %d",
 				    sc->stats_comp++);
 			/* nothing to do with stats comp */
 			goto next_spqe;
@@ -4486,7 +4494,7 @@ static int bnx2x_handle_sp_tq(struct bnx2x_softc *sc)
 	/* SP events: STAT_QUERY and others */
 	if (status & BNX2X_DEF_SB_IDX) {
 /* handle EQ completions */
-		PMD_DRV_LOG(DEBUG, "---> EQ INTR <---");
+		PMD_DEBUG_PERIODIC_LOG(DEBUG, "---> EQ INTR <---");
 		bnx2x_eq_int(sc);
 		bnx2x_ack_sb(sc, sc->igu_dsb_id, USTORM_ID,
 			   le16toh(sc->def_idx), IGU_INT_NOP, 1);
@@ -4559,7 +4567,7 @@ int bnx2x_intr_legacy(struct bnx2x_softc *sc, int scan_fp)
 		return 0;
 	}
 
-	PMD_DRV_LOG(DEBUG, "Interrupt status 0x%04x", status);
+	PMD_DEBUG_PERIODIC_LOG(DEBUG, "Interrupt status 0x%04x", status);
 	//bnx2x_dump_status_block(sc);
 
 	FOR_EACH_ETH_QUEUE(sc, i) {
@@ -4997,11 +5005,17 @@ static void bnx2x_init_rx_rings(struct bnx2x_softc *sc)
 			return;
 		}
 
-/*
- * Activate the BD ring...
- * Warning, this will generate an interrupt (to the TSTORM)
- * so this can only be done after the chip is initialized
- */
+		rxq->rx_bd_head = 0;
+		rxq->rx_bd_tail = rxq->nb_rx_desc;
+		rxq->rx_cq_head = 0;
+		rxq->rx_cq_tail = TOTAL_RCQ_ENTRIES(rxq);
+		*fp->rx_cq_cons_sb = 0;
+
+		/*
+		 * Activate the BD ring...
+		 * Warning, this will generate an interrupt (to the TSTORM)
+		 * so this can only be done after the chip is initialized
+		 */
 		bnx2x_update_rx_prod(sc, fp, rxq->rx_bd_tail, rxq->rx_cq_tail);
 
 		if (i != 0) {
@@ -7422,7 +7436,7 @@ int bnx2x_init(struct bnx2x_softc *sc)
 	int rc;
 
 	/* Check if the driver is still running and bail out if it is. */
-	if (sc->link_vars.link_up) {
+	if (sc->state != BNX2X_STATE_CLOSED) {
 		PMD_DRV_LOG(DEBUG, "Init called while driver is running!");
 		rc = 0;
 		goto bnx2x_init_done;
@@ -9526,13 +9540,22 @@ static int bnx2x_pci_get_caps(struct bnx2x_softc *sc)
 		return -ENOMEM;
 	}
 
+#ifndef __FreeBSD__
 	pci_read(sc, PCI_STATUS, &status, 2);
 	if (!(status & PCI_STATUS_CAP_LIST)) {
+#else
+	pci_read(sc, PCIR_STATUS, &status, 2);
+	if (!(status & PCIM_STATUS_CAPPRESENT)) {
+#endif
 		PMD_DRV_LOG(NOTICE, "PCIe capability reading failed");
 		return -1;
 	}
 
+#ifndef __FreeBSD__
 	pci_read(sc, PCI_CAPABILITY_LIST, &pci_cap.next, 1);
+#else
+	pci_read(sc, PCIR_CAP_PTR, &pci_cap.next, 1);
+#endif
 	while (pci_cap.next) {
 		cap->addr = pci_cap.next & ~3;
 		pci_read(sc, pci_cap.next & ~3, &pci_cap, 2);
@@ -11738,87 +11761,95 @@ void bnx2x_print_adapter_info(struct bnx2x_softc *sc)
 
 	PMD_INIT_LOG(DEBUG, "\n\n===================================\n");
 	/* Hardware chip info. */
-	PMD_INIT_LOG(DEBUG, "%10s : %#08x\n", "ASIC", sc->devinfo.chip_id);
-	PMD_INIT_LOG(DEBUG, "%10s : %c%d\n", "Rev", (CHIP_REV(sc) >> 12) + 'A',
+	PMD_INIT_LOG(DEBUG, "%12s : %#08x", "ASIC", sc->devinfo.chip_id);
+	PMD_INIT_LOG(DEBUG, "%12s : %c%d", "Rev", (CHIP_REV(sc) >> 12) + 'A',
 		     (CHIP_METAL(sc) >> 4));
 
 	/* Bus info. */
-	PMD_INIT_LOG(DEBUG, "%10s : %d, ", "Bus PCIe", sc->devinfo.pcie_link_width);
+	PMD_INIT_LOG(DEBUG, "%12s : %d, ", "Bus PCIe", sc->devinfo.pcie_link_width);
 	switch (sc->devinfo.pcie_link_speed) {
 	case 1:
-		PMD_INIT_LOG(DEBUG, "2.5 Gbps\n");
+		PMD_INIT_LOG(DEBUG, "%23s", "2.5 Gbps");
 		break;
 	case 2:
-		PMD_INIT_LOG(DEBUG, "5 Gbps\n");
+		PMD_INIT_LOG(DEBUG, "%21s", "5 Gbps");
 		break;
 	case 4:
-		PMD_INIT_LOG(DEBUG, "8 Gbps\n");
+		PMD_INIT_LOG(DEBUG, "%21s", "8 Gbps");
 		break;
 	default:
-		PMD_INIT_LOG(DEBUG, "Unknown link speed\n");
+		PMD_INIT_LOG(DEBUG, "%33s", "Unknown link speed");
 	}
 
 	/* Device features. */
-	PMD_INIT_LOG(DEBUG, "%10s : ", "Flags");
+	PMD_INIT_LOG(DEBUG, "%12s : ", "Flags");
 
 	/* Miscellaneous flags. */
 	if (sc->devinfo.pcie_cap_flags & BNX2X_MSI_CAPABLE_FLAG) {
-		PMD_INIT_LOG(DEBUG, "MSI");
+		PMD_INIT_LOG(DEBUG, "%18s", "MSI");
 		i++;
 	}
 
 	if (sc->devinfo.pcie_cap_flags & BNX2X_MSIX_CAPABLE_FLAG) {
 		if (i > 0)
 			PMD_INIT_LOG(DEBUG, "|");
-		PMD_INIT_LOG(DEBUG, "MSI-X");
+		PMD_INIT_LOG(DEBUG, "%20s", "MSI-X");
 		i++;
 	}
 
-	PMD_INIT_LOG(DEBUG, "\n");
-
 	if (IS_PF(sc)) {
-		PMD_INIT_LOG(DEBUG, "\n%10s : ", "Queues");
+		PMD_INIT_LOG(DEBUG, "%12s : ", "Queues");
 		switch (sc->sp->rss_rdata.rss_mode) {
 		case ETH_RSS_MODE_DISABLED:
-			PMD_INIT_LOG(DEBUG, "None\n");
+			PMD_INIT_LOG(DEBUG, "%19s", "None");
 			break;
 		case ETH_RSS_MODE_REGULAR:
-			PMD_INIT_LOG(DEBUG, "RSS : %d\n", sc->num_queues);
+			PMD_INIT_LOG(DEBUG, "%18s : %d", "RSS", sc->num_queues);
 			break;
 		default:
-			PMD_INIT_LOG(DEBUG, "Unknown\n");
+			PMD_INIT_LOG(DEBUG, "%22s", "Unknown");
 			break;
 		}
 	}
 
+	/* RTE and Driver versions */
+	PMD_INIT_LOG(DEBUG, "%12s : %s", "DPDK",
+		     rte_version());
+	PMD_INIT_LOG(DEBUG, "%12s : %s", "Driver",
+		     bnx2x_pmd_version());
+
 	/* Firmware versions and device features. */
-	PMD_INIT_LOG(DEBUG, "%10s : %d.%d.%d\n%10s : %s\n",
+	PMD_INIT_LOG(DEBUG, "%12s : %d.%d.%d",
 		     "Firmware",
 		     BNX2X_5710_FW_MAJOR_VERSION,
 		     BNX2X_5710_FW_MINOR_VERSION,
-		     BNX2X_5710_FW_REVISION_VERSION,
+		     BNX2X_5710_FW_REVISION_VERSION);
+	PMD_INIT_LOG(DEBUG, "%12s : %s",
 		     "Bootcode", sc->devinfo.bc_ver_str);
 
-	PMD_INIT_LOG(DEBUG, "===================================\n");
-	PMD_INIT_LOG(DEBUG, "%10s : %u\n", "Bnx2x Func", sc->pcie_func);
-	PMD_INIT_LOG(DEBUG, "%10s : %s\n", "Bnx2x Flags", get_bnx2x_flags(sc->flags));
-	PMD_INIT_LOG(DEBUG, "%10s : %s\n", "DMAE Is",
+	PMD_INIT_LOG(DEBUG, "\n\n===================================\n");
+	PMD_INIT_LOG(DEBUG, "%12s : %u", "Bnx2x Func", sc->pcie_func);
+	PMD_INIT_LOG(DEBUG, "%12s : %s", "Bnx2x Flags", get_bnx2x_flags(sc->flags));
+	PMD_INIT_LOG(DEBUG, "%12s : %s", "DMAE Is",
 		     (sc->dmae_ready ? "Ready" : "Not Ready"));
-	PMD_INIT_LOG(DEBUG, "%10s : %s\n", "OVLAN", (OVLAN(sc) ? "YES" : "NO"));
-	PMD_INIT_LOG(DEBUG, "%10s : %s\n", "MF", (IS_MF(sc) ? "YES" : "NO"));
-	PMD_INIT_LOG(DEBUG, "%10s : %u\n", "MTU", sc->mtu);
-	PMD_INIT_LOG(DEBUG, "%10s : %s\n", "PHY Type", get_ext_phy_type(ext_phy_type));
-	PMD_INIT_LOG(DEBUG, "%10s : ", "MAC Addr");
-	for (i = 0; i < 6; i++)
-		PMD_INIT_LOG(DEBUG, "%x%s", sc->link_params.mac_addr[i],
-			     i < 5 ? ":" : "\n");
-	PMD_INIT_LOG(DEBUG, "%10s : %s\n", "RX Mode", get_rx_mode(sc->rx_mode));
-	PMD_INIT_LOG(DEBUG, "%10s : %s\n", "State", get_state(sc->state));
+	PMD_INIT_LOG(DEBUG, "%12s : %s", "OVLAN", (OVLAN(sc) ? "YES" : "NO"));
+	PMD_INIT_LOG(DEBUG, "%12s : %s", "MF", (IS_MF(sc) ? "YES" : "NO"));
+	PMD_INIT_LOG(DEBUG, "%12s : %u", "MTU", sc->mtu);
+	PMD_INIT_LOG(DEBUG, "%12s : %s", "PHY Type", get_ext_phy_type(ext_phy_type));
+	PMD_INIT_LOG(DEBUG, "%12s : %x:%x:%x:%x:%x:%x", "MAC Addr",
+			sc->link_params.mac_addr[0],
+			sc->link_params.mac_addr[1],
+			sc->link_params.mac_addr[2],
+			sc->link_params.mac_addr[3],
+			sc->link_params.mac_addr[4],
+			sc->link_params.mac_addr[5]);
+	PMD_INIT_LOG(DEBUG, "%12s : %s", "RX Mode", get_rx_mode(sc->rx_mode));
+	PMD_INIT_LOG(DEBUG, "%12s : %s", "State", get_state(sc->state));
 	if (sc->recovery_state)
-		PMD_INIT_LOG(DEBUG, "%10s : %s\n", "Recovery",
+		PMD_INIT_LOG(DEBUG, "%12s : %s", "Recovery",
 			     get_recovery_state(sc->recovery_state));
-	PMD_INIT_LOG(DEBUG, "%10s : CQ = %lx,  EQ = %lx\n", "SPQ Left",
+	PMD_INIT_LOG(DEBUG, "%12s : CQ = %lx,  EQ = %lx", "SPQ Left",
 		     sc->cq_spq_left, sc->eq_spq_left);
-	PMD_INIT_LOG(DEBUG, "%10s : %x\n", "Switch", sc->link_params.switch_cfg);
-	PMD_INIT_LOG(DEBUG, "===================================\n\n");
+	PMD_INIT_LOG(DEBUG, "%12s : %x", "Switch", sc->link_params.switch_cfg);
+	PMD_INIT_LOG(DEBUG, "\n\n===================================\n");
 }

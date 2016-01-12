@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-Copyright (c) 2001-2014, Intel Corporation
+Copyright (c) 2001-2015, Intel Corporation
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -925,7 +925,7 @@ s32 e1000_write_xmdio_reg(struct e1000_hw *hw, u16 addr, u8 dev_addr, u16 data)
 STATIC s32 e1000_pll_workaround_i210(struct e1000_hw *hw)
 {
 	s32 ret_val;
-	u32 wuc, mdicnfg, ctrl_ext, reg_val;
+	u32 wuc, mdicnfg, ctrl, ctrl_ext, reg_val;
 	u16 nvm_word, phy_word, pci_word, tmp_nvm;
 	int i;
 
@@ -942,9 +942,9 @@ STATIC s32 e1000_pll_workaround_i210(struct e1000_hw *hw)
 		nvm_word = E1000_INVM_DEFAULT_AL;
 	tmp_nvm = nvm_word | E1000_INVM_PLL_WO_VAL;
 	for (i = 0; i < E1000_MAX_PLL_TRIES; i++) {
-		/* check current state */
-		hw->phy.ops.read_reg(hw, (E1000_PHY_PLL_FREQ_PAGE |
-				     E1000_PHY_PLL_FREQ_REG), &phy_word);
+		/* check current state directly from internal PHY */
+		e1000_read_phy_reg_gs40g(hw, (E1000_PHY_PLL_FREQ_PAGE |
+					 E1000_PHY_PLL_FREQ_REG), &phy_word);
 		if ((phy_word & E1000_PHY_PLL_UNCONF)
 		    != E1000_PHY_PLL_UNCONF) {
 			ret_val = E1000_SUCCESS;
@@ -952,14 +952,17 @@ STATIC s32 e1000_pll_workaround_i210(struct e1000_hw *hw)
 		} else {
 			ret_val = -E1000_ERR_PHY;
 		}
-		hw->phy.ops.reset(hw);
+		/* directly reset the internal PHY */
+		ctrl = E1000_READ_REG(hw, E1000_CTRL);
+		E1000_WRITE_REG(hw, E1000_CTRL, ctrl|E1000_CTRL_PHY_RST);
+
 		ctrl_ext = E1000_READ_REG(hw, E1000_CTRL_EXT);
 		ctrl_ext |= (E1000_CTRL_EXT_PHYPDEN | E1000_CTRL_EXT_SDLPE);
 		E1000_WRITE_REG(hw, E1000_CTRL_EXT, ctrl_ext);
 
 		E1000_WRITE_REG(hw, E1000_WUC, 0);
 		reg_val = (E1000_INVM_AUTOLOAD << 4) | (tmp_nvm << 16);
-		E1000_WRITE_REG(hw, E1000_EEARBC, reg_val);
+		E1000_WRITE_REG(hw, E1000_EEARBC_I210, reg_val);
 
 		e1000_read_pci_cfg(hw, E1000_PCI_PMCSR, &pci_word);
 		pci_word |= E1000_PCI_PMCSR_D3;
@@ -968,7 +971,7 @@ STATIC s32 e1000_pll_workaround_i210(struct e1000_hw *hw)
 		pci_word &= ~E1000_PCI_PMCSR_D3;
 		e1000_write_pci_cfg(hw, E1000_PCI_PMCSR, &pci_word);
 		reg_val = (E1000_INVM_AUTOLOAD << 4) | (nvm_word << 16);
-		E1000_WRITE_REG(hw, E1000_EEARBC, reg_val);
+		E1000_WRITE_REG(hw, E1000_EEARBC_I210, reg_val);
 
 		/* restore WUC register */
 		E1000_WRITE_REG(hw, E1000_WUC, wuc);
@@ -976,6 +979,35 @@ STATIC s32 e1000_pll_workaround_i210(struct e1000_hw *hw)
 	/* restore MDICNFG setting */
 	E1000_WRITE_REG(hw, E1000_MDICNFG, mdicnfg);
 	return ret_val;
+}
+
+/**
+ *  e1000_get_cfg_done_i210 - Read config done bit
+ *  @hw: pointer to the HW structure
+ *
+ *  Read the management control register for the config done bit for
+ *  completion status.  NOTE: silicon which is EEPROM-less will fail trying
+ *  to read the config done bit, so an error is *ONLY* logged and returns
+ *  E1000_SUCCESS.  If we were to return with error, EEPROM-less silicon
+ *  would not be able to be reset or change link.
+ **/
+STATIC s32 e1000_get_cfg_done_i210(struct e1000_hw *hw)
+{
+	s32 timeout = PHY_CFG_TIMEOUT;
+	u32 mask = E1000_NVM_CFG_DONE_PORT_0;
+
+	DEBUGFUNC("e1000_get_cfg_done_i210");
+
+	while (timeout) {
+		if (E1000_READ_REG(hw, E1000_EEMNGCTL_I210) & mask)
+			break;
+		msec_delay(1);
+		timeout--;
+	}
+	if (!timeout)
+		DEBUGOUT("MNG configuration cycle has not completed.\n");
+
+	return E1000_SUCCESS;
 }
 
 /**
@@ -995,6 +1027,7 @@ s32 e1000_init_hw_i210(struct e1000_hw *hw)
 		if (ret_val != E1000_SUCCESS)
 			return ret_val;
 	}
+	hw->phy.ops.get_cfg_done = e1000_get_cfg_done_i210;
 	ret_val = e1000_init_hw_82575(hw);
 	return ret_val;
 }

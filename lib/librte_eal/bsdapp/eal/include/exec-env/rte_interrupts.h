@@ -38,6 +38,11 @@
 #ifndef _RTE_BSDAPP_INTERRUPTS_H_
 #define _RTE_BSDAPP_INTERRUPTS_H_
 
+#define RTE_INTR_VEC_ZERO_OFFSET      0
+#define RTE_INTR_VEC_RXTX_OFFSET      1
+
+#define RTE_MAX_RXTX_INTR_VEC_ID     32
+
 enum rte_intr_handle_type {
 	RTE_INTR_HANDLE_UNKNOWN = 0,
 	RTE_INTR_HANDLE_UIO,      /**< uio device handle */
@@ -50,11 +55,9 @@ struct rte_intr_handle {
 	int fd;                          /**< file descriptor */
 	int uio_cfg_fd;                  /**< UIO config file descriptor */
 	enum rte_intr_handle_type type;  /**< handle type */
-#ifdef RTE_NEXT_ABI
 	int max_intr;                    /**< max interrupt requested */
 	uint32_t nb_efd;                 /**< number of available efds */
 	int *intr_vec;                   /**< intr vector number array */
-#endif
 };
 
 /**
@@ -84,8 +87,9 @@ rte_intr_rx_ctl(struct rte_intr_handle *intr_handle,
  *
  * @param intr_handle
  *   Pointer to the interrupt handle.
- * @param nb_vec
+ * @param nb_efd
  *   Number of interrupt vector trying to enable.
+ *   The value 0 is not allowed.
  * @return
  *   - On success, zero.
  *   - On failure, a negative value.
@@ -119,5 +123,15 @@ int rte_intr_dp_is_en(struct rte_intr_handle *intr_handle);
  *   Pointer to the interrupt handle.
  */
 int rte_intr_allow_others(struct rte_intr_handle *intr_handle);
+
+/**
+ * The multiple interrupt vector capability of interrupt handle instance.
+ * It returns zero if no multiple interrupt vector support.
+ *
+ * @param intr_handle
+ *   Pointer to the interrupt handle.
+ */
+int
+rte_intr_cap_multiple(struct rte_intr_handle *intr_handle);
 
 #endif /* _RTE_BSDAPP_INTERRUPTS_H_ */

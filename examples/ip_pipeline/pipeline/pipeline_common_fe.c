@@ -358,7 +358,7 @@ app_link_config(struct app_params *app,
 		if (link->ip == ip) {
 			APP_LOG(app, HIGH,
 				"%s is already assigned this IP address",
-				p->name);
+				link->name);
 			return -1;
 		}
 	}
@@ -937,47 +937,18 @@ print_link_info(struct app_link_params *p)
 		stats.ipackets,
 		stats.ibytes);
 
-	printf("\tRX mcast %" PRIu64
-		"  fdirmatch %" PRIu64
-		"  fdirmiss %" PRIu64
-		"  lb-packets %" PRIu64
-		"  lb-bytes %" PRIu64
-		"  xon %" PRIu64
-		"  xoff %" PRIu64 "\n",
-		stats.imcasts,
-		stats.fdirmatch,
-		stats.fdirmiss,
-		stats.ilbpackets,
-		stats.ilbbytes,
-		stats.rx_pause_xon,
-		stats.rx_pause_xoff);
-
 	printf("\tRX errors %" PRIu64
 		"  missed %" PRIu64
-		"  badcrc %" PRIu64
-		"  badlen %" PRIu64
 		"  no-mbuf %" PRIu64
 		"\n",
 		stats.ierrors,
 		stats.imissed,
-		stats.ibadcrc,
-		stats.ibadlen,
 		stats.rx_nombuf);
 
 	printf("\tTX packets %" PRIu64
 		"  bytes %" PRIu64 "\n",
 		stats.opackets,
 		stats.obytes);
-
-	printf("\tTX lb-packets %" PRIu64
-		"  lb-bytes %" PRIu64
-		"  xon %" PRIu64
-		"  xoff %" PRIu64
-		"\n",
-		stats.olbpackets,
-		stats.olbbytes,
-		stats.tx_pause_xon,
-		stats.tx_pause_xoff);
 
 	printf("\tTX errors %" PRIu64
 		"\n",
@@ -1321,7 +1292,7 @@ app_pipeline_common_cmd_push(struct app_params *app)
 	/* Push pipeline commands into the application */
 	memcpy(&app->cmds[app->n_cmds],
 		pipeline_common_cmds,
-		n_cmds * sizeof(cmdline_parse_ctx_t *));
+		n_cmds * sizeof(cmdline_parse_ctx_t));
 
 	for (i = 0; i < n_cmds; i++)
 		app->cmds[app->n_cmds + i]->data = app;

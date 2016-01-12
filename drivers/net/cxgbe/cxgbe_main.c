@@ -422,6 +422,13 @@ static int adap_init0_tweaks(struct adapter *adapter)
 	t4_set_reg_field(adapter, A_SGE_CONTROL, V_PKTSHIFT(M_PKTSHIFT),
 			 V_PKTSHIFT(rx_dma_offset));
 
+	t4_set_reg_field(adapter, A_SGE_FLM_CFG,
+			 V_CREDITCNT(M_CREDITCNT) | M_CREDITCNTPACKING,
+			 V_CREDITCNT(3) | V_CREDITCNTPACKING(1));
+
+	t4_set_reg_field(adapter, A_SGE_CONTROL2, V_IDMAARBROUNDROBIN(1U),
+			 V_IDMAARBROUNDROBIN(1U));
+
 	/*
 	 * Don't include the "IP Pseudo Header" in CPL_RX_PKT checksums: Linux
 	 * adds the pseudo header itself.
@@ -848,12 +855,13 @@ int link_start(struct port_info *pi)
 {
 	struct adapter *adapter = pi->adapter;
 	int ret;
+	unsigned int mtu = pi->eth_dev->data->dev_conf.rxmode.max_rx_pkt_len;
 
 	/*
 	 * We do not set address filters and promiscuity here, the stack does
 	 * that step explicitly.
 	 */
-	ret = t4_set_rxmode(adapter, adapter->mbox, pi->viid, 1500, -1, -1,
+	ret = t4_set_rxmode(adapter, adapter->mbox, pi->viid, mtu, -1, -1,
 			    -1, 1, true);
 	if (ret == 0) {
 		ret = t4_change_mac(adapter, adapter->mbox, pi->viid,

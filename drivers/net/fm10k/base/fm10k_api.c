@@ -55,6 +55,12 @@ s32 fm10k_set_mac_type(struct fm10k_hw *hw)
 
 	switch (hw->device_id) {
 	case FM10K_DEV_ID_PF:
+#ifdef BOULDER_RAPIDS_HW
+	case FM10K_DEV_ID_SDI_FM10420_QDA2:
+#endif /* BOULDER_RAPIDS_HW */
+#ifdef ATWOOD_CHANNEL_HW
+	case FM10K_DEV_ID_SDI_FM10420_DA2:
+#endif /* ATWOOD_CHANNEL_HW */
 		hw->mac.type = fm10k_mac_pf;
 		break;
 	case FM10K_DEV_ID_VF:
@@ -338,4 +344,18 @@ s32 fm10k_adjust_systime(struct fm10k_hw *hw, s32 ppb)
 {
 	return fm10k_call_func(hw, hw->mac.ops.adjust_systime,
 			       (hw, ppb), FM10K_NOT_IMPLEMENTED);
+}
+
+/**
+ *  fm10k_notify_offset - Notify switch of change in PTP offset
+ *  @hw: pointer to hardware structure
+ *  @offset: 64bit unsigned offset from hardware SYSTIME value
+ *
+ *  This function is meant to notify switch of change in the PTP offset for
+ *  the hardware SYSTIME registers.
+ **/
+s32 fm10k_notify_offset(struct fm10k_hw *hw, u64 offset)
+{
+	return fm10k_call_func(hw, hw->mac.ops.notify_offset,
+			       (hw, offset), FM10K_NOT_IMPLEMENTED);
 }

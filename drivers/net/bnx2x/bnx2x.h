@@ -1,64 +1,36 @@
 /*-
- * Copyright (c) 2007-2013 QLogic Corporation. All rights reserved.
+ * Copyright (c) 2007-2013 Broadcom Corporation.
  *
  * Eric Davis        <edavis@broadcom.com>
  * David Christensen <davidch@broadcom.com>
  * Gary Zambrano     <zambrano@broadcom.com>
  *
  * Copyright (c) 2013-2015 Brocade Communications Systems, Inc.
+ * Copyright (c) 2015 QLogic Corporation.
  * All rights reserved.
+ * www.qlogic.com
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- * 3. Neither the name of Broadcom Corporation nor the name of its contributors
- *    may be used to endorse or promote products derived from this software
- *    without specific prior written consent.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS'
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS
- * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
- * THE POSSIBILITY OF SUCH DAMAGE.
+ * See LICENSE.bnx2x_pmd for copyright and licensing details.
  */
 
 #ifndef __BNX2X_H__
 #define __BNX2X_H__
 
-#include "bnx2x_ethdev.h"
+#include <rte_byteorder.h>
 
-#if __BYTE_ORDER == __LITTLE_ENDIAN
-#ifndef LITTLE_ENDIAN
-#define LITTLE_ENDIAN
-#endif
+#if RTE_BYTE_ORDER == RTE_LITTLE_ENDIAN
 #ifndef __LITTLE_ENDIAN
-#define __LITTLE_ENDIAN
+#define __LITTLE_ENDIAN RTE_LITTLE_ENDIAN
 #endif
-#undef BIG_ENDIAN
 #undef __BIG_ENDIAN
-#else /* _BIG_ENDIAN */
-#ifndef BIG_ENDIAN
-#define BIG_ENDIAN
-#endif
+#elif RTE_BYTE_ORDER == RTE_BIG_ENDIAN
 #ifndef __BIG_ENDIAN
-#define __BIG_ENDIAN
+#define __BIG_ENDIAN    RTE_BIG_ENDIAN
 #endif
-#undef LITTLE_ENDIAN
 #undef __LITTLE_ENDIAN
 #endif
 
+#include "bnx2x_ethdev.h"
 #include "ecore_mfw_req.h"
 #include "ecore_fw_defs.h"
 #include "ecore_hsi.h"
@@ -68,6 +40,7 @@
 
 #include "elink.h"
 
+#ifndef __FreeBSD__
 #include <linux/pci_regs.h>
 
 #define PCIY_PMG                       PCI_CAP_ID_PM
@@ -89,11 +62,15 @@
 #define PCIM_PSTAT_PMEENABLE           PCI_PM_CTRL_PME_ENABLE
 #define PCIR_MSIX_CTRL                 PCI_MSIX_FLAGS
 #define PCIM_MSIXCTRL_TABLE_SIZE       PCI_MSIX_FLAGS_QSIZE
+#else
+#include <dev/pci/pcireg.h>
+#endif
 
 #define IFM_10G_CX4                    20 /* 10GBase CX4 copper */
 #define IFM_10G_TWINAX                 22 /* 10GBase Twinax copper */
 #define IFM_10G_T                      26 /* 10GBase-T - RJ45 */
 
+#ifndef __FreeBSD__
 #define PCIR_EXPRESS_DEVICE_STA        PCI_EXP_TYPE_RC_EC
 #define PCIM_EXP_STA_TRANSACTION_PND   PCI_EXP_DEVSTA_TRPND
 #define PCIR_EXPRESS_LINK_STA          PCI_EXP_LNKSTA
@@ -102,6 +79,16 @@
 #define PCIR_EXPRESS_DEVICE_CTL        PCI_EXP_DEVCTL
 #define PCIM_EXP_CTL_MAX_PAYLOAD       PCI_EXP_DEVCTL_PAYLOAD
 #define PCIM_EXP_CTL_MAX_READ_REQUEST  PCI_EXP_DEVCTL_READRQ
+#else
+#define PCIR_EXPRESS_DEVICE_STA	PCIER_DEVICE_STA
+#define PCIM_EXP_STA_TRANSACTION_PND   PCIEM_STA_TRANSACTION_PND
+#define PCIR_EXPRESS_LINK_STA          PCIER_LINK_STA
+#define PCIM_LINK_STA_WIDTH            PCIEM_LINK_STA_WIDTH
+#define PCIM_LINK_STA_SPEED            PCIEM_LINK_STA_SPEED
+#define PCIR_EXPRESS_DEVICE_CTL        PCIER_DEVICE_CTL
+#define PCIM_EXP_CTL_MAX_PAYLOAD       PCIEM_CTL_MAX_PAYLOAD
+#define PCIM_EXP_CTL_MAX_READ_REQUEST  PCIEM_CTL_MAX_READ_REQUEST
+#endif
 
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
@@ -169,12 +156,14 @@ struct bnx2x_device_type {
 #endif
 #define MCLBYTES                              (1 << MCLSHIFT)
 
+#if !defined(MJUMPAGESIZE)
 #if BNX2X_PAGE_SIZE < 2048
 #define MJUMPAGESIZE    MCLBYTES
 #elif BNX2X_PAGE_SIZE <= 8192
 #define MJUMPAGESIZE    BNX2X_PAGE_SIZE
 #else
 #define MJUMPAGESIZE    (8 * 1024)
+#endif
 #endif
 #define MJUM9BYTES      (9 * 1024)
 #define MJUM16BYTES     (16 * 1024)
@@ -1445,7 +1434,7 @@ struct bnx2x_func_init_params {
 #define BAR1 2
 #define BAR2 4
 
-#ifdef RTE_LIBRTE_BNX2X_DEBUG
+#ifdef RTE_LIBRTE_BNX2X_DEBUG_PERIODIC
 uint8_t bnx2x_reg_read8(struct bnx2x_softc *sc, size_t offset);
 uint16_t bnx2x_reg_read16(struct bnx2x_softc *sc, size_t offset);
 uint32_t bnx2x_reg_read32(struct bnx2x_softc *sc, size_t offset);
@@ -1455,22 +1444,22 @@ void bnx2x_reg_write16(struct bnx2x_softc *sc, size_t offset, uint16_t val);
 void bnx2x_reg_write32(struct bnx2x_softc *sc, size_t offset, uint32_t val);
 #else
 #define bnx2x_reg_write8(sc, offset, val)\
-	*((volatile uint8_t*)((uint64_t)sc->bar[BAR0].base_addr + offset)) = val
+	*((volatile uint8_t*)((uintptr_t)sc->bar[BAR0].base_addr + offset)) = val
 
 #define bnx2x_reg_write16(sc, offset, val)\
-	*((volatile uint16_t*)((uint64_t)sc->bar[BAR0].base_addr + offset)) = val
+	*((volatile uint16_t*)((uintptr_t)sc->bar[BAR0].base_addr + offset)) = val
 
 #define bnx2x_reg_write32(sc, offset, val)\
-	*((volatile uint32_t*)((uint64_t)sc->bar[BAR0].base_addr + offset)) = val
+	*((volatile uint32_t*)((uintptr_t)sc->bar[BAR0].base_addr + offset)) = val
 
 #define bnx2x_reg_read8(sc, offset)\
-	(*((volatile uint8_t*)((uint64_t)sc->bar[BAR0].base_addr + offset)))
+	(*((volatile uint8_t*)((uintptr_t)sc->bar[BAR0].base_addr + offset)))
 
 #define bnx2x_reg_read16(sc, offset)\
-	(*((volatile uint16_t*)((uint64_t)sc->bar[BAR0].base_addr + offset)))
+	(*((volatile uint16_t*)((uintptr_t)sc->bar[BAR0].base_addr + offset)))
 
 #define bnx2x_reg_read32(sc, offset)\
-	(*((volatile uint32_t*)((uint64_t)sc->bar[BAR0].base_addr + offset)))
+	(*((volatile uint32_t*)((uintptr_t)sc->bar[BAR0].base_addr + offset)))
 #endif
 
 #define REG_ADDR(sc, offset) (((uint64_t)sc->bar[BAR0].base_addr) + (offset))

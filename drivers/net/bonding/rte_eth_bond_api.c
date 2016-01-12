@@ -44,15 +44,17 @@
 
 #define DEFAULT_POLLING_INTERVAL_10_MS (10)
 
+const char pmd_bond_driver_name[] = "rte_bond_pmd";
+
 int
-valid_bonded_ethdev(const struct rte_eth_dev *eth_dev)
+check_for_bonded_ethdev(const struct rte_eth_dev *eth_dev)
 {
 	/* Check valid pointer */
-	if (eth_dev->driver->pci_drv.name == NULL)
+	if (eth_dev->data->drv_name == NULL)
 		return -1;
 
 	/* return 0 if driver name matches */
-	return eth_dev->driver->pci_drv.name != pmd_bond_driver_name;
+	return eth_dev->data->drv_name != pmd_bond_driver_name;
 }
 
 int
@@ -61,7 +63,7 @@ valid_bonded_port_id(uint8_t port_id)
 	if (!rte_eth_dev_is_valid_port(port_id))
 		return -1;
 
-	return valid_bonded_ethdev(&rte_eth_devices[port_id]);
+	return check_for_bonded_ethdev(&rte_eth_devices[port_id]);
 }
 
 int
@@ -72,7 +74,7 @@ valid_slave_port_id(uint8_t port_id)
 		return -1;
 
 	/* Verify that port_id refers to a non bonded port */
-	if (!valid_bonded_ethdev(&rte_eth_devices[port_id]))
+	if (check_for_bonded_ethdev(&rte_eth_devices[port_id]) == 0)
 		return -1;
 
 	return 0;
@@ -163,30 +165,11 @@ number_of_sockets(void)
 	return ++sockets;
 }
 
-const char pmd_bond_driver_name[] = "rte_bond_pmd";
-
-static struct rte_pci_id pci_id_table = {
-	.device_id = PCI_ANY_ID,
-	.subsystem_device_id = PCI_ANY_ID,
-	.vendor_id = PCI_ANY_ID,
-	.subsystem_vendor_id = PCI_ANY_ID,
-};
-
-static struct eth_driver rte_bond_pmd = {
-	.pci_drv = {
-		.name = pmd_bond_driver_name,
-		.drv_flags = RTE_PCI_DRV_INTR_LSC | RTE_PCI_DRV_DETACHABLE,
-		.id_table = &pci_id_table,
-	},
-};
-
 int
 rte_eth_bond_create(const char *name, uint8_t mode, uint8_t socket_id)
 {
-	struct rte_pci_device *pci_dev = NULL;
 	struct bond_dev_private *internals = NULL;
 	struct rte_eth_dev *eth_dev = NULL;
-	struct rte_pci_driver *pci_drv = NULL;
 
 	/* now do all data allocation - for eth_dev structure, dummy pci driver
 	 * and internal (private) data
@@ -203,14 +186,6 @@ rte_eth_bond_create(const char *name, uint8_t mode, uint8_t socket_id)
 		goto err;
 	}
 
-	pci_dev = rte_zmalloc_socket(name, sizeof(*pci_dev), 0, socket_id);
-	if (pci_dev == NULL) {
-		RTE_BOND_LOG(ERR, "Unable to malloc pci dev on socket");
-		goto err;
-	}
-
-	pci_drv = &rte_bond_pmd.pci_drv;
-
 	internals = rte_zmalloc_socket(name, sizeof(*internals), 0, socket_id);
 	if (internals == NULL) {
 		RTE_BOND_LOG(ERR, "Unable to malloc internals on socket");
@@ -224,11 +199,6 @@ rte_eth_bond_create(const char *name, uint8_t mode, uint8_t socket_id)
 		goto err;
 	}
 
-	pci_dev->numa_node = socket_id;
-	pci_drv->name = pmd_bond_driver_name;
-	pci_dev->driver = pci_drv;
-
-	eth_dev->driver = &rte_bond_pmd;
 	eth_dev->data->dev_private = internals;
 	eth_dev->data->nb_rx_queues = (uint16_t)1;
 	eth_dev->data->nb_tx_queues = (uint16_t)1;
@@ -250,7 +220,12 @@ rte_eth_bond_create(const char *name, uint8_t mode, uint8_t socket_id)
 	eth_dev->data->all_multicast = 0;
 
 	eth_dev->dev_ops = &default_dev_ops;
-	eth_dev->pci_dev = pci_dev;
+	eth_dev->data->dev_flags = RTE_ETH_DEV_INTR_LSC |
+		RTE_ETH_DEV_DETACHABLE;
+	eth_dev->driver = NULL;
+	eth_dev->data->kdrv = RTE_KDRV_NONE;
+	eth_dev->data->drv_name = pmd_bond_driver_name;
+	eth_dev->data->numa_node =  socket_id;
 
 	rte_spinlock_init(&internals->lock);
 
@@ -273,6 +248,9 @@ rte_eth_bond_create(const char *name, uint8_t mode, uint8_t socket_id)
 	internals->rx_offload_capa = 0;
 	internals->tx_offload_capa = 0;
 
+	/* Initially allow to choose any offload type */
+	internals->flow_type_rss_offloads = ETH_RSS_PROTO_MASK;
+
 	memset(internals->active_slaves, 0, sizeof(internals->active_slaves));
 	memset(internals->slaves, 0, sizeof(internals->slaves));
 
@@ -287,7 +265,6 @@ rte_eth_bond_create(const char *name, uint8_t mode, uint8_t socket_id)
 	return eth_dev->data->port_id;
 
 err:
-	rte_free(pci_dev);
 	rte_free(internals);
 	if (eth_dev != NULL) {
 		rte_free(eth_dev->data->mac_addrs);
@@ -319,7 +296,6 @@ rte_eth_bond_free(const char *name)
 	eth_dev->rx_pkt_burst = NULL;
 	eth_dev->tx_pkt_burst = NULL;
 
-	rte_free(eth_dev->pci_dev);
 	rte_free(eth_dev->data->dev_private);
 	rte_free(eth_dev->data->mac_addrs);
 
@@ -348,7 +324,7 @@ __eth_bond_slave_add_lock_free(uint8_t bonded_port_id, uint8_t slave_port_id)
 	/* Verify that new slave device is not already a slave of another
 	 * bonded device */
 	for (i = rte_eth_dev_count()-1; i >= 0; i--) {
-		if (valid_bonded_ethdev(&rte_eth_devices[i]) == 0) {
+		if (check_for_bonded_ethdev(&rte_eth_devices[i]) == 0) {
 			temp_internals = rte_eth_devices[i].data->dev_private;
 
 			for (j = 0; j < temp_internals->slave_count; j++) {
@@ -369,6 +345,11 @@ __eth_bond_slave_add_lock_free(uint8_t bonded_port_id, uint8_t slave_port_id)
 
 	rte_eth_dev_info_get(slave_port_id, &dev_info);
 
+	/* We need to store slaves reta_size to be able to synchronize RETA for all
+	 * slave devices even if its sizes are different.
+	 */
+	internals->slaves[internals->slave_count].reta_size = dev_info.reta_size;
+
 	if (internals->slave_count < 1) {
 		/* if MAC is not user defined then use MAC of first slave add to
 		 * bonded device */
@@ -382,9 +363,16 @@ __eth_bond_slave_add_lock_free(uint8_t bonded_port_id, uint8_t slave_port_id)
 		/* Make primary slave */
 		internals->primary_port = slave_port_id;
 
+		/* Inherit queues settings from first slave */
+		internals->nb_rx_queues = slave_eth_dev->data->nb_rx_queues;
+		internals->nb_tx_queues = slave_eth_dev->data->nb_tx_queues;
+
+		internals->reta_size = dev_info.reta_size;
+
 		/* Take the first dev's offload capabilities */
 		internals->rx_offload_capa = dev_info.rx_offload_capa;
 		internals->tx_offload_capa = dev_info.tx_offload_capa;
+		internals->flow_type_rss_offloads = dev_info.flow_type_rss_offloads;
 
 	} else {
 		/* Check slave link properties are supported if props are set,
@@ -403,7 +391,18 @@ __eth_bond_slave_add_lock_free(uint8_t bonded_port_id, uint8_t slave_port_id)
 		}
 		internals->rx_offload_capa &= dev_info.rx_offload_capa;
 		internals->tx_offload_capa &= dev_info.tx_offload_capa;
+		internals->flow_type_rss_offloads &= dev_info.flow_type_rss_offloads;
+
+		/* RETA size is GCD of all slaves RETA sizes, so, if all sizes will be
+		 * the power of 2, the lower one is GCD
+		 */
+		if (internals->reta_size > dev_info.reta_size)
+			internals->reta_size = dev_info.reta_size;
+
 	}
+
+	bonded_eth_dev->data->dev_conf.rx_adv_conf.rss_conf.rss_hf &=
+			internals->flow_type_rss_offloads;
 
 	internals->slave_count++;
 
@@ -531,6 +530,8 @@ __eth_bond_slave_remove_lock_free(uint8_t bonded_port_id, uint8_t slave_port_id)
 	if (internals->slave_count == 0) {
 		internals->rx_offload_capa = 0;
 		internals->tx_offload_capa = 0;
+		internals->flow_type_rss_offloads = ETH_RSS_PROTO_MASK;
+		internals->reta_size = 0;
 	}
 	return 0;
 }

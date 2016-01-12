@@ -107,6 +107,14 @@ struct app_pktq_swq_params {
 	uint32_t dropless;
 	uint64_t n_retries;
 	uint32_t cpu_socket_id;
+	uint32_t ipv4_frag;
+	uint32_t ipv6_frag;
+	uint32_t ipv4_ras;
+	uint32_t ipv6_ras;
+	uint32_t mtu;
+	uint32_t metadata_size;
+	uint32_t mempool_direct_id;
+	uint32_t mempool_indirect_id;
 };
 
 #ifndef APP_FILE_NAME_SIZE
@@ -219,10 +227,13 @@ struct app_pipeline_params {
 struct app_pipeline_data {
 	void *be;
 	void *fe;
+	struct pipeline_type *ptype;
 	uint64_t timer_period;
+	uint32_t enabled;
 };
 
 struct app_thread_pipeline_data {
+	uint32_t pipeline_id;
 	void *be;
 	pipeline_be_op_run f_run;
 	pipeline_be_op_timer f_timer;
@@ -234,6 +245,10 @@ struct app_thread_pipeline_data {
 #define APP_MAX_THREAD_PIPELINES                 16
 #endif
 
+#ifndef APP_THREAD_TIMER_PERIOD
+#define APP_THREAD_TIMER_PERIOD                  1
+#endif
+
 struct app_thread_data {
 	struct app_thread_pipeline_data regular[APP_MAX_THREAD_PIPELINES];
 	struct app_thread_pipeline_data custom[APP_MAX_THREAD_PIPELINES];
@@ -241,7 +256,13 @@ struct app_thread_data {
 	uint32_t n_regular;
 	uint32_t n_custom;
 
+	uint64_t timer_period;
+	uint64_t thread_req_deadline;
+
 	uint64_t deadline;
+
+	struct rte_ring *msgq_in;
+	struct rte_ring *msgq_out;
 };
 
 struct app_eal_params {
@@ -405,6 +426,10 @@ struct app_params {
 	char app_name[APP_APPNAME_SIZE];
 	const char *config_file;
 	const char *script_file;
+	const char *parser_file;
+	const char *output_file;
+	const char *preproc;
+	const char *preproc_args;
 	uint64_t port_mask;
 	uint32_t log_level;
 
@@ -879,6 +904,8 @@ int app_config_init(struct app_params *app);
 
 int app_config_args(struct app_params *app,
 	int argc, char **argv);
+
+int app_config_preproc(struct app_params *app);
 
 int app_config_parse(struct app_params *app,
 	const char *file_name);

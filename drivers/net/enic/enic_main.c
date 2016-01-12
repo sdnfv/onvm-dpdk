@@ -31,7 +31,6 @@
  * POSSIBILITY OF SUCH DAMAGE.
  *
  */
-#ident "$Id$"
 
 #include <stdio.h>
 
@@ -59,6 +58,7 @@
 #include "vnic_cq.h"
 #include "vnic_intr.h"
 #include "vnic_nic.h"
+#include "enic_vnic_wq.h"
 
 static inline int enic_is_sriov_vf(struct enic *enic)
 {
@@ -152,15 +152,18 @@ unsigned int enic_cleanup_wq(struct enic *enic, struct vnic_wq *wq)
 		-1 /*wq_work_to_do*/, enic_wq_service, NULL);
 }
 
+void enic_post_wq_index(struct vnic_wq *wq)
+{
+	enic_vnic_post_wq_index(wq);
+}
 
-int enic_send_pkt(struct enic *enic, struct vnic_wq *wq,
-	struct rte_mbuf *tx_pkt, unsigned short len,
-	uint8_t sop, uint8_t eop,
-	uint16_t ol_flags, uint16_t vlan_tag)
+void enic_send_pkt(struct enic *enic, struct vnic_wq *wq,
+		   struct rte_mbuf *tx_pkt, unsigned short len,
+		   uint8_t sop, uint8_t eop, uint8_t cq_entry,
+		   uint16_t ol_flags, uint16_t vlan_tag)
 {
 	struct wq_enet_desc *desc = vnic_wq_next_desc(wq);
 	uint16_t mss = 0;
-	uint8_t cq_entry = eop;
 	uint8_t vlan_tag_insert = 0;
 	uint64_t bus_addr = (dma_addr_t)
 	    (tx_pkt->buf_physaddr + RTE_PKTMBUF_HEADROOM);
@@ -191,14 +194,12 @@ int enic_send_pkt(struct enic *enic, struct vnic_wq *wq,
 		vlan_tag,
 		0 /* loopback */);
 
-	vnic_wq_post(wq, (void *)tx_pkt, bus_addr, len,
-		sop, eop,
-		1 /*desc_skip_cnt*/,
-		cq_entry,
-		0 /*compressed send*/,
-		0 /*wrid*/);
-
-	return 0;
+	enic_vnic_post_wq(wq, (void *)tx_pkt, bus_addr, len,
+			  sop,
+			  1 /*desc_skip_cnt*/,
+			  cq_entry,
+			  0 /*compressed send*/,
+			  0 /*wrid*/);
 }
 
 void enic_dev_stats_clear(struct enic *enic)
@@ -423,11 +424,7 @@ static int enic_rq_indicate_buf(struct vnic_rq *rq,
 		rx_pkt->pkt_len = bytes_written;
 
 		if (ipv4) {
-#ifdef RTE_NEXT_ABI
 			rx_pkt->packet_type = RTE_PTYPE_L3_IPV4;
-#else
-			rx_pkt->ol_flags |= PKT_RX_IPV4_HDR;
-#endif
 			if (!csum_not_calc) {
 				if (unlikely(!ipv4_csum_ok))
 					rx_pkt->ol_flags |= PKT_RX_IP_CKSUM_BAD;
@@ -436,11 +433,7 @@ static int enic_rq_indicate_buf(struct vnic_rq *rq,
 					rx_pkt->ol_flags |= PKT_RX_L4_CKSUM_BAD;
 			}
 		} else if (ipv6)
-#ifdef RTE_NEXT_ABI
 			rx_pkt->packet_type = RTE_PTYPE_L3_IPV6;
-#else
-			rx_pkt->ol_flags |= PKT_RX_IPV6_HDR;
-#endif
 	} else {
 		/* Header split */
 		if (sop && !eop) {
@@ -453,11 +446,7 @@ static int enic_rq_indicate_buf(struct vnic_rq *rq,
 				*rx_pkt_bucket = rx_pkt;
 				rx_pkt->pkt_len = bytes_written;
 				if (ipv4) {
-#ifdef RTE_NEXT_ABI
 					rx_pkt->packet_type = RTE_PTYPE_L3_IPV4;
-#else
-					rx_pkt->ol_flags |= PKT_RX_IPV4_HDR;
-#endif
 					if (!csum_not_calc) {
 						if (unlikely(!ipv4_csum_ok))
 							rx_pkt->ol_flags |=
@@ -469,22 +458,14 @@ static int enic_rq_indicate_buf(struct vnic_rq *rq,
 							    PKT_RX_L4_CKSUM_BAD;
 					}
 				} else if (ipv6)
-#ifdef RTE_NEXT_ABI
 					rx_pkt->packet_type = RTE_PTYPE_L3_IPV6;
-#else
-					rx_pkt->ol_flags |= PKT_RX_IPV6_HDR;
-#endif
 			} else {
 				/* Payload */
 				hdr_rx_pkt = *rx_pkt_bucket;
 				hdr_rx_pkt->pkt_len += bytes_written;
 				if (ipv4) {
-#ifdef RTE_NEXT_ABI
 					hdr_rx_pkt->packet_type =
 						RTE_PTYPE_L3_IPV4;
-#else
-					hdr_rx_pkt->ol_flags |= PKT_RX_IPV4_HDR;
-#endif
 					if (!csum_not_calc) {
 						if (unlikely(!ipv4_csum_ok))
 							hdr_rx_pkt->ol_flags |=
@@ -496,13 +477,8 @@ static int enic_rq_indicate_buf(struct vnic_rq *rq,
 							    PKT_RX_L4_CKSUM_BAD;
 					}
 				} else if (ipv6)
-#ifdef RTE_NEXT_ABI
 					hdr_rx_pkt->packet_type =
 						RTE_PTYPE_L3_IPV6;
-#else
-					hdr_rx_pkt->ol_flags |= PKT_RX_IPV6_HDR;
-#endif
-
 			}
 		}
 	}
@@ -564,7 +540,7 @@ enic_alloc_consistent(__rte_unused void *priv, size_t size,
 	*dma_handle = 0;
 
 	rz = rte_memzone_reserve_aligned((const char *)name,
-		size, 0, 0, ENIC_ALIGN);
+					 size, SOCKET_ID_ANY, 0, ENIC_ALIGN);
 	if (!rz) {
 		pr_err("%s : Failed to allocate memory requested for %s",
 			__func__, name);

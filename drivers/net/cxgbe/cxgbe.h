@@ -37,11 +37,14 @@
 #include "common.h"
 #include "t4_regs.h"
 
-#define CXGBE_MIN_RING_DESC_SIZE      1024 /* Min TX/RX descriptor ring size */
+#define CXGBE_MIN_RING_DESC_SIZE      128  /* Min TX/RX descriptor ring size */
 #define CXGBE_MAX_RING_DESC_SIZE      4096 /* Max TX/RX descriptor ring size */
 
 #define CXGBE_DEFAULT_TX_DESC_SIZE    1024 /* Default TX ring size */
 #define CXGBE_DEFAULT_RX_DESC_SIZE    1024 /* Default RX ring size */
+
+#define CXGBE_MIN_RX_BUFSIZE ETHER_MIN_MTU /* min buf size */
+#define CXGBE_MAX_RX_PKTLEN (9000 + ETHER_HDR_LEN + ETHER_CRC_LEN) /* max pkt */
 
 int cxgbe_probe(struct adapter *adapter);
 int cxgbe_up(struct adapter *adap);

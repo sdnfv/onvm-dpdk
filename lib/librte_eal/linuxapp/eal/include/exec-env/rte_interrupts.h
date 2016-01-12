@@ -39,6 +39,8 @@
 #define _RTE_LINUXAPP_INTERRUPTS_H_
 
 #define RTE_MAX_RXTX_INTR_VEC_ID     32
+#define RTE_INTR_VEC_ZERO_OFFSET      0
+#define RTE_INTR_VEC_RXTX_OFFSET      1
 
 enum rte_intr_handle_type {
 	RTE_INTR_HANDLE_UNKNOWN = 0,
@@ -48,6 +50,7 @@ enum rte_intr_handle_type {
 	RTE_INTR_HANDLE_VFIO_MSI,     /**< vfio device handle (MSI) */
 	RTE_INTR_HANDLE_VFIO_MSIX,    /**< vfio device handle (MSIX) */
 	RTE_INTR_HANDLE_ALARM,    /**< alarm handle */
+	RTE_INTR_HANDLE_EXT, /**< external handler */
 	RTE_INTR_HANDLE_MAX
 };
 
@@ -86,14 +89,12 @@ struct rte_intr_handle {
 	};
 	int fd;	 /**< interrupt event file descriptor */
 	enum rte_intr_handle_type type;  /**< handle type */
-#ifdef RTE_NEXT_ABI
 	uint32_t max_intr;             /**< max interrupt requested */
 	uint32_t nb_efd;               /**< number of available efd(event fd) */
 	int efds[RTE_MAX_RXTX_INTR_VEC_ID];  /**< intr vectors/efds mapping */
 	struct rte_epoll_event elist[RTE_MAX_RXTX_INTR_VEC_ID];
 				       /**< intr vector epoll event */
 	int *intr_vec;                 /**< intr vector number array */
-#endif
 };
 
 #define RTE_EPOLL_PER_THREAD        -1  /**< to hint using per thread epfd */
@@ -175,8 +176,9 @@ rte_intr_rx_ctl(struct rte_intr_handle *intr_handle,
  *
  * @param intr_handle
  *   Pointer to the interrupt handle.
- * @param nb_vec
+ * @param nb_efd
  *   Number of interrupt vector trying to enable.
+ *   The value 0 is not allowed.
  * @return
  *   - On success, zero.
  *   - On failure, a negative value.
@@ -212,5 +214,15 @@ rte_intr_dp_is_en(struct rte_intr_handle *intr_handle);
  */
 int
 rte_intr_allow_others(struct rte_intr_handle *intr_handle);
+
+/**
+ * The multiple interrupt vector capability of interrupt handle instance.
+ * It returns zero if no multiple interrupt vector support.
+ *
+ * @param intr_handle
+ *   Pointer to the interrupt handle.
+ */
+int
+rte_intr_cap_multiple(struct rte_intr_handle *intr_handle);
 
 #endif /* _RTE_LINUXAPP_INTERRUPTS_H_ */

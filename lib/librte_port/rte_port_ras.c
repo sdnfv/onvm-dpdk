@@ -144,7 +144,7 @@ rte_port_ring_writer_ras_create(void *params, int socket_id, int is_ipv4)
 	port->tx_burst_sz = conf->tx_burst_sz;
 	port->tx_buf_count = 0;
 
-	port->f_ras = (is_ipv4 == 0) ? process_ipv4 : process_ipv6;
+	port->f_ras = (is_ipv4 == 1) ? process_ipv4 : process_ipv6;
 
 	return port;
 }
@@ -182,7 +182,7 @@ process_ipv4(struct rte_port_ring_writer_ras *p, struct rte_mbuf *pkt)
 	/* Assume there is no ethernet header */
 	struct ipv4_hdr *pkt_hdr = rte_pktmbuf_mtod(pkt, struct ipv4_hdr *);
 
-	/* Get "Do not fragment" flag and fragment offset */
+	/* Get "More fragments" flag and fragment offset */
 	uint16_t frag_field = rte_be_to_cpu_16(pkt_hdr->fragment_offset);
 	uint16_t frag_offset = (uint16_t)(frag_field & IPV4_HDR_OFFSET_MASK);
 	uint16_t frag_flag = (uint16_t)(frag_field & IPV4_HDR_MF_FLAG);
@@ -194,6 +194,8 @@ process_ipv4(struct rte_port_ring_writer_ras *p, struct rte_mbuf *pkt)
 		struct rte_mbuf *mo;
 		struct rte_ip_frag_tbl *tbl = p->frag_tbl;
 		struct rte_ip_frag_death_row *dr = &p->death_row;
+
+		pkt->l3_len = sizeof(*pkt_hdr);
 
 		/* Process this fragment */
 		mo = rte_ipv4_frag_reassemble_packet(tbl, dr, pkt, rte_rdtsc(),
@@ -212,17 +214,20 @@ process_ipv6(struct rte_port_ring_writer_ras *p, struct rte_mbuf *pkt)
 	struct ipv6_hdr *pkt_hdr = rte_pktmbuf_mtod(pkt, struct ipv6_hdr *);
 
 	struct ipv6_extension_fragment *frag_hdr;
+	uint16_t frag_data = 0;
 	frag_hdr = rte_ipv6_frag_get_ipv6_fragment_header(pkt_hdr);
-	uint16_t frag_offset = frag_hdr->frag_offset;
-	uint16_t frag_flag = frag_hdr->more_frags;
+	if (frag_hdr != NULL)
+		frag_data = rte_be_to_cpu_16(frag_hdr->frag_data);
 
 	/* If it is a fragmented packet, then try to reassemble */
-	if ((frag_flag == 0) && (frag_offset == 0))
+	if ((frag_data & RTE_IPV6_FRAG_USED_MASK) == 0)
 		p->tx_buf[p->tx_buf_count++] = pkt;
 	else {
 		struct rte_mbuf *mo;
 		struct rte_ip_frag_tbl *tbl = p->frag_tbl;
 		struct rte_ip_frag_death_row *dr = &p->death_row;
+
+		pkt->l3_len = sizeof(*pkt_hdr) + sizeof(*frag_hdr);
 
 		/* Process this fragment */
 		mo = rte_ipv6_frag_reassemble_packet(tbl, dr, pkt, rte_rdtsc(), pkt_hdr,

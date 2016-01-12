@@ -89,8 +89,8 @@ port_ieee1588_rx_timestamp_check(portid_t pi, uint32_t index)
 		       (unsigned) pi);
 		return;
 	}
-	printf("Port %u RX timestamp value %lu\n",
-	       (unsigned) pi, timestamp.tv_sec);
+	printf("Port %u RX timestamp value %lu s %lu ns\n",
+	       (unsigned) pi, timestamp.tv_sec, timestamp.tv_nsec);
 }
 
 #define MAX_TX_TMST_WAIT_MICROSECS 1000 /**< 1 milli-second */
@@ -112,9 +112,9 @@ port_ieee1588_tx_timestamp_check(portid_t pi)
 		       (unsigned) pi, (unsigned) MAX_TX_TMST_WAIT_MICROSECS);
 		return;
 	}
-	printf("Port %u TX timestamp value %lu validated after "
+	printf("Port %u TX timestamp value %lu s %lu ns validated after "
 	       "%u micro-second%s\n",
-	       (unsigned) pi, timestamp.tv_sec, wait_us,
+	       (unsigned) pi, timestamp.tv_sec, timestamp.tv_nsec, wait_us,
 	       (wait_us == 1) ? "" : "s");
 }
 
@@ -123,6 +123,7 @@ ieee1588_packet_fwd(struct fwd_stream *fs)
 {
 	struct rte_mbuf  *mb;
 	struct ether_hdr *eth_hdr;
+	struct ether_addr addr;
 	struct ptpv2_msg *ptp_hdr;
 	uint16_t eth_type;
 	uint32_t timesync_index;
@@ -204,6 +205,11 @@ ieee1588_packet_fwd(struct fwd_stream *fs)
 	timesync_index = mb->timesync & 0x3;
 	/* Read and check the RX timestamp. */
 	port_ieee1588_rx_timestamp_check(fs->rx_port, timesync_index);
+
+	/* Swap dest and src mac addresses. */
+	ether_addr_copy(&eth_hdr->d_addr, &addr);
+	ether_addr_copy(&eth_hdr->s_addr, &eth_hdr->d_addr);
+	ether_addr_copy(&addr, &eth_hdr->s_addr);
 
 	/* Forward PTP packet with hardware TX timestamp */
 	mb->ol_flags |= PKT_TX_IEEE1588_TMST;

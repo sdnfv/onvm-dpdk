@@ -37,6 +37,7 @@
 #include "base/ixgbe_dcb_82599.h"
 #include "base/ixgbe_dcb_82598.h"
 #include "ixgbe_bypass.h"
+#include <rte_time.h>
 
 /* need update link, bit flag */
 #define IXGBE_FLAG_NEED_LINK_UPDATE (uint32_t)(1 << 0)
@@ -57,6 +58,9 @@
 #define IXGBE_VFTA_SIZE 128
 #define IXGBE_VLAN_TAG_SIZE 4
 #define IXGBE_MAX_RX_QUEUE_NUM	128
+#define IXGBE_VMDQ_DCB_NB_QUEUES     IXGBE_MAX_RX_QUEUE_NUM
+#define IXGBE_DCB_NB_QUEUES          IXGBE_MAX_RX_QUEUE_NUM
+
 #ifndef NBBY
 #define NBBY	8	/* number of bits in a byte */
 #endif
@@ -120,6 +124,9 @@
 #define IXGBE_VF_IRQ_ENABLE_MASK        3          /* vf irq enable mask */
 #define IXGBE_VF_MAXMSIVECTOR           1
 
+#define IXGBE_MISC_VEC_ID               RTE_INTR_VEC_ZERO_OFFSET
+#define IXGBE_RX_VEC_START              RTE_INTR_VEC_RXTX_OFFSET
+
 /*
  * Information about the fdir mode.
  */
@@ -133,6 +140,9 @@ struct ixgbe_hw_fdir_mask {
 	uint16_t src_port_mask;
 	uint16_t dst_port_mask;
 	uint16_t flex_bytes_mask;
+	uint8_t  mac_addr_byte_mask;
+	uint32_t tunnel_id_mask;
+	uint8_t  tunnel_type_mask;
 };
 
 struct ixgbe_hw_fdir_info {
@@ -273,6 +283,9 @@ struct ixgbe_adapter {
 
 	bool rx_bulk_alloc_allowed;
 	bool rx_vec_allowed;
+	struct rte_timecounter      systime_tc;
+	struct rte_timecounter      rx_tstamp_tc;
+	struct rte_timecounter      tx_tstamp_tc;
 };
 
 #define IXGBE_DEV_PRIVATE_TO_HW(adapter)\
@@ -351,6 +364,12 @@ int ixgbe_dev_tx_queue_start(struct rte_eth_dev *dev, uint16_t tx_queue_id);
 
 int ixgbe_dev_tx_queue_stop(struct rte_eth_dev *dev, uint16_t tx_queue_id);
 
+void ixgbe_rxq_info_get(struct rte_eth_dev *dev, uint16_t queue_id,
+	struct rte_eth_rxq_info *qinfo);
+
+void ixgbe_txq_info_get(struct rte_eth_dev *dev, uint16_t queue_id,
+	struct rte_eth_txq_info *qinfo);
+
 int ixgbevf_dev_rx_init(struct rte_eth_dev *dev);
 
 void ixgbevf_dev_tx_init(struct rte_eth_dev *dev);
@@ -376,6 +395,16 @@ int ixgbe_dev_rss_hash_update(struct rte_eth_dev *dev,
 
 int ixgbe_dev_rss_hash_conf_get(struct rte_eth_dev *dev,
 				struct rte_eth_rss_conf *rss_conf);
+
+uint16_t ixgbe_reta_size_get(enum ixgbe_mac_type mac_type);
+
+uint32_t ixgbe_reta_reg_get(enum ixgbe_mac_type mac_type, uint16_t reta_idx);
+
+uint32_t ixgbe_mrqc_reg_get(enum ixgbe_mac_type mac_type);
+
+uint32_t ixgbe_rssrk_reg_get(enum ixgbe_mac_type mac_type, uint8_t i);
+
+bool ixgbe_rss_update_sp(enum ixgbe_mac_type mac_type);
 
 /*
  * Flow director function prototypes

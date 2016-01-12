@@ -199,11 +199,20 @@ static void free_tx_desc(struct sge_txq *q, unsigned int n)
 
 static void reclaim_tx_desc(struct sge_txq *q, unsigned int n)
 {
+	struct tx_sw_desc *d;
 	unsigned int cidx = q->cidx;
 
+	d = &q->sdesc[cidx];
 	while (n--) {
-		if (++cidx == q->size)
+		if (d->mbuf) {                       /* an SGL is present */
+			rte_pktmbuf_free(d->mbuf);
+			d->mbuf = NULL;
+		}
+		++d;
+		if (++cidx == q->size) {
 			cidx = 0;
+			d = q->sdesc;
+		}
 	}
 	q->cidx = cidx;
 }
@@ -236,6 +245,29 @@ static inline bool fl_starving(const struct adapter *adapter,
 	const struct sge *s = &adapter->sge;
 
 	return fl->avail - fl->pend_cred <= s->fl_starve_thres;
+}
+
+static inline unsigned int get_buf_size(struct adapter *adapter,
+					const struct rx_sw_desc *d)
+{
+	unsigned int rx_buf_size_idx = d->dma_addr & RX_BUF_SIZE;
+	unsigned int buf_size = 0;
+
+	switch (rx_buf_size_idx) {
+	case RX_SMALL_MTU_BUF:
+		buf_size = FL_MTU_SMALL_BUFSIZE(adapter);
+		break;
+
+	case RX_LARGE_MTU_BUF:
+		buf_size = FL_MTU_LARGE_BUFSIZE(adapter);
+		break;
+
+	default:
+		BUG_ON(1);
+		/* NOT REACHED */
+	}
+
+	return buf_size;
 }
 
 /**
@@ -286,8 +318,7 @@ static void unmap_rx_buf(struct sge_fl *q)
 
 static inline void ring_fl_db(struct adapter *adap, struct sge_fl *q)
 {
-	/* see if we have exceeded q->size / 4 */
-	if (q->pend_cred >= (q->size / 4)) {
+	if (q->pend_cred >= 64) {
 		u32 val = adap->params.arch.sge_fl_db;
 
 		if (is_t4(adap->params.chip))
@@ -354,6 +385,14 @@ static unsigned int refill_fl_usembufs(struct adapter *adap, struct sge_fl *q,
 	unsigned int buf_size_idx = RX_SMALL_MTU_BUF;
 	struct rte_mbuf *buf_bulk[n];
 	int ret, i;
+	struct rte_pktmbuf_pool_private *mbp_priv;
+	u8 jumbo_en = rxq->rspq.eth_dev->data->dev_conf.rxmode.jumbo_frame;
+
+	/* Use jumbo mtu buffers iff mbuf data room size can fit jumbo data. */
+	mbp_priv = rte_mempool_get_priv(rxq->rspq.mb_pool);
+	if (jumbo_en &&
+	    ((mbp_priv->mbuf_data_room_size - RTE_PKTMBUF_HEADROOM) >= 9000))
+		buf_size_idx = RX_LARGE_MTU_BUF;
 
 	ret = rte_mempool_get_bulk(rxq->rspq.mb_pool, (void *)buf_bulk, n);
 	if (unlikely(ret != 0)) {
@@ -769,20 +808,23 @@ static void tx_timer_cb(void *data)
 	struct adapter *adap = (struct adapter *)data;
 	struct sge_eth_txq *txq = &adap->sge.ethtxq[0];
 	int i;
+	unsigned int coal_idx;
 
 	/* monitor any pending tx */
 	for (i = 0; i < adap->sge.max_ethqsets; i++, txq++) {
-		t4_os_lock(&txq->txq_lock);
-		if (txq->q.coalesce.idx) {
-			if (txq->q.coalesce.idx == txq->q.last_coal_idx &&
-			    txq->q.pidx == txq->q.last_pidx) {
-				ship_tx_pkt_coalesce_wr(adap, txq);
-			} else {
-				txq->q.last_coal_idx = txq->q.coalesce.idx;
-				txq->q.last_pidx = txq->q.pidx;
+		if (t4_os_trylock(&txq->txq_lock)) {
+			coal_idx = txq->q.coalesce.idx;
+			if (coal_idx) {
+				if (coal_idx == txq->q.last_coal_idx &&
+				    txq->q.pidx == txq->q.last_pidx) {
+					ship_tx_pkt_coalesce_wr(adap, txq);
+				} else {
+					txq->q.last_coal_idx = coal_idx;
+					txq->q.last_pidx = txq->q.pidx;
+				}
 			}
+			t4_os_unlock(&txq->txq_lock);
 		}
-		t4_os_unlock(&txq->txq_lock);
 	}
 	rte_eal_alarm_set(50, tx_timer_cb, (void *)adap);
 }
@@ -1039,6 +1081,7 @@ int t4_eth_xmit(struct sge_eth_txq *txq, struct rte_mbuf *mbuf)
 	u32 wr_mid;
 	u64 cntrl, *end;
 	bool v6;
+	u32 max_pkt_len = txq->eth_dev->data->dev_conf.rxmode.max_rx_pkt_len;
 
 	/* Reject xmit if queue is stopped */
 	if (unlikely(txq->flags & EQ_STOPPED))
@@ -1054,7 +1097,10 @@ out_free:
 		return 0;
 	}
 
-	rte_prefetch0(&((&txq->q)->sdesc->mbuf->pool));
+	if ((!(m->ol_flags & PKT_TX_TCP_SEG)) &&
+	    (unlikely(m->pkt_len > max_pkt_len)))
+		goto out_free;
+
 	pi = (struct port_info *)txq->eth_dev->data->dev_private;
 	adap = pi->adapter;
 
@@ -1062,7 +1108,7 @@ out_free:
 	/* align the end of coalesce WR to a 512 byte boundary */
 	txq->q.coalesce.max = (8 - (txq->q.pidx & 7)) * 8;
 
-	if (!(m->ol_flags & PKT_TX_TCP_SEG)) {
+	if (!((m->ol_flags & PKT_TX_TCP_SEG) || (m->pkt_len > ETHER_MAX_LEN))) {
 		if (should_tx_packet_coalesce(txq, mbuf, &cflits, adap)) {
 			if (unlikely(map_mbuf(mbuf, addr) < 0)) {
 				dev_warn(adap, "%s: mapping err for coalesce\n",
@@ -1070,6 +1116,7 @@ out_free:
 				txq->stats.mapping_err++;
 				goto out_free;
 			}
+			rte_prefetch0((volatile void *)addr);
 			return tx_do_packet_coalesce(txq, mbuf, cflits, adap,
 						     pi, addr);
 		} else {
@@ -1108,33 +1155,46 @@ out_free:
 
 	len = 0;
 	len += sizeof(*cpl);
-	lso = (void *)(wr + 1);
-	v6 = (m->ol_flags & PKT_TX_IPV6) != 0;
-	l3hdr_len = m->l3_len;
-	l4hdr_len = m->l4_len;
-	eth_xtra_len = m->l2_len - ETHER_HDR_LEN;
-	len += sizeof(*lso);
-	wr->op_immdlen = htonl(V_FW_WR_OP(FW_ETH_TX_PKT_WR) |
-			       V_FW_WR_IMMDLEN(len));
-	lso->lso_ctrl = htonl(V_LSO_OPCODE(CPL_TX_PKT_LSO) |
-			      F_LSO_FIRST_SLICE | F_LSO_LAST_SLICE |
-			      V_LSO_IPV6(v6) |
-			      V_LSO_ETHHDR_LEN(eth_xtra_len / 4) |
-			      V_LSO_IPHDR_LEN(l3hdr_len / 4) |
-			      V_LSO_TCPHDR_LEN(l4hdr_len / 4));
-	lso->ipid_ofst = htons(0);
-	lso->mss = htons(m->tso_segsz);
-	lso->seqno_offset = htonl(0);
-	if (is_t4(adap->params.chip))
-		lso->len = htonl(m->pkt_len);
-	else
-		lso->len = htonl(V_LSO_T5_XFER_SIZE(m->pkt_len));
-	cpl = (void *)(lso + 1);
-	cntrl = V_TXPKT_CSUM_TYPE(v6 ? TX_CSUM_TCPIP6 : TX_CSUM_TCPIP) |
-				  V_TXPKT_IPHDR_LEN(l3hdr_len) |
-				  V_TXPKT_ETHHDR_LEN(eth_xtra_len);
-	txq->stats.tso++;
-	txq->stats.tx_cso += m->tso_segsz;
+
+	/* Coalescing skipped and we send through normal path */
+	if (!(m->ol_flags & PKT_TX_TCP_SEG)) {
+		wr->op_immdlen = htonl(V_FW_WR_OP(FW_ETH_TX_PKT_WR) |
+				       V_FW_WR_IMMDLEN(len));
+		cpl = (void *)(wr + 1);
+		if (m->ol_flags & PKT_TX_IP_CKSUM) {
+			cntrl = hwcsum(adap->params.chip, m) |
+				F_TXPKT_IPCSUM_DIS;
+			txq->stats.tx_cso++;
+		}
+	} else {
+		lso = (void *)(wr + 1);
+		v6 = (m->ol_flags & PKT_TX_IPV6) != 0;
+		l3hdr_len = m->l3_len;
+		l4hdr_len = m->l4_len;
+		eth_xtra_len = m->l2_len - ETHER_HDR_LEN;
+		len += sizeof(*lso);
+		wr->op_immdlen = htonl(V_FW_WR_OP(FW_ETH_TX_PKT_WR) |
+				       V_FW_WR_IMMDLEN(len));
+		lso->lso_ctrl = htonl(V_LSO_OPCODE(CPL_TX_PKT_LSO) |
+				      F_LSO_FIRST_SLICE | F_LSO_LAST_SLICE |
+				      V_LSO_IPV6(v6) |
+				      V_LSO_ETHHDR_LEN(eth_xtra_len / 4) |
+				      V_LSO_IPHDR_LEN(l3hdr_len / 4) |
+				      V_LSO_TCPHDR_LEN(l4hdr_len / 4));
+		lso->ipid_ofst = htons(0);
+		lso->mss = htons(m->tso_segsz);
+		lso->seqno_offset = htonl(0);
+		if (is_t4(adap->params.chip))
+			lso->len = htonl(m->pkt_len);
+		else
+			lso->len = htonl(V_LSO_T5_XFER_SIZE(m->pkt_len));
+		cpl = (void *)(lso + 1);
+		cntrl = V_TXPKT_CSUM_TYPE(v6 ? TX_CSUM_TCPIP6 : TX_CSUM_TCPIP) |
+			V_TXPKT_IPHDR_LEN(l3hdr_len) |
+			V_TXPKT_ETHHDR_LEN(eth_xtra_len);
+		txq->stats.tso++;
+		txq->stats.tx_cso += m->tso_segsz;
+	}
 
 	if (m->ol_flags & PKT_TX_VLAN_PKT) {
 		txq->stats.vlan_ins++;
@@ -1155,9 +1215,14 @@ out_free:
 		last_desc -= txq->q.size;
 
 	d = &txq->q.sdesc[last_desc];
-	if (d->mbuf) {
-		rte_pktmbuf_free(d->mbuf);
-		d->mbuf = NULL;
+	if (d->coalesce.idx) {
+		int i;
+
+		for (i = 0; i < d->coalesce.idx; i++) {
+			rte_pktmbuf_free(d->coalesce.mbuf[i]);
+			d->coalesce.mbuf[i] = NULL;
+		}
+		d->coalesce.idx = 0;
 	}
 	write_sgl(m, &txq->q, (struct ulptx_sgl *)(cpl + 1), end, 0,
 		  addr);
@@ -1299,22 +1364,14 @@ int t4_ethrx_handler(struct sge_rspq *q, const __be64 *rsp,
 
 	mbuf->port = pkt->iff;
 	if (pkt->l2info & htonl(F_RXF_IP)) {
-#ifdef RTE_NEXT_ABI
 		mbuf->packet_type = RTE_PTYPE_L3_IPV4;
-#else
-		mbuf->ol_flags |= PKT_RX_IPV4_HDR;
-#endif
 		if (unlikely(!csum_ok))
 			mbuf->ol_flags |= PKT_RX_IP_CKSUM_BAD;
 
 		if ((pkt->l2info & htonl(F_RXF_UDP | F_RXF_TCP)) && !csum_ok)
 			mbuf->ol_flags |= PKT_RX_L4_CKSUM_BAD;
 	} else if (pkt->l2info & htonl(F_RXF_IP6)) {
-#ifdef RTE_NEXT_ABI
 		mbuf->packet_type = RTE_PTYPE_L3_IPV6;
-#else
-		mbuf->ol_flags |= PKT_RX_IPV6_HDR;
-#endif
 	}
 
 	mbuf->port = pkt->iff;
@@ -1409,21 +1466,34 @@ static int process_responses(struct sge_rspq *q, int budget,
 			const struct cpl_rx_pkt *cpl =
 						(const void *)&q->cur_desc[1];
 			bool csum_ok = cpl->csum_calc && !cpl->err_vec;
-			struct rte_mbuf *pkt;
-			u32 len = ntohl(rc->pldbuflen_qid);
+			struct rte_mbuf *pkt, *npkt;
+			u32 len, bufsz;
 
+			len = ntohl(rc->pldbuflen_qid);
 			BUG_ON(!(len & F_RSPD_NEWBUF));
 			pkt = rsd->buf;
-			pkt->data_len = G_RSPD_LEN(len);
-			pkt->pkt_len = pkt->data_len;
-			unmap_rx_buf(&rxq->fl);
+			npkt = pkt;
+			len = G_RSPD_LEN(len);
+			pkt->pkt_len = len;
+
+			/* Chain mbufs into len if necessary */
+			while (len) {
+				struct rte_mbuf *new_pkt = rsd->buf;
+
+				bufsz = min(get_buf_size(q->adapter, rsd), len);
+				new_pkt->data_len = bufsz;
+				unmap_rx_buf(&rxq->fl);
+				len -= bufsz;
+				npkt->next = new_pkt;
+				npkt = new_pkt;
+				pkt->nb_segs++;
+				rsd = &rxq->fl.sdesc[rxq->fl.cidx];
+			}
+			npkt->next = NULL;
+			pkt->nb_segs--;
 
 			if (cpl->l2info & htonl(F_RXF_IP)) {
-#ifdef RTE_NEXT_ABI
 				pkt->packet_type = RTE_PTYPE_L3_IPV4;
-#else
-				pkt->ol_flags |= PKT_RX_IPV4_HDR;
-#endif
 				if (unlikely(!csum_ok))
 					pkt->ol_flags |= PKT_RX_IP_CKSUM_BAD;
 
@@ -1431,11 +1501,7 @@ static int process_responses(struct sge_rspq *q, int budget,
 				     htonl(F_RXF_UDP | F_RXF_TCP)) && !csum_ok)
 					pkt->ol_flags |= PKT_RX_L4_CKSUM_BAD;
 			} else if (cpl->l2info & htonl(F_RXF_IP6)) {
-#ifdef RTE_NEXT_ABI
 				pkt->packet_type = RTE_PTYPE_L3_IPV6;
-#else
-				pkt->ol_flags |= PKT_RX_IPV6_HDR;
-#endif
 			}
 
 			if (!rss_hdr->filter_tid && rss_hdr->hash_type) {
@@ -1470,7 +1536,8 @@ static int process_responses(struct sge_rspq *q, int budget,
 			unsigned int params;
 			u32 val;
 
-			__refill_fl(q->adapter, &rxq->fl);
+			if (fl_cap(&rxq->fl) - rxq->fl.avail >= 64)
+				__refill_fl(q->adapter, &rxq->fl);
 			params = V_QINTR_TIMER_IDX(X_TIMERREG_UPDATE_CIDX);
 			q->next_intr_params = params;
 			val = V_CIDXINC(cidx_inc) | V_SEINTARM(params);
@@ -1756,7 +1823,7 @@ int t4_sge_alloc_rxq(struct adapter *adap, struct sge_rspq *iq, bool fwevtq,
 
 refill_fl_err:
 	t4_iq_free(adap, adap->mbox, adap->pf, 0, FW_IQ_TYPE_FL_INT_CAP,
-		   iq->cntxt_id, fl ? fl->cntxt_id : 0xffff, 0xffff);
+		   iq->cntxt_id, fl->cntxt_id, 0xffff);
 fl_nomem:
 	ret = -ENOMEM;
 err:

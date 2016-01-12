@@ -95,7 +95,11 @@ static const char *vhost_message_str[VHOST_USER_MAX] = {
 	[VHOST_USER_GET_VRING_BASE] = "VHOST_USER_GET_VRING_BASE",
 	[VHOST_USER_SET_VRING_KICK] = "VHOST_USER_SET_VRING_KICK",
 	[VHOST_USER_SET_VRING_CALL] = "VHOST_USER_SET_VRING_CALL",
-	[VHOST_USER_SET_VRING_ERR]  = "VHOST_USER_SET_VRING_ERR"
+	[VHOST_USER_SET_VRING_ERR]  = "VHOST_USER_SET_VRING_ERR",
+	[VHOST_USER_GET_PROTOCOL_FEATURES]  = "VHOST_USER_GET_PROTOCOL_FEATURES",
+	[VHOST_USER_SET_PROTOCOL_FEATURES]  = "VHOST_USER_SET_PROTOCOL_FEATURES",
+	[VHOST_USER_GET_QUEUE_NUM]  = "VHOST_USER_GET_QUEUE_NUM",
+	[VHOST_USER_SET_VRING_ENABLE]  = "VHOST_USER_SET_VRING_ENABLE",
 };
 
 /**
@@ -329,32 +333,16 @@ vserver_message_handler(int connfd, void *dat, int *remove)
 
 	ctx.fh = cfd_ctx->fh;
 	ret = read_vhost_message(connfd, &msg);
-	if (ret < 0) {
-		RTE_LOG(ERR, VHOST_CONFIG,
-			"vhost read message failed\n");
-
-		close(connfd);
-		*remove = 1;
-		free(cfd_ctx);
-		user_destroy_device(ctx);
-		ops->destroy_device(ctx);
-
-		return;
-	} else if (ret == 0) {
-		RTE_LOG(INFO, VHOST_CONFIG,
-			"vhost peer closed\n");
-
-		close(connfd);
-		*remove = 1;
-		free(cfd_ctx);
-		user_destroy_device(ctx);
-		ops->destroy_device(ctx);
-
-		return;
-	}
-	if (msg.request > VHOST_USER_MAX) {
-		RTE_LOG(ERR, VHOST_CONFIG,
-			"vhost read incorrect message\n");
+	if (ret <= 0 || msg.request >= VHOST_USER_MAX) {
+		if (ret < 0)
+			RTE_LOG(ERR, VHOST_CONFIG,
+				"vhost read message failed\n");
+		else if (ret == 0)
+			RTE_LOG(INFO, VHOST_CONFIG,
+				"vhost peer closed\n");
+		else
+			RTE_LOG(ERR, VHOST_CONFIG,
+				"vhost read incorrect message\n");
 
 		close(connfd);
 		*remove = 1;
@@ -379,6 +367,15 @@ vserver_message_handler(int connfd, void *dat, int *remove)
 		ops->set_features(ctx, &features);
 		break;
 
+	case VHOST_USER_GET_PROTOCOL_FEATURES:
+		msg.payload.u64 = VHOST_USER_PROTOCOL_FEATURES;
+		msg.size = sizeof(msg.payload.u64);
+		send_vhost_message(connfd, &msg);
+		break;
+	case VHOST_USER_SET_PROTOCOL_FEATURES:
+		user_set_protocol_features(ctx, msg.payload.u64);
+		break;
+
 	case VHOST_USER_SET_OWNER:
 		ops->set_owner(ctx);
 		break;
@@ -392,6 +389,8 @@ vserver_message_handler(int connfd, void *dat, int *remove)
 
 	case VHOST_USER_SET_LOG_BASE:
 		RTE_LOG(INFO, VHOST_CONFIG, "not implemented.\n");
+		break;
+
 	case VHOST_USER_SET_LOG_FD:
 		close(msg.fds[0]);
 		RTE_LOG(INFO, VHOST_CONFIG, "not implemented.\n");
@@ -424,6 +423,16 @@ vserver_message_handler(int connfd, void *dat, int *remove)
 		if (!(msg.payload.u64 & VHOST_USER_VRING_NOFD_MASK))
 			close(msg.fds[0]);
 		RTE_LOG(INFO, VHOST_CONFIG, "not implemented\n");
+		break;
+
+	case VHOST_USER_GET_QUEUE_NUM:
+		msg.payload.u64 = VHOST_MAX_QUEUE_PAIRS;
+		msg.size = sizeof(msg.payload.u64);
+		send_vhost_message(connfd, &msg);
+		break;
+
+	case VHOST_USER_SET_VRING_ENABLE:
+		user_set_vring_enable(ctx, &msg.payload.state);
 		break;
 
 	default:

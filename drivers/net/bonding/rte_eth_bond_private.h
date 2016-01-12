@@ -103,6 +103,8 @@ struct bond_slave_details {
 	uint8_t last_link_status;
 	/**< Port Id of slave eth_dev */
 	struct ether_addr persisted_mac_addr;
+
+	uint16_t reta_size;
 };
 
 
@@ -155,6 +157,16 @@ struct bond_dev_private {
 	uint32_t rx_offload_capa;            /** Rx offload capability */
 	uint32_t tx_offload_capa;            /** Tx offload capability */
 
+	/** Bit mask of RSS offloads, the bit offset also means flow type */
+	uint64_t flow_type_rss_offloads;
+
+	uint16_t reta_size;
+	struct rte_eth_rss_reta_entry64 reta_conf[ETH_RSS_RETA_SIZE_512 /
+			RTE_RETA_GROUP_SIZE];
+
+	uint8_t rss_key[52];				/**< 52-byte hash key buffer. */
+	uint8_t rss_key_len;				/**< hash key length in bytes. */
+
 	struct rte_kvargs *kvlist;
 	uint8_t slave_update_idx;
 };
@@ -162,7 +174,7 @@ struct bond_dev_private {
 extern struct eth_dev_ops default_dev_ops;
 
 int
-valid_bonded_ethdev(const struct rte_eth_dev *eth_dev);
+check_for_bonded_ethdev(const struct rte_eth_dev *eth_dev);
 
 /* Search given slave array to find possition of given id.
  * Return slave pos or slaves_count if not found. */

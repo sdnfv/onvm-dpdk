@@ -36,15 +36,15 @@
 #include <rte_ethdev.h>
 #include <rte_malloc.h>
 #include <rte_memcpy.h>
+#include <rte_memzone.h>
 #include <rte_string_fns.h>
 #include <rte_dev.h>
 #include <rte_kvargs.h>
+#include <rte_errno.h>
 
 #define ETH_RING_NUMA_NODE_ACTION_ARG	"nodeaction"
 #define ETH_RING_ACTION_CREATE		"CREATE"
 #define ETH_RING_ACTION_ATTACH		"ATTACH"
-
-static const char *ring_ethdev_driver_name = "Ring PMD";
 
 static const char *valid_arguments[] = {
 	ETH_RING_NUMA_NODE_ACTION_ARG,
@@ -252,15 +252,6 @@ static const struct eth_dev_ops ops = {
 	.mac_addr_add = eth_mac_addr_add,
 };
 
-static struct eth_driver rte_ring_pmd = {
-	.pci_drv = {
-		.name = "rte_ring_pmd",
-		.drv_flags = RTE_PCI_DRV_DETACHABLE,
-	},
-};
-
-static struct rte_pci_id id_table;
-
 int
 rte_eth_from_rings(const char *name, struct rte_ring *const rx_queues[],
 		const unsigned nb_rx_queues,
@@ -269,17 +260,24 @@ rte_eth_from_rings(const char *name, struct rte_ring *const rx_queues[],
 		const unsigned numa_node)
 {
 	struct rte_eth_dev_data *data = NULL;
-	struct rte_pci_device *pci_dev = NULL;
 	struct pmd_internals *internals = NULL;
 	struct rte_eth_dev *eth_dev = NULL;
 
 	unsigned i;
 
 	/* do some parameter checking */
-	if (rx_queues == NULL && nb_rx_queues > 0)
+	if (rx_queues == NULL && nb_rx_queues > 0) {
+		rte_errno = EINVAL;
 		goto error;
-	if (tx_queues == NULL && nb_tx_queues > 0)
+	}
+	if (tx_queues == NULL && nb_tx_queues > 0) {
+		rte_errno = EINVAL;
 		goto error;
+	}
+	if (nb_rx_queues > RTE_PMD_RING_MAX_RX_RINGS) {
+		rte_errno = EINVAL;
+		goto error;
+	}
 
 	RTE_LOG(INFO, PMD, "Creating rings-backed ethdev on numa socket %u\n",
 			numa_node);
@@ -288,27 +286,42 @@ rte_eth_from_rings(const char *name, struct rte_ring *const rx_queues[],
 	 * and internal (private) data
 	 */
 	data = rte_zmalloc_socket(name, sizeof(*data), 0, numa_node);
-	if (data == NULL)
+	if (data == NULL) {
+		rte_errno = ENOMEM;
 		goto error;
+	}
 
-	pci_dev = rte_zmalloc_socket(name, sizeof(*pci_dev), 0, numa_node);
-	if (pci_dev == NULL)
+	data->rx_queues = rte_zmalloc_socket(name, sizeof(void *) * nb_rx_queues,
+			0, numa_node);
+	if (data->rx_queues == NULL) {
+		rte_errno = ENOMEM;
 		goto error;
+	}
+
+	data->tx_queues = rte_zmalloc_socket(name, sizeof(void *) * nb_tx_queues,
+			0, numa_node);
+	if (data->tx_queues == NULL) {
+		rte_errno = ENOMEM;
+		goto error;
+	}
 
 	internals = rte_zmalloc_socket(name, sizeof(*internals), 0, numa_node);
-	if (internals == NULL)
+	if (internals == NULL) {
+		rte_errno = ENOMEM;
 		goto error;
+	}
 
 	/* reserve an ethdev entry */
 	eth_dev = rte_eth_dev_allocate(name, RTE_ETH_DEV_VIRTUAL);
-	if (eth_dev == NULL)
+	if (eth_dev == NULL) {
+		rte_errno = ENOSPC;
 		goto error;
-
+	}
 
 	/* now put it all together
 	 * - store queue data in internals,
-	 * - store numa_node info in pci_driver
-	 * - point eth_dev_data to internals and pci_driver
+	 * - store numa_node info in eth_dev_data
+	 * - point eth_dev_data to internals
 	 * - and point eth_dev structure to new eth_dev_data structure
 	 */
 	/* NOTE: we'll replace the data element, of originally allocated eth_dev
@@ -318,16 +331,12 @@ rte_eth_from_rings(const char *name, struct rte_ring *const rx_queues[],
 	internals->nb_tx_queues = nb_tx_queues;
 	for (i = 0; i < nb_rx_queues; i++) {
 		internals->rx_ring_queues[i].rng = rx_queues[i];
+		data->rx_queues[i] = &internals->rx_ring_queues[i];
 	}
 	for (i = 0; i < nb_tx_queues; i++) {
 		internals->tx_ring_queues[i].rng = tx_queues[i];
+		data->tx_queues[i] = &internals->tx_ring_queues[i];
 	}
-
-	rte_ring_pmd.pci_drv.name = ring_ethdev_driver_name;
-	rte_ring_pmd.pci_drv.id_table = &id_table;
-
-	pci_dev->numa_node = numa_node;
-	pci_dev->driver = &rte_ring_pmd.pci_drv;
 
 	data->dev_private = internals;
 	data->port_id = eth_dev->data->port_id;
@@ -338,9 +347,13 @@ rte_eth_from_rings(const char *name, struct rte_ring *const rx_queues[],
 	data->mac_addrs = &internals->address;
 
 	eth_dev->data = data;
-	eth_dev->driver = &rte_ring_pmd;
+	eth_dev->driver = NULL;
 	eth_dev->dev_ops = &ops;
-	eth_dev->pci_dev = pci_dev;
+	eth_dev->data->dev_flags = RTE_ETH_DEV_DETACHABLE;
+	eth_dev->data->kdrv = RTE_KDRV_NONE;
+	eth_dev->data->drv_name = drivername;
+	eth_dev->data->numa_node = numa_node;
+
 	TAILQ_INIT(&(eth_dev->link_intr_cbs));
 
 	/* finally assign rx and tx ops */
@@ -350,11 +363,21 @@ rte_eth_from_rings(const char *name, struct rte_ring *const rx_queues[],
 	return data->port_id;
 
 error:
+	if (data) {
+		rte_free(data->rx_queues);
+		rte_free(data->tx_queues);
+	}
 	rte_free(data);
-	rte_free(pci_dev);
 	rte_free(internals);
 
 	return -1;
+}
+
+int
+rte_eth_from_ring(struct rte_ring *r)
+{
+	return rte_eth_from_rings(r->name, &r, 1, &r, 1,
+			r->memzone ? r->memzone->socket_id : SOCKET_ID_ANY);
 }
 
 enum dev_action{
@@ -389,62 +412,6 @@ eth_dev_ring_create(const char *name, const unsigned numa_node,
 		return -1;
 
 	return 0;
-}
-
-
-static int
-eth_dev_ring_pair_create(const char *name, const unsigned numa_node,
-		enum dev_action action)
-{
-	/* rx and tx are so-called from point of view of first port.
-	 * They are inverted from the point of view of second port
-	 */
-	struct rte_ring *rx[RTE_PMD_RING_MAX_RX_RINGS];
-	struct rte_ring *tx[RTE_PMD_RING_MAX_TX_RINGS];
-	unsigned i;
-	char rx_rng_name[RTE_RING_NAMESIZE];
-	char tx_rng_name[RTE_RING_NAMESIZE];
-	unsigned num_rings = RTE_MIN(RTE_PMD_RING_MAX_RX_RINGS,
-			RTE_PMD_RING_MAX_TX_RINGS);
-
-	for (i = 0; i < num_rings; i++) {
-		snprintf(rx_rng_name, sizeof(rx_rng_name), "ETH_RX%u_%s", i, name);
-		rx[i] = (action == DEV_CREATE) ?
-				rte_ring_create(rx_rng_name, 1024, numa_node,
-						RING_F_SP_ENQ|RING_F_SC_DEQ) :
-				rte_ring_lookup(rx_rng_name);
-		if (rx[i] == NULL)
-			return -1;
-		snprintf(tx_rng_name, sizeof(tx_rng_name), "ETH_TX%u_%s", i, name);
-		tx[i] = (action == DEV_CREATE) ?
-				rte_ring_create(tx_rng_name, 1024, numa_node,
-						RING_F_SP_ENQ|RING_F_SC_DEQ):
-				rte_ring_lookup(tx_rng_name);
-		if (tx[i] == NULL)
-			return -1;
-	}
-
-	if (rte_eth_from_rings(rx_rng_name, rx, num_rings, tx, num_rings,
-				numa_node) < 0 ||
-			rte_eth_from_rings(tx_rng_name, tx, num_rings, rx,
-				num_rings, numa_node) < 0)
-		return -1;
-
-	return 0;
-}
-
-int
-rte_eth_ring_pair_create(const char *name, const unsigned numa_node)
-{
-	RTE_LOG(WARNING, PMD, "rte_eth_ring_pair_create is deprecated\n");
-	return eth_dev_ring_pair_create(name, numa_node, DEV_CREATE);
-}
-
-int
-rte_eth_ring_pair_attach(const char *name, const unsigned numa_node)
-{
-	RTE_LOG(WARNING, PMD, "rte_eth_ring_pair_attach is deprecated\n");
-	return eth_dev_ring_pair_create(name, numa_node, DEV_ATTACH);
 }
 
 struct node_action_pair {
@@ -615,9 +582,13 @@ rte_pmd_ring_devuninit(const char *name)
 		return -ENODEV;
 
 	eth_dev_stop(eth_dev);
-	rte_free(eth_dev->data->dev_private);
+
+	if (eth_dev->data) {
+		rte_free(eth_dev->data->rx_queues);
+		rte_free(eth_dev->data->tx_queues);
+		rte_free(eth_dev->data->dev_private);
+	}
 	rte_free(eth_dev->data);
-	rte_free(eth_dev->pci_dev);
 
 	rte_eth_dev_release_port(eth_dev);
 	return 0;

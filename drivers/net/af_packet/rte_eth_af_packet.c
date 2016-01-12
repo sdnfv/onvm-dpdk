@@ -5,7 +5,7 @@
  *
  *   Originally based upon librte_pmd_pcap code:
  *
- *   Copyright(c) 2010-2014 Intel Corporation. All rights reserved.
+ *   Copyright(c) 2010-2015 Intel Corporation. All rights reserved.
  *   Copyright(c) 2014 6WIND S.A.
  *   All rights reserved.
  *
@@ -74,6 +74,7 @@ struct pkt_rx_queue {
 	unsigned int framenum;
 
 	struct rte_mempool *mb_pool;
+	uint8_t in_port;
 
 	volatile unsigned long rx_pkts;
 	volatile unsigned long err_pkts;
@@ -160,6 +161,7 @@ eth_af_packet_rx(void *queue, struct rte_mbuf **bufs, uint16_t nb_pkts)
 		ppd->tp_status = TP_STATUS_KERNEL;
 		if (++framenum >= framecount)
 			framenum = 0;
+		mbuf->port = pkt_q->in_port;
 
 		/* account for the receive frame */
 		bufs[i] = mbuf;
@@ -220,7 +222,8 @@ eth_af_packet_tx(void *queue, struct rte_mbuf **bufs, uint16_t nb_pkts)
 	}
 
 	/* kick-off transmits */
-	sendto(pkt_q->sockfd, NULL, 0, MSG_DONTWAIT, NULL, 0);
+	if (sendto(pkt_q->sockfd, NULL, 0, MSG_DONTWAIT, NULL, 0) == -1)
+		return 0; /* error sending -- no packets transmitted */
 
 	pkt_q->framenum = framenum;
 	pkt_q->tx_pkts += num_tx;
@@ -364,6 +367,7 @@ eth_rx_queue_setup(struct rte_eth_dev *dev,
 	}
 
 	dev->data->rx_queues[rx_queue_id] = pkt_q;
+	pkt_q->in_port = dev->data->port_id;
 
 	return 0;
 }
@@ -431,7 +435,6 @@ rte_pmd_init_internals(const char *name,
                        struct rte_kvargs *kvlist)
 {
 	struct rte_eth_dev_data *data = NULL;
-	struct rte_pci_device *pci_dev = NULL;
 	struct rte_kvargs_pair *pair = NULL;
 	struct ifreq ifr;
 	size_t ifnamelen;
@@ -454,7 +457,7 @@ rte_pmd_init_internals(const char *name,
 		RTE_LOG(ERR, PMD,
 			"%s: no interface specified for AF_PACKET ethdev\n",
 		        name);
-		goto error;
+		goto error_early;
 	}
 
 	RTE_LOG(INFO, PMD,
@@ -467,16 +470,12 @@ rte_pmd_init_internals(const char *name,
 	 */
 	data = rte_zmalloc_socket(name, sizeof(*data), 0, numa_node);
 	if (data == NULL)
-		goto error;
-
-	pci_dev = rte_zmalloc_socket(name, sizeof(*pci_dev), 0, numa_node);
-	if (pci_dev == NULL)
-		goto error;
+		goto error_early;
 
 	*internals = rte_zmalloc_socket(name, sizeof(**internals),
 	                                0, numa_node);
 	if (*internals == NULL)
-		goto error;
+		goto error_early;
 
 	for (q = 0; q < nb_queues; q++) {
 		(*internals)->rx_queue[q].map = MAP_FAILED;
@@ -498,13 +497,13 @@ rte_pmd_init_internals(const char *name,
 		RTE_LOG(ERR, PMD,
 			"%s: I/F name too long (%s)\n",
 			name, pair->value);
-		goto error;
+		goto error_early;
 	}
 	if (ioctl(sockfd, SIOCGIFINDEX, &ifr) == -1) {
 		RTE_LOG(ERR, PMD,
 			"%s: ioctl failed (SIOCGIFINDEX)\n",
 		        name);
-		goto error;
+		goto error_early;
 	}
 	(*internals)->if_index = ifr.ifr_ifindex;
 
@@ -512,7 +511,7 @@ rte_pmd_init_internals(const char *name,
 		RTE_LOG(ERR, PMD,
 			"%s: ioctl failed (SIOCGIFHWADDR)\n",
 		        name);
-		goto error;
+		goto error_early;
 	}
 	memcpy(&(*internals)->eth_addr, ifr.ifr_hwaddr.sa_data, ETH_ALEN);
 
@@ -655,8 +654,8 @@ rte_pmd_init_internals(const char *name,
 	/*
 	 * now put it all together
 	 * - store queue data in internals,
-	 * - store numa_node info in pci_driver
-	 * - point eth_dev_data to internals and pci_driver
+	 * - store numa_node in eth_dev
+	 * - point eth_dev_data to internals
 	 * - and point eth_dev structure to new eth_dev_data structure
 	 */
 
@@ -669,33 +668,32 @@ rte_pmd_init_internals(const char *name,
 	data->dev_link = pmd_link;
 	data->mac_addrs = &(*internals)->eth_addr;
 
-	pci_dev->numa_node = numa_node;
-
 	(*eth_dev)->data = data;
 	(*eth_dev)->dev_ops = &ops;
-	(*eth_dev)->pci_dev = pci_dev;
+	(*eth_dev)->driver = NULL;
+	(*eth_dev)->data->dev_flags = 0;
+	(*eth_dev)->data->drv_name = drivername;
+	(*eth_dev)->data->kdrv = RTE_KDRV_NONE;
+	(*eth_dev)->data->numa_node = numa_node;
 
 	return 0;
 
 error:
-	rte_free(data);
-	rte_free(pci_dev);
-
-	if (*internals) {
-		for (q = 0; q < nb_queues; q++) {
-			munmap((*internals)->rx_queue[q].map,
-			       2 * req->tp_block_size * req->tp_block_nr);
-
-			rte_free((*internals)->rx_queue[q].rd);
-			rte_free((*internals)->tx_queue[q].rd);
-			if (((*internals)->rx_queue[q].sockfd != 0) &&
-				((*internals)->rx_queue[q].sockfd != qsockfd))
-				close((*internals)->rx_queue[q].sockfd);
-		}
-		rte_free(*internals);
-	}
 	if (qsockfd != -1)
 		close(qsockfd);
+	for (q = 0; q < nb_queues; q++) {
+		munmap((*internals)->rx_queue[q].map,
+		       2 * req->tp_block_size * req->tp_block_nr);
+
+		rte_free((*internals)->rx_queue[q].rd);
+		rte_free((*internals)->tx_queue[q].rd);
+		if (((*internals)->rx_queue[q].sockfd != 0) &&
+			((*internals)->rx_queue[q].sockfd != qsockfd))
+			close((*internals)->rx_queue[q].sockfd);
+	}
+	rte_free(*internals);
+error_early:
+	rte_free(data);
 	return -1;
 }
 

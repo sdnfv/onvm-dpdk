@@ -39,6 +39,7 @@ There are many libraries, so their headers may be grouped by topics:
   [dev]                (@ref rte_dev.h),
   [ethdev]             (@ref rte_ethdev.h),
   [ethctrl]            (@ref rte_eth_ctrl.h),
+  [cryptodev]          (@ref rte_cryptodev.h),
   [devargs]            (@ref rte_devargs.h),
   [bond]               (@ref rte_eth_bond.h),
   [vhost]              (@ref rte_virtio_net.h),
@@ -103,6 +104,7 @@ There are many libraries, so their headers may be grouped by topics:
 
 - **containers**:
   [mbuf]               (@ref rte_mbuf.h),
+  [mbuf_offload]       (@ref rte_mbuf_offload.h),
   [ring]               (@ref rte_ring.h),
   [distributor]        (@ref rte_distributor.h),
   [reorder]            (@ref rte_reorder.h),
@@ -146,4 +148,5 @@ There are many libraries, so their headers may be grouped by topics:
   [EAL config]         (@ref rte_eal.h),
   [common]             (@ref rte_common.h),
   [ABI compat]         (@ref rte_compat.h),
+  [keepalive]          (@ref rte_keepalive.h),
   [version]            (@ref rte_version.h)

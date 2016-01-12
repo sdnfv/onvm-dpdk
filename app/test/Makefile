@@ -115,7 +115,7 @@ SRCS-$(CONFIG_RTE_LIBRTE_CMDLINE) += test_cmdline_lib.c
 
 ifeq ($(CONFIG_RTE_LIBRTE_SCHED),y)
 SRCS-y += test_red.c
-SRCS-$(CONFIG_RTE_ARCH_X86_64) += test_sched.c
+SRCS-y += test_sched.c
 endif
 
 SRCS-$(CONFIG_RTE_LIBRTE_METER) += test_meter.c
@@ -140,18 +140,24 @@ SRCS-$(CONFIG_RTE_LIBRTE_PMD_BOND) += test_link_bonding.c
 SRCS-$(CONFIG_RTE_LIBRTE_PMD_BOND) += test_link_bonding_mode4.c
 endif
 
+ifeq ($(CONFIG_RTE_LIBRTE_PMD_NULL),y)
+SRCS-$(CONFIG_RTE_LIBRTE_PMD_BOND) += test_link_bonding_rssconf.c
+ifeq ($(CONFIG_RTE_BUILD_SHARED_LIB),y)
+LDLIBS += -lrte_pmd_null
+endif
+endif
+
 SRCS-$(CONFIG_RTE_LIBRTE_PMD_RING) += test_pmd_ring.c
+SRCS-$(CONFIG_RTE_LIBRTE_PMD_RING) += test_pmd_ring_perf.c
+
+SRCS-$(CONFIG_RTE_LIBRTE_CRYPTODEV) += test_cryptodev_perf.c
+SRCS-$(CONFIG_RTE_LIBRTE_CRYPTODEV) += test_cryptodev.c
+
 SRCS-$(CONFIG_RTE_LIBRTE_KVARGS) += test_kvargs.c
 
 CFLAGS += -O3
 CFLAGS += $(WERROR_FLAGS)
 
-# Disable warnings of deprecated-declarations in test_kni.c
-ifeq ($(CC), icc)
-CFLAGS_test_kni.o += -wd1478
-else
-CFLAGS_test_kni.o += -Wno-deprecated-declarations
-endif
 CFLAGS += -D_GNU_SOURCE
 
 # Disable VTA for memcpy test

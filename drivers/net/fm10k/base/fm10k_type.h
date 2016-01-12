@@ -43,6 +43,12 @@ struct fm10k_hw;
 #define FM10K_INTEL_VENDOR_ID		0x8086
 #define FM10K_DEV_ID_PF			0x15A4
 #define FM10K_DEV_ID_VF			0x15A5
+#ifdef BOULDER_RAPIDS_HW
+#define FM10K_DEV_ID_SDI_FM10420_QDA2	0x15D0
+#endif /* BOULDER_RAPIDS_HW */
+#ifdef ATWOOD_CHANNEL_HW
+#define FM10K_DEV_ID_SDI_FM10420_DA2	0x15D5
+#endif /* ATWOOD_CHANNEL_HW */
 
 #define FM10K_MAX_QUEUES		256
 #define FM10K_MAX_QUEUES_PF		128
@@ -344,6 +350,11 @@ struct fm10k_hw;
 #define FM10K_TDBAL(_n)		((0x40 * (_n)) + 0x8000)
 #define FM10K_TDBAH(_n)		((0x40 * (_n)) + 0x8001)
 #define FM10K_TDLEN(_n)		((0x40 * (_n)) + 0x8002)
+#define FM10K_TDLEN_ITR_SCALE_SHIFT		9
+#define FM10K_TDLEN_ITR_SCALE_MASK		0x00000E00
+#define FM10K_TDLEN_ITR_SCALE_GEN1		4
+#define FM10K_TDLEN_ITR_SCALE_GEN2		2
+#define FM10K_TDLEN_ITR_SCALE_GEN3		1
 #define FM10K_TPH_TXCTRL(_n)	((0x40 * (_n)) + 0x8003)
 #define FM10K_TPH_TXCTRL_DESC_TPHEN		0x00000020
 #define FM10K_TPH_TXCTRL_DESC_RROEN		0x00000200
@@ -481,15 +492,28 @@ struct fm10k_hw;
 #define FM10K_SW_SYSTIME_CFG_ADJUST_MASK	0xFF000000
 #define FM10K_SW_SYSTIME_ADJUST	0x0224D
 #define FM10K_SW_SYSTIME_ADJUST_MASK		0x3FFFFFFF
-#define FM10K_SW_SYSTIME_ADJUST_DIR_NEGATIVE	0x80000000
+#define FM10K_SW_SYSTIME_ADJUST_DIR_POSITIVE	0x80000000
 #define FM10K_SW_SYSTIME_PULSE(_n)	((_n) + 0x02252)
 
 #ifndef ETH_ALEN
 #define ETH_ALEN	6
 #endif /* ETH_ALEN */
 
+#ifndef FM10K_IS_ZERO_ETHER_ADDR
+/* make certain address is not 0 */
+#define FM10K_IS_ZERO_ETHER_ADDR(addr) \
+(!((addr)[0] | (addr)[1] | (addr)[2] | (addr)[3] | (addr)[4] | (addr)[5]))
+#endif
 
+#ifndef FM10K_IS_MULTICAST_ETHER_ADDR
+#define FM10K_IS_MULTICAST_ETHER_ADDR(addr) ((addr)[0] & 0x1)
+#endif
 
+#ifndef FM10K_IS_VALID_ETHER_ADDR
+/* make certain address is not multicast or 0 */
+#define FM10K_IS_VALID_ETHER_ADDR(addr) \
+(!FM10K_IS_MULTICAST_ETHER_ADDR(addr) && !FM10K_IS_ZERO_ETHER_ADDR(addr))
+#endif
 
 enum fm10k_int_source {
 	fm10k_int_Mailbox	= 0,
@@ -657,8 +681,8 @@ struct fm10k_mac_ops {
 	s32 (*get_fault)(struct fm10k_hw *, int, struct fm10k_fault *);
 	void (*request_lport_map)(struct fm10k_hw *);
 	s32 (*adjust_systime)(struct fm10k_hw *, s32 ppb);
+	s32 (*notify_offset)(struct fm10k_hw *, u64 offset);
 	u64 (*read_systime)(struct fm10k_hw *);
-	s32 (*request_tx_timestamp_mode)(struct fm10k_hw *, u16, u8);
 };
 
 enum fm10k_mac_type {
@@ -680,6 +704,7 @@ struct fm10k_mac_info {
 	bool get_host_state;
 	bool tx_ready;
 	u32 dglort_map;
+	u8 itr_scale;
 };
 
 struct fm10k_swapi_table_info {
@@ -757,7 +782,7 @@ struct fm10k_iov_ops {
 	s32 (*set_lport)(struct fm10k_hw *, struct fm10k_vf_info *, u16, u8);
 	void (*reset_lport)(struct fm10k_hw *, struct fm10k_vf_info *);
 	void (*update_stats)(struct fm10k_hw *, struct fm10k_hw_stats_q *, u16);
-	s32 (*report_timestamp)(struct fm10k_hw *, struct fm10k_vf_info *, u64);
+	void (*notify_offset)(struct fm10k_hw *, struct fm10k_vf_info*, u64);
 };
 
 struct fm10k_iov_info {
@@ -782,6 +807,8 @@ struct fm10k_hw {
 	u16 subsystem_device_id;
 	u16 subsystem_vendor_id;
 	u8 revision_id;
+	u32 flags;
+#define FM10K_HW_FLAG_CLOCK_OWNER	(u32)(1 << 0)
 };
 
 /* Number of Transmit and Receive Descriptors must be a multiple of 8 */

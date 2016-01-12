@@ -1,7 +1,7 @@
 /*-
  *   BSD LICENSE
  *
- *   Copyright(c) 2010-2014 Intel Corporation. All rights reserved.
+ *   Copyright(c) 2010-2015 Intel Corporation. All rights reserved.
  *   All rights reserved.
  *
  *   Redistribution and use in source and binary forms, with or without
@@ -149,6 +149,7 @@ enum rte_kernel_driver {
 	RTE_KDRV_VFIO,
 	RTE_KDRV_UIO_GENERIC,
 	RTE_KDRV_NIC_UIO,
+	RTE_KDRV_NONE,
 };
 
 /**
@@ -426,8 +427,6 @@ int rte_eal_pci_probe_one(const struct rte_pci_addr *addr);
  *   - Negative on error.
  */
 int rte_eal_pci_detach(const struct rte_pci_addr *addr);
-int __attribute__ ((deprecated))
-rte_eal_pci_close_one(const struct rte_pci_addr *addr);
 
 /**
  * Dump the content of the PCI bus.

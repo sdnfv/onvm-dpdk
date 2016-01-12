@@ -35,15 +35,19 @@ include $(RTE_SDK)/mk/internal/rte.clean-pre.mk
 include $(RTE_SDK)/mk/internal/rte.build-pre.mk
 include $(RTE_SDK)/mk/internal/rte.depdirs-pre.mk
 
+EXTLIB_BUILD ?= n
+
 # VPATH contains at least SRCDIR
 VPATH += $(SRCDIR)
 
 ifeq ($(CONFIG_RTE_BUILD_SHARED_LIB),y)
 LIB := $(patsubst %.a,%.so.$(LIBABIVER),$(LIB))
+ifeq ($(EXTLIB_BUILD),n)
 ifeq ($(CONFIG_RTE_NEXT_ABI),y)
 LIB := $(LIB).1
 endif
 CPU_LDFLAGS += --version-script=$(SRCDIR)/$(EXPORT_MAP)
+endif
 endif
 
 
@@ -68,6 +72,7 @@ ifeq ($(LINK_USING_CC),1)
 # Override the definition of LD here, since we're linking with CC
 LD := $(CC) $(CPU_CFLAGS)
 _CPU_LDFLAGS := $(call linkerprefix,$(CPU_LDFLAGS))
+override EXTRA_LDFLAGS := $(call linkerprefix,$(EXTRA_LDFLAGS))
 else
 _CPU_LDFLAGS := $(CPU_LDFLAGS)
 endif
@@ -81,7 +86,7 @@ O_TO_A_DO = @set -e; \
 	$(O_TO_A) && \
 	echo $(O_TO_A_CMD) > $(call exe2cmd,$(@))
 
-O_TO_S = $(LD) $(_CPU_LDFLAGS) $(EXTRA_LDFLAGS) $(LDLIBS) -shared $(OBJS-y) \
+O_TO_S = $(LD) $(_CPU_LDFLAGS) $(EXTRA_LDFLAGS) -shared $(OBJS-y) $(LDLIBS) \
 	 -Wl,-soname,$(LIB) -o $(LIB)
 O_TO_S_STR = $(subst ','\'',$(O_TO_S)) #'# fix syntax highlight
 O_TO_S_DISP = $(if $(V),"$(O_TO_S_STR)","  LD $(@)")
@@ -133,7 +138,7 @@ endif
 		$(depfile_newer)),\
 		$(O_TO_S_DO))
 
-ifeq ($(CONFIG_RTE_BUILD_COMBINE_LIBS),y)
+ifeq ($(CONFIG_RTE_BUILD_COMBINE_LIBS)$(EXTLIB_BUILD),yn)
 	$(if $(or \
         $(file_missing),\
         $(call cmdline_changed,$(O_TO_C_STR)),\
@@ -156,7 +161,7 @@ $(LIB): $(OBJS-y) $(DEP_$(LIB)) FORCE
 	    $(depfile_missing),\
 	    $(depfile_newer)),\
 	    $(O_TO_A_DO))
-ifeq ($(CONFIG_RTE_BUILD_COMBINE_LIBS),y)
+ifeq ($(CONFIG_RTE_BUILD_COMBINE_LIBS)$(EXTLIB_BUILD),yn)
 	$(if $(or \
         $(file_missing),\
         $(call cmdline_changed,$(O_TO_C_STR)),\
@@ -174,7 +179,7 @@ $(RTE_OUTPUT)/lib/$(LIB): $(LIB)
 	@[ -d $(RTE_OUTPUT)/lib ] || mkdir -p $(RTE_OUTPUT)/lib
 	$(Q)cp -f $(LIB) $(RTE_OUTPUT)/lib
 ifeq ($(CONFIG_RTE_BUILD_SHARED_LIB),y)
-ifeq ($(CONFIG_RTE_NEXT_ABI),y)
+ifeq ($(CONFIG_RTE_NEXT_ABI)$(EXTLIB_BUILD),yn)
 	$(Q)ln -s -f $< $(basename $(basename $@))
 else
 	$(Q)ln -s -f $< $(basename $@)

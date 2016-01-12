@@ -43,7 +43,6 @@
 #include <getopt.h>
 #include <sys/file.h>
 #include <fcntl.h>
-#include <dlfcn.h>
 #include <stddef.h>
 #include <errno.h>
 #include <limits.h>
@@ -89,20 +88,6 @@
 
 /* Allow the application to print its usage message too if set */
 static rte_usage_hook_t	rte_application_usage_hook = NULL;
-
-TAILQ_HEAD(shared_driver_list, shared_driver);
-
-/* Definition for shared object drivers. */
-struct shared_driver {
-	TAILQ_ENTRY(shared_driver) next;
-
-	char    name[PATH_MAX];
-	void*   lib_handle;
-};
-
-/* List of external loadable drivers */
-static struct shared_driver_list solib_list =
-TAILQ_HEAD_INITIALIZER(solib_list);
 
 /* early configuration structure, when memory config is not mmapped */
 static struct rte_mem_config early_mem_config;
@@ -350,7 +335,6 @@ eal_usage(const char *prgname)
 	printf("\nUsage: %s ", prgname);
 	eal_common_usage();
 	printf("EAL Linux options:\n"
-	       "  -d LIB.so           Add driver (can be used multiple times)\n"
 	       "  --"OPT_SOCKET_MEM"        Memory to allocate on sockets (comma separated values)\n"
 	       "  --"OPT_HUGE_DIR"          Directory where hugetlbfs is mounted\n"
 	       "  --"OPT_FILE_PREFIX"       Prefix for hugepage filenames\n"
@@ -505,8 +489,12 @@ eal_log_level_parse(int argc, char **argv)
 	int opt;
 	char **argvopt;
 	int option_index;
+	const int old_optind = optind;
+	const int old_optopt = optopt;
+	char * const old_optarg = optarg;
 
 	argvopt = argv;
+	optind = 1;
 
 	eal_reset_internal_config(&internal_config);
 
@@ -527,7 +515,10 @@ eal_log_level_parse(int argc, char **argv)
 			break;
 	}
 
-	optind = 0; /* reset getopt lib */
+	/* restore getopt lib */
+	optind = old_optind;
+	optopt = old_optopt;
+	optarg = old_optarg;
 }
 
 /* Parse the argument given in the command line of the application */
@@ -538,26 +529,29 @@ eal_parse_args(int argc, char **argv)
 	char **argvopt;
 	int option_index;
 	char *prgname = argv[0];
-	struct shared_driver *solib;
+	const int old_optind = optind;
+	const int old_optopt = optopt;
+	char * const old_optarg = optarg;
 
 	argvopt = argv;
+	optind = 1;
 
 	while ((opt = getopt_long(argc, argvopt, eal_short_options,
 				  eal_long_options, &option_index)) != EOF) {
 
-		int ret;
-
 		/* getopt is not happy, stop right now */
 		if (opt == '?') {
 			eal_usage(prgname);
-			return -1;
+			ret = -1;
+			goto out;
 		}
 
 		ret = eal_parse_common_option(opt, optarg, &internal_config);
 		/* common parser is not happy */
 		if (ret < 0) {
 			eal_usage(prgname);
-			return -1;
+			ret = -1;
+			goto out;
 		}
 		/* common parser handled this option */
 		if (ret == 0)
@@ -568,19 +562,6 @@ eal_parse_args(int argc, char **argv)
 			eal_usage(prgname);
 			exit(EXIT_SUCCESS);
 
-		/* force loading of external driver */
-		case 'd':
-			solib = malloc(sizeof(*solib));
-			if (solib == NULL) {
-				RTE_LOG(ERR, EAL, "malloc(solib) failed\n");
-				return -1;
-			}
-			memset(solib, 0, sizeof(*solib));
-			strncpy(solib->name, optarg, PATH_MAX-1);
-			solib->name[PATH_MAX-1] = 0;
-			TAILQ_INSERT_TAIL(&solib_list, solib, next);
-			break;
-
 		/* long options */
 		case OPT_XEN_DOM0_NUM:
 #ifdef RTE_LIBRTE_XEN_DOM0
@@ -589,7 +570,8 @@ eal_parse_args(int argc, char **argv)
 			RTE_LOG(ERR, EAL, "Can't support DPDK app "
 				"running on Dom0, please configure"
 				" RTE_LIBRTE_XEN_DOM0=y\n");
-			return -1;
+			ret = -1;
+			goto out;
 #endif
 			break;
 
@@ -606,7 +588,8 @@ eal_parse_args(int argc, char **argv)
 				RTE_LOG(ERR, EAL, "invalid parameters for --"
 						OPT_SOCKET_MEM "\n");
 				eal_usage(prgname);
-				return -1;
+				ret = -1;
+				goto out;
 			}
 			break;
 
@@ -615,7 +598,8 @@ eal_parse_args(int argc, char **argv)
 				RTE_LOG(ERR, EAL, "invalid parameter for --"
 						OPT_BASE_VIRTADDR "\n");
 				eal_usage(prgname);
-				return -1;
+				ret = -1;
+				goto out;
 			}
 			break;
 
@@ -624,7 +608,8 @@ eal_parse_args(int argc, char **argv)
 				RTE_LOG(ERR, EAL, "invalid parameters for --"
 						OPT_VFIO_INTR "\n");
 				eal_usage(prgname);
-				return -1;
+				ret = -1;
+				goto out;
 			}
 			break;
 
@@ -646,17 +631,21 @@ eal_parse_args(int argc, char **argv)
 					"on Linux\n", opt);
 			}
 			eal_usage(prgname);
-			return -1;
+			ret = -1;
+			goto out;
 		}
 	}
 
-	if (eal_adjust_config(&internal_config) != 0)
-		return -1;
+	if (eal_adjust_config(&internal_config) != 0) {
+		ret = -1;
+		goto out;
+	}
 
 	/* sanity checks */
 	if (eal_check_common_options(&internal_config) != 0) {
 		eal_usage(prgname);
-		return -1;
+		ret = -1;
+		goto out;
 	}
 
 	/* --xen-dom0 doesn't make sense with --socket-mem */
@@ -664,13 +653,20 @@ eal_parse_args(int argc, char **argv)
 		RTE_LOG(ERR, EAL, "Options --"OPT_SOCKET_MEM" cannot be specified "
 			"together with --"OPT_XEN_DOM0"\n");
 		eal_usage(prgname);
-		return -1;
+		ret = -1;
+		goto out;
 	}
 
 	if (optind >= 0)
 		argv[optind-1] = prgname;
 	ret = optind-1;
-	optind = 0; /* reset getopt lib */
+
+out:
+	/* restore getopt lib */
+	optind = old_optind;
+	optopt = old_optopt;
+	optarg = old_optarg;
+
 	return ret;
 }
 
@@ -731,9 +727,9 @@ rte_eal_init(int argc, char **argv)
 	int i, fctret, ret;
 	pthread_t thread_id;
 	static rte_atomic32_t run_once = RTE_ATOMIC32_INIT(0);
-	struct shared_driver *solib = NULL;
 	const char *logid;
 	char cpuset[RTE_CPU_AFFINITY_STR_LEN];
+	char thread_name[RTE_MAX_THREAD_NAME_LEN];
 
 	if (!rte_atomic32_test_and_set(&run_once))
 		return -1;
@@ -817,9 +813,6 @@ rte_eal_init(int argc, char **argv)
 	if (rte_eal_alarm_init() < 0)
 		rte_panic("Cannot init interrupt-handling thread\n");
 
-	if (rte_eal_intr_init() < 0)
-		rte_panic("Cannot init interrupt-handling thread\n");
-
 	if (rte_eal_timer_init() < 0)
 		rte_panic("Cannot init HPET or TSC timers\n");
 
@@ -827,12 +820,8 @@ rte_eal_init(int argc, char **argv)
 
 	rte_eal_mcfg_complete();
 
-	TAILQ_FOREACH(solib, &solib_list, next) {
-		RTE_LOG(DEBUG, EAL, "open shared lib %s\n", solib->name);
-		solib->lib_handle = dlopen(solib->name, RTLD_NOW);
-		if (solib->lib_handle == NULL)
-			RTE_LOG(WARNING, EAL, "%s\n", dlerror());
-	}
+	if (eal_plugins_init() < 0)
+		rte_panic("Cannot init plugins\n");
 
 	eal_thread_init_master(rte_config.master_lcore);
 
@@ -844,6 +833,9 @@ rte_eal_init(int argc, char **argv)
 
 	if (rte_eal_dev_init() < 0)
 		rte_panic("Cannot init pmd devices\n");
+
+	if (rte_eal_intr_init() < 0)
+		rte_panic("Cannot init interrupt-handling thread\n");
 
 	RTE_LCORE_FOREACH_SLAVE(i) {
 
@@ -863,6 +855,15 @@ rte_eal_init(int argc, char **argv)
 				     eal_thread_loop, NULL);
 		if (ret != 0)
 			rte_panic("Cannot create thread\n");
+
+		/* Set thread_name for aid in debugging. */
+		snprintf(thread_name, RTE_MAX_THREAD_NAME_LEN,
+			"lcore-slave-%d", i);
+		ret = rte_thread_setname(lcore_config[i].thread_id,
+						thread_name);
+		if (ret != 0)
+			RTE_LOG(ERR, EAL,
+				"Cannot set name for lcore thread\n");
 	}
 
 	/*

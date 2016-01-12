@@ -415,7 +415,6 @@ ixgbe_set_xmit_ctx(struct ixgbe_tx_queue *txq,
 			mss_l4len_idx |= sizeof(struct tcp_hdr) << IXGBE_ADVTXD_L4LEN_SHIFT;
 			tx_offload_mask.l2_len |= ~0;
 			tx_offload_mask.l3_len |= ~0;
-			tx_offload_mask.l4_len |= ~0;
 			break;
 		case PKT_TX_SCTP_CKSUM:
 			type_tucmd_mlhl |= IXGBE_ADVTXD_TUCMD_L4T_SCTP |
@@ -573,7 +572,7 @@ ixgbe_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts,
 	struct ixgbe_tx_entry *sw_ring;
 	struct ixgbe_tx_entry *txe, *txn;
 	volatile union ixgbe_adv_tx_desc *txr;
-	volatile union ixgbe_adv_tx_desc *txd;
+	volatile union ixgbe_adv_tx_desc *txd, *txp;
 	struct rte_mbuf     *tx_pkt;
 	struct rte_mbuf     *m_seg;
 	uint64_t buf_dma_addr;
@@ -596,6 +595,7 @@ ixgbe_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts,
 	txr     = txq->tx_ring;
 	tx_id   = txq->tx_tail;
 	txe = &sw_ring[tx_id];
+	txp = NULL;
 
 	/* Determine if the descriptor ring needs to be cleaned. */
 	if (txq->nb_tx_free < txq->tx_free_thresh)
@@ -638,6 +638,12 @@ ixgbe_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts,
 		 * Context descriptors required to transmit the packet
 		 */
 		nb_used = (uint16_t)(tx_pkt->nb_segs + new_ctx);
+
+		if (txp != NULL &&
+				nb_used + txq->nb_tx_used >= txq->tx_rs_thresh)
+			/* set RS on the previous packet in the burst */
+			txp->read.cmd_type_len |=
+				rte_cpu_to_le_32(IXGBE_TXD_CMD_RS);
 
 		/*
 		 * The number of descriptors that must be allocated for a
@@ -841,10 +847,18 @@ ixgbe_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts,
 
 			/* Update txq RS bit counters */
 			txq->nb_tx_used = 0;
-		}
+			txp = NULL;
+		} else
+			txp = txd;
+
 		txd->read.cmd_type_len |= rte_cpu_to_le_32(cmd_type_len);
 	}
+
 end_of_tx:
+	/* set RS on last packet in the burst */
+	if (txp != NULL)
+		txp->read.cmd_type_len |= rte_cpu_to_le_32(IXGBE_TXD_CMD_RS);
+
 	rte_wmb();
 
 	/*
@@ -864,7 +878,6 @@ end_of_tx:
  *  RX functions
  *
  **********************************************************************/
-#ifdef RTE_NEXT_ABI
 #define IXGBE_PACKET_TYPE_IPV4              0X01
 #define IXGBE_PACKET_TYPE_IPV4_TCP          0X11
 #define IXGBE_PACKET_TYPE_IPV4_UDP          0X21
@@ -967,43 +980,6 @@ ixgbe_rxd_pkt_info_to_pkt_flags(uint16_t pkt_info)
 	return ip_rss_types_map[pkt_info & 0XF];
 #endif
 }
-#else /* RTE_NEXT_ABI */
-static inline uint64_t
-rx_desc_hlen_type_rss_to_pkt_flags(uint32_t hl_tp_rs)
-{
-	uint64_t pkt_flags;
-
-	static const uint64_t ip_pkt_types_map[16] = {
-		0, PKT_RX_IPV4_HDR, PKT_RX_IPV4_HDR_EXT, PKT_RX_IPV4_HDR_EXT,
-		PKT_RX_IPV6_HDR, 0, 0, 0,
-		PKT_RX_IPV6_HDR_EXT, 0, 0, 0,
-		PKT_RX_IPV6_HDR_EXT, 0, 0, 0,
-	};
-
-	static const uint64_t ip_rss_types_map[16] = {
-		0, PKT_RX_RSS_HASH, PKT_RX_RSS_HASH, PKT_RX_RSS_HASH,
-		0, PKT_RX_RSS_HASH, 0, PKT_RX_RSS_HASH,
-		PKT_RX_RSS_HASH, 0, 0, 0,
-		0, 0, 0,  PKT_RX_FDIR,
-	};
-
-#ifdef RTE_LIBRTE_IEEE1588
-	static uint64_t ip_pkt_etqf_map[8] = {
-		0, 0, 0, PKT_RX_IEEE1588_PTP,
-		0, 0, 0, 0,
-	};
-
-	pkt_flags = (hl_tp_rs & IXGBE_RXDADV_PKTTYPE_ETQF) ?
-			ip_pkt_etqf_map[(hl_tp_rs >> 4) & 0x07] :
-			ip_pkt_types_map[(hl_tp_rs >> 4) & 0x0F];
-#else
-	pkt_flags = (hl_tp_rs & IXGBE_RXDADV_PKTTYPE_ETQF) ? 0 :
-			ip_pkt_types_map[(hl_tp_rs >> 4) & 0x0F];
-
-#endif
-	return pkt_flags | ip_rss_types_map[hl_tp_rs & 0xF];
-}
-#endif /* RTE_NEXT_ABI */
 
 static inline uint64_t
 rx_desc_status_to_pkt_flags(uint32_t rx_status)
@@ -1058,13 +1034,9 @@ ixgbe_rx_scan_hw_ring(struct ixgbe_rx_queue *rxq)
 	struct rte_mbuf *mb;
 	uint16_t pkt_len;
 	uint64_t pkt_flags;
-#ifdef RTE_NEXT_ABI
 	int nb_dd;
 	uint32_t s[LOOK_AHEAD];
 	uint16_t pkt_info[LOOK_AHEAD];
-#else
-	int s[LOOK_AHEAD], nb_dd;
-#endif /* RTE_NEXT_ABI */
 	int i, j, nb_rx = 0;
 	uint32_t status;
 
@@ -1088,11 +1060,9 @@ ixgbe_rx_scan_hw_ring(struct ixgbe_rx_queue *rxq)
 		for (j = LOOK_AHEAD-1; j >= 0; --j)
 			s[j] = rte_le_to_cpu_32(rxdp[j].wb.upper.status_error);
 
-#ifdef RTE_NEXT_ABI
 		for (j = LOOK_AHEAD - 1; j >= 0; --j)
 			pkt_info[j] = rxdp[j].wb.lower.lo_dword.
 						hs_rss.pkt_info;
-#endif /* RTE_NEXT_ABI */
 
 		/* Compute how many status bits were set */
 		nb_dd = 0;
@@ -1111,7 +1081,6 @@ ixgbe_rx_scan_hw_ring(struct ixgbe_rx_queue *rxq)
 			mb->vlan_tci = rte_le_to_cpu_16(rxdp[j].wb.upper.vlan);
 
 			/* convert descriptor fields to rte mbuf flags */
-#ifdef RTE_NEXT_ABI
 			pkt_flags = rx_desc_status_to_pkt_flags(s[j]);
 			pkt_flags |= rx_desc_error_to_pkt_flags(s[j]);
 			pkt_flags |=
@@ -1119,15 +1088,6 @@ ixgbe_rx_scan_hw_ring(struct ixgbe_rx_queue *rxq)
 			mb->ol_flags = pkt_flags;
 			mb->packet_type =
 				ixgbe_rxd_pkt_info_to_pkt_type(pkt_info[j]);
-#else /* RTE_NEXT_ABI */
-			pkt_flags  = rx_desc_hlen_type_rss_to_pkt_flags(
-					rte_le_to_cpu_32(
-					rxdp[j].wb.lower.lo_dword.data));
-			/* reuse status field from scan list */
-			pkt_flags |= rx_desc_status_to_pkt_flags(s[j]);
-			pkt_flags |= rx_desc_error_to_pkt_flags(s[j]);
-			mb->ol_flags = pkt_flags;
-#endif /* RTE_NEXT_ABI */
 
 			if (likely(pkt_flags & PKT_RX_RSS_HASH))
 				mb->hash.rss = rte_le_to_cpu_32(
@@ -1328,11 +1288,7 @@ ixgbe_recv_pkts(void *rx_queue, struct rte_mbuf **rx_pkts,
 	union ixgbe_adv_rx_desc rxd;
 	uint64_t dma_addr;
 	uint32_t staterr;
-#ifdef RTE_NEXT_ABI
 	uint32_t pkt_info;
-#else
-	uint32_t hlen_type_rss;
-#endif
 	uint16_t pkt_len;
 	uint16_t rx_id;
 	uint16_t nb_rx;
@@ -1450,7 +1406,6 @@ ixgbe_recv_pkts(void *rx_queue, struct rte_mbuf **rx_pkts,
 		rxm->data_len = pkt_len;
 		rxm->port = rxq->port_id;
 
-#ifdef RTE_NEXT_ABI
 		pkt_info = rte_le_to_cpu_32(rxd.wb.lower.lo_dword.hs_rss.
 								pkt_info);
 		/* Only valid if PKT_RX_VLAN_PKT set in pkt_flags */
@@ -1462,16 +1417,6 @@ ixgbe_recv_pkts(void *rx_queue, struct rte_mbuf **rx_pkts,
 			ixgbe_rxd_pkt_info_to_pkt_flags(pkt_info);
 		rxm->ol_flags = pkt_flags;
 		rxm->packet_type = ixgbe_rxd_pkt_info_to_pkt_type(pkt_info);
-#else /* RTE_NEXT_ABI */
-		hlen_type_rss = rte_le_to_cpu_32(rxd.wb.lower.lo_dword.data);
-		/* Only valid if PKT_RX_VLAN_PKT set in pkt_flags */
-		rxm->vlan_tci = rte_le_to_cpu_16(rxd.wb.upper.vlan);
-
-		pkt_flags = rx_desc_hlen_type_rss_to_pkt_flags(hlen_type_rss);
-		pkt_flags = pkt_flags | rx_desc_status_to_pkt_flags(staterr);
-		pkt_flags = pkt_flags | rx_desc_error_to_pkt_flags(staterr);
-		rxm->ol_flags = pkt_flags;
-#endif /* RTE_NEXT_ABI */
 
 		if (likely(pkt_flags & PKT_RX_RSS_HASH))
 			rxm->hash.rss = rte_le_to_cpu_32(
@@ -1547,7 +1492,6 @@ ixgbe_fill_cluster_head_buf(
 	uint8_t port_id,
 	uint32_t staterr)
 {
-#ifdef RTE_NEXT_ABI
 	uint16_t pkt_info;
 	uint64_t pkt_flags;
 
@@ -1563,23 +1507,6 @@ ixgbe_fill_cluster_head_buf(
 	pkt_flags |= ixgbe_rxd_pkt_info_to_pkt_flags(pkt_info);
 	head->ol_flags = pkt_flags;
 	head->packet_type = ixgbe_rxd_pkt_info_to_pkt_type(pkt_info);
-#else /* RTE_NEXT_ABI */
-	uint32_t hlen_type_rss;
-	uint64_t pkt_flags;
-
-	head->port = port_id;
-
-	/*
-	 * The vlan_tci field is only valid when PKT_RX_VLAN_PKT is
-	 * set in the pkt_flags field.
-	 */
-	head->vlan_tci = rte_le_to_cpu_16(desc->wb.upper.vlan);
-	hlen_type_rss = rte_le_to_cpu_32(desc->wb.lower.lo_dword.data);
-	pkt_flags = rx_desc_hlen_type_rss_to_pkt_flags(hlen_type_rss);
-	pkt_flags |= rx_desc_status_to_pkt_flags(staterr);
-	pkt_flags |= rx_desc_error_to_pkt_flags(staterr);
-	head->ol_flags = pkt_flags;
-#endif /* RTE_NEXT_ABI */
 
 	if (likely(pkt_flags & PKT_RX_RSS_HASH))
 		head->hash.rss = rte_le_to_cpu_32(desc->wb.lower.hi_dword.rss);
@@ -1907,54 +1834,6 @@ ixgbe_recv_pkts_lro_bulk_alloc(void *rx_queue, struct rte_mbuf **rx_pkts,
  *
  **********************************************************************/
 
-/*
- * Rings setup and release.
- *
- * TDBA/RDBA should be aligned on 16 byte boundary. But TDLEN/RDLEN should be
- * multiple of 128 bytes. So we align TDBA/RDBA on 128 byte boundary. This will
- * also optimize cache line size effect. H/W supports up to cache line size 128.
- */
-#define IXGBE_ALIGN 128
-
-/*
- * Maximum number of Ring Descriptors.
- *
- * Since RDLEN/TDLEN should be multiple of 128 bytes, the number of ring
- * descriptors should meet the following condition:
- *      (num_ring_desc * sizeof(rx/tx descriptor)) % 128 == 0
- */
-#define IXGBE_MIN_RING_DESC 32
-#define IXGBE_MAX_RING_DESC 4096
-
-/*
- * Create memzone for HW rings. malloc can't be used as the physical address is
- * needed. If the memzone is already created, then this function returns a ptr
- * to the old one.
- */
-static const struct rte_memzone * __attribute__((cold))
-ring_dma_zone_reserve(struct rte_eth_dev *dev, const char *ring_name,
-		      uint16_t queue_id, uint32_t ring_size, int socket_id)
-{
-	char z_name[RTE_MEMZONE_NAMESIZE];
-	const struct rte_memzone *mz;
-
-	snprintf(z_name, sizeof(z_name), "%s_%s_%d_%d",
-			dev->driver->pci_drv.name, ring_name,
-			dev->data->port_id, queue_id);
-
-	mz = rte_memzone_lookup(z_name);
-	if (mz)
-		return mz;
-
-#ifdef RTE_LIBRTE_XEN_DOM0
-	return rte_memzone_reserve_bounded(z_name, ring_size,
-		socket_id, 0, IXGBE_ALIGN, RTE_PGSIZE_2M);
-#else
-	return rte_memzone_reserve_aligned(z_name, ring_size,
-		socket_id, 0, IXGBE_ALIGN);
-#endif
-}
-
 static void __attribute__((cold))
 ixgbe_tx_queue_release_mbufs(struct ixgbe_tx_queue *txq)
 {
@@ -2094,9 +1973,9 @@ ixgbe_dev_tx_queue_setup(struct rte_eth_dev *dev,
 	 * It must not exceed hardware maximum, and must be multiple
 	 * of IXGBE_ALIGN.
 	 */
-	if (((nb_desc * sizeof(union ixgbe_adv_tx_desc)) % IXGBE_ALIGN) != 0 ||
-	    (nb_desc > IXGBE_MAX_RING_DESC) ||
-	    (nb_desc < IXGBE_MIN_RING_DESC)) {
+	if (nb_desc % IXGBE_TXD_ALIGN != 0 ||
+			(nb_desc > IXGBE_MAX_RING_DESC) ||
+			(nb_desc < IXGBE_MIN_RING_DESC)) {
 		return -EINVAL;
 	}
 
@@ -2126,9 +2005,16 @@ ixgbe_dev_tx_queue_setup(struct rte_eth_dev *dev,
 			tx_conf->tx_free_thresh : DEFAULT_TX_FREE_THRESH);
 	if (tx_rs_thresh >= (nb_desc - 2)) {
 		PMD_INIT_LOG(ERR, "tx_rs_thresh must be less than the number "
-			     "of TX descriptors minus 2. (tx_rs_thresh=%u "
-			     "port=%d queue=%d)", (unsigned int)tx_rs_thresh,
-			     (int)dev->data->port_id, (int)queue_idx);
+			"of TX descriptors minus 2. (tx_rs_thresh=%u "
+			"port=%d queue=%d)", (unsigned int)tx_rs_thresh,
+			(int)dev->data->port_id, (int)queue_idx);
+		return -(EINVAL);
+	}
+	if (tx_rs_thresh > DEFAULT_TX_RS_THRESH) {
+		PMD_INIT_LOG(ERR, "tx_rs_thresh must be less or equal than %u. "
+			"(tx_rs_thresh=%u port=%d queue=%d)",
+			DEFAULT_TX_RS_THRESH, (unsigned int)tx_rs_thresh,
+			(int)dev->data->port_id, (int)queue_idx);
 		return -(EINVAL);
 	}
 	if (tx_free_thresh >= (nb_desc - 3)) {
@@ -2189,9 +2075,9 @@ ixgbe_dev_tx_queue_setup(struct rte_eth_dev *dev,
 	 * handle the maximum ring size is allocated in order to allow for
 	 * resizing in later calls to the queue setup function.
 	 */
-	tz = ring_dma_zone_reserve(dev, "tx_ring", queue_idx,
+	tz = rte_eth_dma_zone_reserve(dev, "tx_ring", queue_idx,
 			sizeof(union ixgbe_adv_tx_desc) * IXGBE_MAX_RING_DESC,
-			socket_id);
+			IXGBE_ALIGN, socket_id);
 	if (tz == NULL) {
 		ixgbe_tx_queue_release(txq);
 		return (-ENOMEM);
@@ -2221,11 +2107,8 @@ ixgbe_dev_tx_queue_setup(struct rte_eth_dev *dev,
 		txq->tdt_reg_addr = IXGBE_PCI_REG_ADDR(hw, IXGBE_VFTDT(queue_idx));
 	else
 		txq->tdt_reg_addr = IXGBE_PCI_REG_ADDR(hw, IXGBE_TDT(txq->reg_idx));
-#ifndef	RTE_LIBRTE_XEN_DOM0
-	txq->tx_ring_phys_addr = (uint64_t) tz->phys_addr;
-#else
+
 	txq->tx_ring_phys_addr = rte_mem_phy2mch(tz->memseg_id, tz->phys_addr);
-#endif
 	txq->tx_ring = (union ixgbe_adv_tx_desc *) tz->addr;
 
 	/* Allocate software ring */
@@ -2461,9 +2344,9 @@ ixgbe_dev_rx_queue_setup(struct rte_eth_dev *dev,
 	 * It must not exceed hardware maximum, and must be multiple
 	 * of IXGBE_ALIGN.
 	 */
-	if (((nb_desc * sizeof(union ixgbe_adv_rx_desc)) % IXGBE_ALIGN) != 0 ||
-	    (nb_desc > IXGBE_MAX_RING_DESC) ||
-	    (nb_desc < IXGBE_MIN_RING_DESC)) {
+	if (nb_desc % IXGBE_RXD_ALIGN != 0 ||
+			(nb_desc > IXGBE_MAX_RING_DESC) ||
+			(nb_desc < IXGBE_MIN_RING_DESC)) {
 		return (-EINVAL);
 	}
 
@@ -2495,8 +2378,8 @@ ixgbe_dev_rx_queue_setup(struct rte_eth_dev *dev,
 	 * handle the maximum ring size is allocated in order to allow for
 	 * resizing in later calls to the queue setup function.
 	 */
-	rz = ring_dma_zone_reserve(dev, "rx_ring", queue_idx,
-				   RX_RING_SZ, socket_id);
+	rz = rte_eth_dma_zone_reserve(dev, "rx_ring", queue_idx,
+				      RX_RING_SZ, IXGBE_ALIGN, socket_id);
 	if (rz == NULL) {
 		ixgbe_rx_queue_release(rxq);
 		return (-ENOMEM);
@@ -2525,11 +2408,8 @@ ixgbe_dev_rx_queue_setup(struct rte_eth_dev *dev,
 		rxq->rdh_reg_addr =
 			IXGBE_PCI_REG_ADDR(hw, IXGBE_RDH(rxq->reg_idx));
 	}
-#ifndef RTE_LIBRTE_XEN_DOM0
-	rxq->rx_ring_phys_addr = (uint64_t) rz->phys_addr;
-#else
+
 	rxq->rx_ring_phys_addr = rte_mem_phy2mch(rz->memseg_id, rz->phys_addr);
-#endif
 	rxq->rx_ring = (union ixgbe_adv_rx_desc *) rz->addr;
 
 	/*
@@ -2734,11 +2614,13 @@ ixgbe_rss_disable(struct rte_eth_dev *dev)
 {
 	struct ixgbe_hw *hw;
 	uint32_t mrqc;
+	uint32_t mrqc_reg;
 
 	hw = IXGBE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
-	mrqc = IXGBE_READ_REG(hw, IXGBE_MRQC);
+	mrqc_reg = ixgbe_mrqc_reg_get(hw->mac.type);
+	mrqc = IXGBE_READ_REG(hw, mrqc_reg);
 	mrqc &= ~IXGBE_MRQC_RSSEN;
-	IXGBE_WRITE_REG(hw, IXGBE_MRQC, mrqc);
+	IXGBE_WRITE_REG(hw, mrqc_reg, mrqc);
 }
 
 static void
@@ -2749,6 +2631,11 @@ ixgbe_hw_rss_hash_set(struct ixgbe_hw *hw, struct rte_eth_rss_conf *rss_conf)
 	uint32_t rss_key;
 	uint64_t rss_hf;
 	uint16_t i;
+	uint32_t mrqc_reg;
+	uint32_t rssrk_reg;
+
+	mrqc_reg = ixgbe_mrqc_reg_get(hw->mac.type);
+	rssrk_reg = ixgbe_rssrk_reg_get(hw->mac.type, 0);
 
 	hash_key = rss_conf->rss_key;
 	if (hash_key != NULL) {
@@ -2758,7 +2645,7 @@ ixgbe_hw_rss_hash_set(struct ixgbe_hw *hw, struct rte_eth_rss_conf *rss_conf)
 			rss_key |= hash_key[(i * 4) + 1] << 8;
 			rss_key |= hash_key[(i * 4) + 2] << 16;
 			rss_key |= hash_key[(i * 4) + 3] << 24;
-			IXGBE_WRITE_REG_ARRAY(hw, IXGBE_RSSRK(0), i, rss_key);
+			IXGBE_WRITE_REG_ARRAY(hw, rssrk_reg, i, rss_key);
 		}
 	}
 
@@ -2783,7 +2670,7 @@ ixgbe_hw_rss_hash_set(struct ixgbe_hw *hw, struct rte_eth_rss_conf *rss_conf)
 		mrqc |= IXGBE_MRQC_RSS_FIELD_IPV6_UDP;
 	if (rss_hf & ETH_RSS_IPV6_UDP_EX)
 		mrqc |= IXGBE_MRQC_RSS_FIELD_IPV6_EX_UDP;
-	IXGBE_WRITE_REG(hw, IXGBE_MRQC, mrqc);
+	IXGBE_WRITE_REG(hw, mrqc_reg, mrqc);
 }
 
 int
@@ -2793,8 +2680,16 @@ ixgbe_dev_rss_hash_update(struct rte_eth_dev *dev,
 	struct ixgbe_hw *hw;
 	uint32_t mrqc;
 	uint64_t rss_hf;
+	uint32_t mrqc_reg;
 
 	hw = IXGBE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
+
+	if (!ixgbe_rss_update_sp(hw->mac.type)) {
+		PMD_DRV_LOG(ERR, "RSS hash update is not supported on this "
+			"NIC.");
+		return -ENOTSUP;
+	}
+	mrqc_reg = ixgbe_mrqc_reg_get(hw->mac.type);
 
 	/*
 	 * Excerpt from section 7.1.2.8 Receive-Side Scaling (RSS):
@@ -2806,7 +2701,7 @@ ixgbe_dev_rss_hash_update(struct rte_eth_dev *dev,
 	 * disabled at initialization time.
 	 */
 	rss_hf = rss_conf->rss_hf & IXGBE_RSS_OFFLOAD_ALL;
-	mrqc = IXGBE_READ_REG(hw, IXGBE_MRQC);
+	mrqc = IXGBE_READ_REG(hw, mrqc_reg);
 	if (!(mrqc & IXGBE_MRQC_RSSEN)) { /* RSS disabled */
 		if (rss_hf != 0) /* Enable RSS */
 			return -(EINVAL);
@@ -2829,13 +2724,17 @@ ixgbe_dev_rss_hash_conf_get(struct rte_eth_dev *dev,
 	uint32_t rss_key;
 	uint64_t rss_hf;
 	uint16_t i;
+	uint32_t mrqc_reg;
+	uint32_t rssrk_reg;
 
 	hw = IXGBE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
+	mrqc_reg = ixgbe_mrqc_reg_get(hw->mac.type);
+	rssrk_reg = ixgbe_rssrk_reg_get(hw->mac.type, 0);
 	hash_key = rss_conf->rss_key;
 	if (hash_key != NULL) {
 		/* Return RSS hash key */
 		for (i = 0; i < 10; i++) {
-			rss_key = IXGBE_READ_REG_ARRAY(hw, IXGBE_RSSRK(0), i);
+			rss_key = IXGBE_READ_REG_ARRAY(hw, rssrk_reg, i);
 			hash_key[(i * 4)] = rss_key & 0x000000FF;
 			hash_key[(i * 4) + 1] = (rss_key >> 8) & 0x000000FF;
 			hash_key[(i * 4) + 2] = (rss_key >> 16) & 0x000000FF;
@@ -2844,7 +2743,7 @@ ixgbe_dev_rss_hash_conf_get(struct rte_eth_dev *dev,
 	}
 
 	/* Get RSS functions configured in MRQC register */
-	mrqc = IXGBE_READ_REG(hw, IXGBE_MRQC);
+	mrqc = IXGBE_READ_REG(hw, mrqc_reg);
 	if ((mrqc & IXGBE_MRQC_RSSEN) == 0) { /* RSS is disabled */
 		rss_conf->rss_hf = 0;
 		return 0;
@@ -2880,9 +2779,13 @@ ixgbe_rss_configure(struct rte_eth_dev *dev)
 	uint32_t reta;
 	uint16_t i;
 	uint16_t j;
+	uint16_t sp_reta_size;
+	uint32_t reta_reg;
 
 	PMD_INIT_FUNC_TRACE();
 	hw = IXGBE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
+
+	sp_reta_size = ixgbe_reta_size_get(hw->mac.type);
 
 	/*
 	 * Fill in redirection table
@@ -2890,12 +2793,14 @@ ixgbe_rss_configure(struct rte_eth_dev *dev)
 	 * little-endian order.
 	 */
 	reta = 0;
-	for (i = 0, j = 0; i < 128; i++, j++) {
+	for (i = 0, j = 0; i < sp_reta_size; i++, j++) {
+		reta_reg = ixgbe_reta_reg_get(hw->mac.type, i);
+
 		if (j == dev->data->nb_rx_queues)
 			j = 0;
 		reta = (reta << 8) | j;
 		if ((i & 3) == 3)
-			IXGBE_WRITE_REG(hw, IXGBE_RETA(i >> 2),
+			IXGBE_WRITE_REG(hw, reta_reg,
 					rte_bswap32(reta));
 	}
 
@@ -2915,6 +2820,7 @@ ixgbe_rss_configure(struct rte_eth_dev *dev)
 
 #define NUM_VFTA_REGISTERS 128
 #define NIC_RX_BUFFER_SIZE 0x200
+#define X550_RX_BUFFER_SIZE 0x180
 
 static void
 ixgbe_vmdq_dcb_configure(struct rte_eth_dev *dev)
@@ -2943,7 +2849,15 @@ ixgbe_vmdq_dcb_configure(struct rte_eth_dev *dev)
 	 * RXPBSIZE
 	 * split rx buffer up into sections, each for 1 traffic class
 	 */
-	pbsize = (uint16_t)(NIC_RX_BUFFER_SIZE / nb_tcs);
+	switch (hw->mac.type) {
+	case ixgbe_mac_X550:
+	case ixgbe_mac_X550EM_x:
+		pbsize = (uint16_t)(X550_RX_BUFFER_SIZE / nb_tcs);
+		break;
+	default:
+		pbsize = (uint16_t)(NIC_RX_BUFFER_SIZE / nb_tcs);
+		break;
+	}
 	for (i = 0 ; i < nb_tcs; i++) {
 		uint32_t rxpbsize = IXGBE_READ_REG(hw, IXGBE_RXPBSIZE(i));
 		rxpbsize &= (~(0x3FF << IXGBE_RXPBSIZE_SHIFT));
@@ -2981,7 +2895,7 @@ ixgbe_vmdq_dcb_configure(struct rte_eth_dev *dev)
 		 * mapping is done with 3 bits per priority,
 		 * so shift by i*3 each time
 		 */
-		queue_mapping |= ((cfg->dcb_queue[i] & 0x07) << (i * 3));
+		queue_mapping |= ((cfg->dcb_tc[i] & 0x07) << (i * 3));
 
 	IXGBE_WRITE_REG(hw, IXGBE_RTRUP2TC, queue_mapping);
 
@@ -3116,7 +3030,7 @@ ixgbe_vmdq_dcb_rx_config(struct rte_eth_dev *dev,
 	}
 	/* User Priority to Traffic Class mapping */
 	for (i = 0; i < ETH_DCB_NUM_USER_PRIORITIES; i++) {
-		j = vmdq_rx_conf->dcb_queue[i];
+		j = vmdq_rx_conf->dcb_tc[i];
 		tc = &dcb_config->tc_config[j];
 		tc->path[IXGBE_DCB_RX_CONFIG].up_to_tc_bitmap =
 						(uint8_t)(1 << j);
@@ -3144,7 +3058,7 @@ ixgbe_dcb_vt_tx_config(struct rte_eth_dev *dev,
 
 	/* User Priority to Traffic Class mapping */
 	for (i = 0; i < ETH_DCB_NUM_USER_PRIORITIES; i++) {
-		j = vmdq_tx_conf->dcb_queue[i];
+		j = vmdq_tx_conf->dcb_tc[i];
 		tc = &dcb_config->tc_config[j];
 		tc->path[IXGBE_DCB_TX_CONFIG].up_to_tc_bitmap =
 						(uint8_t)(1 << j);
@@ -3166,7 +3080,7 @@ ixgbe_dcb_rx_config(struct rte_eth_dev *dev,
 
 	/* User Priority to Traffic Class mapping */
 	for (i = 0; i < ETH_DCB_NUM_USER_PRIORITIES; i++) {
-		j = rx_conf->dcb_queue[i];
+		j = rx_conf->dcb_tc[i];
 		tc = &dcb_config->tc_config[j];
 		tc->path[IXGBE_DCB_RX_CONFIG].up_to_tc_bitmap =
 						(uint8_t)(1 << j);
@@ -3187,7 +3101,7 @@ ixgbe_dcb_tx_config(struct rte_eth_dev *dev,
 
 	/* User Priority to Traffic Class mapping */
 	for (i = 0; i < ETH_DCB_NUM_USER_PRIORITIES; i++) {
-		j = tx_conf->dcb_queue[i];
+		j = tx_conf->dcb_tc[i];
 		tc = &dcb_config->tc_config[j];
 		tc->path[IXGBE_DCB_TX_CONFIG].up_to_tc_bitmap =
 						(uint8_t)(1 << j);
@@ -3222,9 +3136,13 @@ ixgbe_dcb_rx_hw_config(struct ixgbe_hw *hw,
 				reg = (reg & ~IXGBE_MRQC_MRQE_MASK) |
 					IXGBE_MRQC_VMDQRT4TCEN;
 			else {
+				/* no matter the mode is DCB or DCB_RSS, just
+				 * set the MRQE to RSSXTCEN. RSS is controlled
+				 * by RSS_FIELD
+				 */
 				IXGBE_WRITE_REG(hw, IXGBE_VT_CTL, 0);
 				reg = (reg & ~IXGBE_MRQC_MRQE_MASK) |
-					IXGBE_MRQC_RT4TCEN;
+					IXGBE_MRQC_RTRSS4TCEN;
 			}
 		}
 		if (dcb_config->num_tcs.pg_tcs == 8) {
@@ -3234,7 +3152,7 @@ ixgbe_dcb_rx_hw_config(struct ixgbe_hw *hw,
 			else {
 				IXGBE_WRITE_REG(hw, IXGBE_VT_CTL, 0);
 				reg = (reg & ~IXGBE_MRQC_MRQE_MASK) |
-					IXGBE_MRQC_RT8TCEN;
+					IXGBE_MRQC_RTRSS8TCEN;
 			}
 		}
 
@@ -3317,7 +3235,7 @@ ixgbe_dcb_hw_configure(struct rte_eth_dev *dev,
 {
 	int     ret = 0;
 	uint8_t i,pfc_en,nb_tcs;
-	uint16_t pbsize;
+	uint16_t pbsize, rx_buffer_size;
 	uint8_t config_dcb_rx = 0;
 	uint8_t config_dcb_tx = 0;
 	uint8_t tsa[IXGBE_DCB_MAX_TRAFFIC_CLASS] = {0};
@@ -3339,16 +3257,17 @@ ixgbe_dcb_hw_configure(struct rte_eth_dev *dev,
 			 *get dcb and VT rx configuration parameters
 			 *from rte_eth_conf
 			 */
-			ixgbe_vmdq_dcb_rx_config(dev,dcb_config);
+			ixgbe_vmdq_dcb_rx_config(dev, dcb_config);
 			/*Configure general VMDQ and DCB RX parameters*/
 			ixgbe_vmdq_dcb_configure(dev);
 		}
 		break;
 	case ETH_MQ_RX_DCB:
+	case ETH_MQ_RX_DCB_RSS:
 		dcb_config->vt_mode = false;
 		config_dcb_rx = DCB_RX_CONFIG;
 		/* Get dcb TX configuration parameters from rte_eth_conf */
-		ixgbe_dcb_rx_config(dev,dcb_config);
+		ixgbe_dcb_rx_config(dev, dcb_config);
 		/*Configure general DCB RX parameters*/
 		ixgbe_dcb_rx_hw_config(hw, dcb_config);
 		break;
@@ -3370,7 +3289,7 @@ ixgbe_dcb_hw_configure(struct rte_eth_dev *dev,
 		dcb_config->vt_mode = false;
 		config_dcb_tx = DCB_TX_CONFIG;
 		/*get DCB TX configuration parameters from rte_eth_conf*/
-		ixgbe_dcb_tx_config(dev,dcb_config);
+		ixgbe_dcb_tx_config(dev, dcb_config);
 		/*Configure general DCB TX parameters*/
 		ixgbe_dcb_tx_hw_config(hw, dcb_config);
 		break;
@@ -3408,9 +3327,19 @@ ixgbe_dcb_hw_configure(struct rte_eth_dev *dev,
 		}
 	}
 
+	switch (hw->mac.type) {
+	case ixgbe_mac_X550:
+	case ixgbe_mac_X550EM_x:
+		rx_buffer_size = X550_RX_BUFFER_SIZE;
+		break;
+	default:
+		rx_buffer_size = NIC_RX_BUFFER_SIZE;
+		break;
+	}
+
 	if(config_dcb_rx) {
 		/* Set RX buffer size */
-		pbsize = (uint16_t)(NIC_RX_BUFFER_SIZE / nb_tcs);
+		pbsize = (uint16_t)(rx_buffer_size / nb_tcs);
 		uint32_t rxpbsize = pbsize << IXGBE_RXPBSIZE_SHIFT;
 		for (i = 0 ; i < nb_tcs; i++) {
 			IXGBE_WRITE_REG(hw, IXGBE_RXPBSIZE(i), rxpbsize);
@@ -3466,7 +3395,7 @@ ixgbe_dcb_hw_configure(struct rte_eth_dev *dev,
 
 	/* Check if the PFC is supported */
 	if(dev->data->dev_conf.dcb_capability_en & ETH_DCB_PFC_SUPPORT) {
-		pbsize = (uint16_t) (NIC_RX_BUFFER_SIZE / nb_tcs);
+		pbsize = (uint16_t)(rx_buffer_size / nb_tcs);
 		for (i = 0; i < nb_tcs; i++) {
 			/*
 			* If the TC count is 8,and the default high_water is 48,
@@ -3501,14 +3430,15 @@ void ixgbe_configure_dcb(struct rte_eth_dev *dev)
 
 	/* check support mq_mode for DCB */
 	if ((dev_conf->rxmode.mq_mode != ETH_MQ_RX_VMDQ_DCB) &&
-	    (dev_conf->rxmode.mq_mode != ETH_MQ_RX_DCB))
+	    (dev_conf->rxmode.mq_mode != ETH_MQ_RX_DCB) &&
+	    (dev_conf->rxmode.mq_mode != ETH_MQ_RX_DCB_RSS))
 		return;
 
 	if (dev->data->nb_rx_queues != ETH_DCB_NUM_QUEUES)
 		return;
 
 	/** Configure DCB hardware **/
-	ixgbe_dcb_hw_configure(dev,dcb_cfg);
+	ixgbe_dcb_hw_configure(dev, dcb_cfg);
 
 	return;
 }
@@ -3750,21 +3680,25 @@ ixgbe_dev_mq_rx_configure(struct rte_eth_dev *dev)
 		 * any DCB/RSS w/o VMDq multi-queue setting
 		 */
 		switch (dev->data->dev_conf.rxmode.mq_mode) {
-			case ETH_MQ_RX_RSS:
-				ixgbe_rss_configure(dev);
-				break;
+		case ETH_MQ_RX_RSS:
+		case ETH_MQ_RX_DCB_RSS:
+		case ETH_MQ_RX_VMDQ_RSS:
+			ixgbe_rss_configure(dev);
+			break;
 
-			case ETH_MQ_RX_VMDQ_DCB:
-				ixgbe_vmdq_dcb_configure(dev);
-				break;
+		case ETH_MQ_RX_VMDQ_DCB:
+			ixgbe_vmdq_dcb_configure(dev);
+			break;
 
-			case ETH_MQ_RX_VMDQ_ONLY:
-				ixgbe_vmdq_rx_hw_configure(dev);
-				break;
+		case ETH_MQ_RX_VMDQ_ONLY:
+			ixgbe_vmdq_rx_hw_configure(dev);
+			break;
 
-			case ETH_MQ_RX_NONE:
-				/* if mq_mode is none, disable rss mode.*/
-			default: ixgbe_rss_disable(dev);
+		case ETH_MQ_RX_NONE:
+		default:
+			/* if mq_mode is none, disable rss mode.*/
+			ixgbe_rss_disable(dev);
+			break;
 		}
 	} else {
 		/*
@@ -4008,7 +3942,9 @@ ixgbe_set_rx_function(struct rte_eth_dev *dev)
 	 */
 	} else if (adapter->rx_vec_allowed) {
 		PMD_INIT_LOG(DEBUG, "Vector rx enabled, please make sure RX "
-				   "burst size no less than 32.");
+				    "burst size no less than %d (port=%d).",
+			     RTE_IXGBE_DESCS_PER_LOOP,
+			     dev->data->port_id);
 
 		dev->rx_pkt_burst = ixgbe_recv_pkts_vec;
 	} else if (adapter->rx_bulk_alloc_allowed) {
@@ -4564,6 +4500,7 @@ ixgbe_dev_rx_queue_start(struct rte_eth_dev *dev, uint16_t rx_queue_id)
 		rte_wmb();
 		IXGBE_WRITE_REG(hw, IXGBE_RDH(rxq->reg_idx), 0);
 		IXGBE_WRITE_REG(hw, IXGBE_RDT(rxq->reg_idx), rxq->nb_rx_desc - 1);
+		dev->data->rx_queue_state[rx_queue_id] = RTE_ETH_QUEUE_STATE_STARTED;
 	} else
 		return -1;
 
@@ -4607,6 +4544,7 @@ ixgbe_dev_rx_queue_stop(struct rte_eth_dev *dev, uint16_t rx_queue_id)
 
 		ixgbe_rx_queue_release_mbufs(rxq);
 		ixgbe_reset_rx_queue(adapter, rxq);
+		dev->data->rx_queue_state[rx_queue_id] = RTE_ETH_QUEUE_STATE_STOPPED;
 	} else
 		return -1;
 
@@ -4649,6 +4587,7 @@ ixgbe_dev_tx_queue_start(struct rte_eth_dev *dev, uint16_t tx_queue_id)
 		rte_wmb();
 		IXGBE_WRITE_REG(hw, IXGBE_TDH(txq->reg_idx), 0);
 		IXGBE_WRITE_REG(hw, IXGBE_TDT(txq->reg_idx), 0);
+		dev->data->tx_queue_state[tx_queue_id] = RTE_ETH_QUEUE_STATE_STARTED;
 	} else
 		return -1;
 
@@ -4709,10 +4648,48 @@ ixgbe_dev_tx_queue_stop(struct rte_eth_dev *dev, uint16_t tx_queue_id)
 			txq->ops->release_mbufs(txq);
 			txq->ops->reset(txq);
 		}
+		dev->data->tx_queue_state[tx_queue_id] = RTE_ETH_QUEUE_STATE_STOPPED;
 	} else
 		return -1;
 
 	return 0;
+}
+
+void
+ixgbe_rxq_info_get(struct rte_eth_dev *dev, uint16_t queue_id,
+	struct rte_eth_rxq_info *qinfo)
+{
+	struct ixgbe_rx_queue *rxq;
+
+	rxq = dev->data->rx_queues[queue_id];
+
+	qinfo->mp = rxq->mb_pool;
+	qinfo->scattered_rx = dev->data->scattered_rx;
+	qinfo->nb_desc = rxq->nb_rx_desc;
+
+	qinfo->conf.rx_free_thresh = rxq->rx_free_thresh;
+	qinfo->conf.rx_drop_en = rxq->drop_en;
+	qinfo->conf.rx_deferred_start = rxq->rx_deferred_start;
+}
+
+void
+ixgbe_txq_info_get(struct rte_eth_dev *dev, uint16_t queue_id,
+	struct rte_eth_txq_info *qinfo)
+{
+	struct ixgbe_tx_queue *txq;
+
+	txq = dev->data->tx_queues[queue_id];
+
+	qinfo->nb_desc = txq->nb_tx_desc;
+
+	qinfo->conf.tx_thresh.pthresh = txq->pthresh;
+	qinfo->conf.tx_thresh.hthresh = txq->hthresh;
+	qinfo->conf.tx_thresh.wthresh = txq->wthresh;
+
+	qinfo->conf.tx_free_thresh = txq->tx_free_thresh;
+	qinfo->conf.tx_rs_thresh = txq->tx_rs_thresh;
+	qinfo->conf.txq_flags = txq->txq_flags;
+	qinfo->conf.tx_deferred_start = txq->tx_deferred_start;
 }
 
 /*

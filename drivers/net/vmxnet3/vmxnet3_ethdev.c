@@ -70,6 +70,7 @@
 #define PROCESS_SYS_EVENTS 0
 
 static int eth_vmxnet3_dev_init(struct rte_eth_dev *eth_dev);
+static int eth_vmxnet3_dev_uninit(struct rte_eth_dev *eth_dev);
 static int vmxnet3_dev_configure(struct rte_eth_dev *dev);
 static int vmxnet3_dev_start(struct rte_eth_dev *dev);
 static void vmxnet3_dev_stop(struct rte_eth_dev *dev);
@@ -235,6 +236,8 @@ eth_vmxnet3_dev_init(struct rte_eth_dev *eth_dev)
 	if (rte_eal_process_type() != RTE_PROC_PRIMARY)
 		return 0;
 
+	rte_eth_copy_pci_info(eth_dev, pci_dev);
+
 	/* Vendor and Device ID need to be set before init of shared code */
 	hw->device_id = pci_dev->id.device_id;
 	hw->vendor_id = pci_dev->id.vendor_id;
@@ -294,13 +297,37 @@ eth_vmxnet3_dev_init(struct rte_eth_dev *eth_dev)
 	return 0;
 }
 
+static int
+eth_vmxnet3_dev_uninit(struct rte_eth_dev *eth_dev)
+{
+	struct vmxnet3_hw *hw = eth_dev->data->dev_private;
+
+	PMD_INIT_FUNC_TRACE();
+
+	if (rte_eal_process_type() != RTE_PROC_PRIMARY)
+		return 0;
+
+	if (hw->adapter_stopped == 0)
+		vmxnet3_dev_close(eth_dev);
+
+	eth_dev->dev_ops = NULL;
+	eth_dev->rx_pkt_burst = NULL;
+	eth_dev->tx_pkt_burst = NULL;
+
+	rte_free(eth_dev->data->mac_addrs);
+	eth_dev->data->mac_addrs = NULL;
+
+	return 0;
+}
+
 static struct eth_driver rte_vmxnet3_pmd = {
 	.pci_drv = {
 		.name = "rte_vmxnet3_pmd",
 		.id_table = pci_id_vmxnet3_map,
-		.drv_flags = RTE_PCI_DRV_NEED_MAPPING,
+		.drv_flags = RTE_PCI_DRV_NEED_MAPPING | RTE_PCI_DRV_DETACHABLE,
 	},
 	.eth_dev_init = eth_vmxnet3_dev_init,
+	.eth_dev_uninit = eth_vmxnet3_dev_uninit,
 	.dev_private_size = sizeof(struct vmxnet3_hw),
 };
 
@@ -579,7 +606,7 @@ vmxnet3_dev_stop(struct rte_eth_dev *dev)
 
 	PMD_INIT_FUNC_TRACE();
 
-	if (hw->adapter_stopped == TRUE) {
+	if (hw->adapter_stopped == 1) {
 		PMD_INIT_LOG(DEBUG, "Device already closed.");
 		return;
 	}
@@ -595,7 +622,7 @@ vmxnet3_dev_stop(struct rte_eth_dev *dev)
 	/* reset the device */
 	VMXNET3_WRITE_BAR1_REG(hw, VMXNET3_REG_CMD, VMXNET3_CMD_RESET_DEV);
 	PMD_INIT_LOG(DEBUG, "Device reset.");
-	hw->adapter_stopped = FALSE;
+	hw->adapter_stopped = 0;
 
 	vmxnet3_dev_clear_queues(dev);
 
@@ -615,7 +642,7 @@ vmxnet3_dev_close(struct rte_eth_dev *dev)
 	PMD_INIT_FUNC_TRACE();
 
 	vmxnet3_dev_stop(dev);
-	hw->adapter_stopped = TRUE;
+	hw->adapter_stopped = 1;
 }
 
 static void
@@ -677,6 +704,18 @@ vmxnet3_dev_info_get(__attribute__((unused))struct rte_eth_dev *dev, struct rte_
 	dev_info->default_txconf.txq_flags = ETH_TXQ_FLAGS_NOMULTSEGS |
 						ETH_TXQ_FLAGS_NOOFFLOADS;
 	dev_info->flow_type_rss_offloads = VMXNET3_RSS_OFFLOAD_ALL;
+
+	dev_info->rx_desc_lim = (struct rte_eth_desc_lim) {
+		.nb_max = VMXNET3_RX_RING_MAX_SIZE,
+		.nb_min = VMXNET3_DEF_RX_RING_SIZE,
+		.nb_align = 1,
+	};
+
+	dev_info->tx_desc_lim = (struct rte_eth_desc_lim) {
+		.nb_max = VMXNET3_TX_RING_MAX_SIZE,
+		.nb_min = VMXNET3_DEF_TX_RING_SIZE,
+		.nb_align = 1,
+	};
 }
 
 /* return 0 means link status changed, -1 means not changed */

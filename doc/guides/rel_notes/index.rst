@@ -31,15 +31,12 @@
 DPDK Release Notes
 ==================
 
-|today|
-
-Contents
-
 .. toctree::
     :maxdepth: 1
     :numbered:
 
     rel_description
+    release_2_2
     release_2_1
     release_2_0
     release_1_8

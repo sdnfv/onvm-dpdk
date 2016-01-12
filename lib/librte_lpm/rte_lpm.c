@@ -734,8 +734,7 @@ delete_depth_small(struct rte_lpm *lpm, uint32_t ip_masked,
 			if (lpm->tbl24[i].ext_entry == 0 &&
 					lpm->tbl24[i].depth <= depth ) {
 				lpm->tbl24[i].valid = INVALID;
-			}
-			else {
+			} else if (lpm->tbl24[i].ext_entry == 1) {
 				/*
 				 * If TBL24 entry is extended, then there has
 				 * to be a rule with depth >= 25 in the
@@ -770,6 +769,7 @@ delete_depth_small(struct rte_lpm *lpm, uint32_t ip_masked,
 
 		struct rte_lpm_tbl8_entry new_tbl8_entry = {
 			.valid = VALID,
+			.valid_group = VALID,
 			.depth = sub_rule_depth,
 			.next_hop = lpm->rules_tbl
 			[sub_rule_index].next_hop,
@@ -780,8 +780,7 @@ delete_depth_small(struct rte_lpm *lpm, uint32_t ip_masked,
 			if (lpm->tbl24[i].ext_entry == 0 &&
 					lpm->tbl24[i].depth <= depth ) {
 				lpm->tbl24[i] = new_tbl24_entry;
-			}
-			else {
+			} else  if (lpm->tbl24[i].ext_entry == 1) {
 				/*
 				 * If TBL24 entry is extended, then there has
 				 * to be a rule with depth >= 25 in the

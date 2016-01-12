@@ -41,7 +41,7 @@ POSSIBILITY OF SUCH DAMAGE.
 STATIC s32 fm10k_stop_hw_vf(struct fm10k_hw *hw)
 {
 	u8 *perm_addr = hw->mac.perm_addr;
-	u32 bal = 0, bah = 0;
+	u32 bal = 0, bah = 0, tdlen;
 	s32 err;
 	u16 i;
 
@@ -63,6 +63,9 @@ STATIC s32 fm10k_stop_hw_vf(struct fm10k_hw *hw)
 		       ((u32)perm_addr[2]);
 	}
 
+	/* restore default itr_scale for next VF initialization */
+	tdlen = hw->mac.itr_scale << FM10K_TDLEN_ITR_SCALE_SHIFT;
+
 	/* The queues have already been disabled so we just need to
 	 * update their base address registers
 	 */
@@ -71,6 +74,7 @@ STATIC s32 fm10k_stop_hw_vf(struct fm10k_hw *hw)
 		FM10K_WRITE_REG(hw, FM10K_TDBAH(i), bah);
 		FM10K_WRITE_REG(hw, FM10K_RDBAL(i), bal);
 		FM10K_WRITE_REG(hw, FM10K_RDBAH(i), bah);
+		FM10K_WRITE_REG(hw, FM10K_TDLEN(i), tdlen);
 	}
 
 	return FM10K_SUCCESS;
@@ -122,7 +126,12 @@ STATIC s32 fm10k_init_hw_vf(struct fm10k_hw *hw)
 
 	DEBUGFUNC("fm10k_init_hw_vf");
 
-	/* assume we always have at least 1 queue */
+	/* verify we have at least 1 queue */
+	if (!~FM10K_READ_REG(hw, FM10K_TXQCTL(0)) ||
+	    !~FM10K_READ_REG(hw, FM10K_RXQCTL(0)))
+		return FM10K_ERR_NO_RESOURCES;
+
+	/* determine how many queues we have */
 	for (i = 1; tqdloc0 && (i < FM10K_MAX_QUEUES_POOL); i++) {
 		/* verify the Descriptor cache offsets are increasing */
 		tqdloc = ~FM10K_READ_REG(hw, FM10K_TQDLOC(i));
@@ -143,9 +152,16 @@ STATIC s32 fm10k_init_hw_vf(struct fm10k_hw *hw)
 	/* record maximum queue count */
 	hw->mac.max_queues = i;
 
-	/* fetch default VLAN */
+	/* fetch default VLAN and ITR scale */
 	hw->mac.default_vid = (FM10K_READ_REG(hw, FM10K_TXQCTL(0)) &
 			       FM10K_TXQCTL_VID_MASK) >> FM10K_TXQCTL_VID_SHIFT;
+	hw->mac.itr_scale = (FM10K_READ_REG(hw, FM10K_TDLEN(0)) &
+			     FM10K_TDLEN_ITR_SCALE_MASK) >>
+			    FM10K_TDLEN_ITR_SCALE_SHIFT;
+
+	/* ensure a non-zero itr scale */
+	if (!hw->mac.itr_scale)
+		hw->mac.itr_scale = FM10K_TDLEN_ITR_SCALE_GEN3;
 
 	return FM10K_SUCCESS;
 }
@@ -398,6 +414,8 @@ const struct fm10k_tlv_attr fm10k_lport_state_msg_attr[] = {
 	FM10K_TLV_ATTR_LAST
 };
 
+extern const struct fm10k_tlv_attr fm10k_1588_msg_attr[];
+
 /**
  *  fm10k_msg_lport_state_vf - Message handler for lport_state message from PF
  *  @hw: Pointer to hardware structure
@@ -481,11 +499,11 @@ STATIC s32 fm10k_update_xcast_mode_vf(struct fm10k_hw *hw, u16 glort, u8 mode)
 }
 
 const struct fm10k_tlv_attr fm10k_1588_msg_attr[] = {
-	FM10K_TLV_ATTR_U64(FM10K_1588_MSG_TIMESTAMP),
+	FM10K_TLV_ATTR_U64(FM10K_1588_MSG_CLK_OFFSET),
 	FM10K_TLV_ATTR_LAST
 };
 
-/* currently there is no shared 1588 timestamp handler */
+/* currently there is no shared 1588 message handler */
 
 /**
  *  fm10k_update_hw_stats_vf - Updates hardware related statistics of VF
@@ -633,7 +651,7 @@ s32 fm10k_init_ops_vf(struct fm10k_hw *hw)
 	mac->ops.configure_dglort_map = &fm10k_configure_dglort_map_vf;
 	mac->ops.get_host_state = &fm10k_get_host_state_generic;
 	mac->ops.adjust_systime = &fm10k_adjust_systime_vf;
-	mac->ops.read_systime = &fm10k_read_systime_vf,
+	mac->ops.read_systime = &fm10k_read_systime_vf;
 
 	mac->max_msix_vectors = fm10k_get_pcie_msix_count_generic(hw);
 

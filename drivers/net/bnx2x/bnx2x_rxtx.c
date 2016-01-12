@@ -1,7 +1,11 @@
 /*
  * Copyright (c) 2013-2015 Brocade Communications Systems, Inc.
  *
+ * Copyright (c) 2015 QLogic Corporation.
  * All rights reserved.
+ * www.qlogic.com
+ *
+ * See LICENSE.bnx2x_pmd for copyright and licensing details.
  */
 
 #include "bnx2x.h"
@@ -106,8 +110,10 @@ bnx2x_dev_rx_queue_setup(struct rte_eth_dev *dev,
 
 	PMD_INIT_LOG(DEBUG, "fp[%02d] req_bd=%u, thresh=%u, usable_bd=%lu, "
 		       "total_bd=%lu, rx_pages=%u, cq_pages=%u",
-		       queue_idx, nb_desc, rxq->rx_free_thresh, USABLE_RX_BD(rxq),
-		       TOTAL_RX_BD(rxq), rxq->nb_rx_pages, rxq->nb_cq_pages);
+		       queue_idx, nb_desc, rxq->rx_free_thresh,
+		       (unsigned long)USABLE_RX_BD(rxq),
+		       (unsigned long)TOTAL_RX_BD(rxq), rxq->nb_rx_pages,
+		       rxq->nb_cq_pages);
 
 	/* Allocate RX ring hardware descriptors */
 	dma_size = rxq->nb_rx_desc * sizeof(struct eth_rx_bd);
@@ -156,7 +162,7 @@ bnx2x_dev_rx_queue_setup(struct rte_eth_dev *dev,
 	rxq->pkt_first_seg = NULL;
 	rxq->pkt_last_seg = NULL;
 	rxq->rx_bd_head = 0;
-	rxq->rx_bd_tail = idx;
+	rxq->rx_bd_tail = rxq->nb_rx_desc;
 
 	/* Allocate CQ chain. */
 	dma_size = BNX2X_RX_CHAIN_PAGE_SZ * rxq->nb_cq_pages;
@@ -240,7 +246,7 @@ bnx2x_xmit_pkts(void *p_txq, struct rte_mbuf **tx_pkts, uint16_t nb_pkts)
 			bnx2x_txeof(sc, fp);
 		}
 
-		if (unlikely(ret == ENOMEM)) {
+		if (unlikely(ret == -ENOMEM)) {
 			break;
 		}
 
@@ -287,8 +293,9 @@ bnx2x_dev_tx_queue_setup(struct rte_eth_dev *dev,
 
 	PMD_INIT_LOG(DEBUG, "fp[%02d] req_bd=%u, thresh=%u, usable_bd=%lu, "
 		     "total_bd=%lu, tx_pages=%u",
-		     queue_idx, nb_desc, txq->tx_free_thresh, USABLE_TX_BD(txq),
-		     TOTAL_TX_BD(txq), txq->nb_tx_pages);
+		     queue_idx, nb_desc, txq->tx_free_thresh,
+		     (unsigned long)USABLE_TX_BD(txq),
+		     (unsigned long)TOTAL_TX_BD(txq), txq->nb_tx_pages);
 
 	/* Allocate TX ring hardware descriptors */
 	tsize = txq->nb_tx_desc * sizeof(union eth_tx_bd_types);
@@ -373,6 +380,9 @@ bnx2x_recv_pkts(void *p_rxq, struct rte_mbuf **rx_pkts, uint16_t nb_pkts)
 	bd_prod = rxq->rx_bd_tail;
 	sw_cq_cons = rxq->rx_cq_head;
 	sw_cq_prod = rxq->rx_cq_tail;
+
+	if (sw_cq_cons == hw_cq_cons)
+		return 0;
 
 	while (nb_rx < nb_pkts && sw_cq_cons != hw_cq_cons) {
 

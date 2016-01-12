@@ -40,7 +40,6 @@ DPDK_2.0 {
 	rte_eal_mp_remote_launch;
 	rte_eal_mp_wait_lcore;
 	rte_eal_parse_devargs_str;
-	rte_eal_pci_close_one;
 	rte_eal_pci_dump;
 	rte_eal_pci_probe;
 	rte_eal_pci_probe_one;
@@ -95,7 +94,6 @@ DPDK_2.0 {
 	rte_set_application_usage_hook;
 	rte_set_log_level;
 	rte_set_log_type;
-	rte_snprintf;
 	rte_socket_id;
 	rte_strerror;
 	rte_strsplit;
@@ -107,7 +105,6 @@ DPDK_2.0 {
 	rte_xen_dom0_memory_init;
 	rte_zmalloc;
 	rte_zmalloc_socket;
-	test_mp_secondary;
 
 	local: *;
 };
@@ -129,3 +126,15 @@ DPDK_2.1 {
 	rte_memzone_free;
 
 } DPDK_2.0;
+
+DPDK_2.2 {
+	global:
+
+	rte_intr_cap_multiple;
+	rte_keepalive_create;
+	rte_keepalive_dispatch_pings;
+	rte_keepalive_mark_alive;
+	rte_keepalive_register_core;
+	rte_xen_dom0_supported;
+
+} DPDK_2.1;

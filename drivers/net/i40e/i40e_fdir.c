@@ -275,11 +275,8 @@ i40e_fdir_setup(struct i40e_pf *pf)
 		goto fail_mem;
 	}
 	pf->fdir.prg_pkt = mz->addr;
-#ifdef RTE_LIBRTE_XEN_DOM0
 	pf->fdir.dma_addr = rte_mem_phy2mch(mz->memseg_id, mz->phys_addr);
-#else
-	pf->fdir.dma_addr = (uint64_t)mz->phys_addr;
-#endif
+
 	pf->fdir.match_counter_index = I40E_COUNTER_INDEX_FDIR(hw->pf_id);
 	PMD_DRV_LOG(INFO, "FDIR setup successfully, with programming queue %u.",
 		    vsi->base_queue);
@@ -822,7 +819,6 @@ i40e_fdir_construct_pkt(struct i40e_pf *pf,
 		sctp = (struct sctp_hdr *)(raw_pkt + sizeof(struct ether_hdr) +
 					   sizeof(struct ipv4_hdr));
 		payload = (unsigned char *)sctp + sizeof(struct sctp_hdr);
-#ifdef RTE_NEXT_ABI
 		/*
 		 * The source and destination fields in the transmitted packet
 		 * need to be presented in a reversed order with respect
@@ -830,7 +826,6 @@ i40e_fdir_construct_pkt(struct i40e_pf *pf,
 		 */
 		sctp->src_port = fdir_input->flow.sctp4_flow.dst_port;
 		sctp->dst_port = fdir_input->flow.sctp4_flow.src_port;
-#endif
 		sctp->tag = fdir_input->flow.sctp4_flow.verify_tag;
 		break;
 
@@ -873,7 +868,6 @@ i40e_fdir_construct_pkt(struct i40e_pf *pf,
 		sctp = (struct sctp_hdr *)(raw_pkt + sizeof(struct ether_hdr) +
 					   sizeof(struct ipv6_hdr));
 		payload = (unsigned char *)sctp + sizeof(struct sctp_hdr);
-#ifdef RTE_NEXT_ABI
 		/*
 		 * The source and destination fields in the transmitted packet
 		 * need to be presented in a reversed order with respect
@@ -881,7 +875,6 @@ i40e_fdir_construct_pkt(struct i40e_pf *pf,
 		 */
 		sctp->src_port = fdir_input->flow.sctp6_flow.dst_port;
 		sctp->dst_port = fdir_input->flow.sctp6_flow.src_port;
-#endif
 		sctp->tag = fdir_input->flow.sctp6_flow.verify_tag;
 		break;
 
@@ -1026,6 +1019,11 @@ i40e_add_del_fdir_filter(struct rte_eth_dev *dev,
 		PMD_DRV_LOG(ERR, "Invalid queue ID");
 		return -EINVAL;
 	}
+	if (filter->input.flow_ext.is_vf &&
+		filter->input.flow_ext.dst_id >= pf->vf_num) {
+		PMD_DRV_LOG(ERR, "Invalid VF ID");
+		return -EINVAL;
+	}
 
 	memset(pkt, 0, I40E_FDIR_PKT_LEN);
 
@@ -1065,7 +1063,7 @@ i40e_fdir_filter_programming(struct i40e_pf *pf,
 	volatile struct i40e_tx_desc *txdp;
 	volatile struct i40e_filter_program_desc *fdirdp;
 	uint32_t td_cmd;
-	uint16_t i;
+	uint16_t vsi_id, i;
 	uint8_t dest;
 
 	PMD_DRV_LOG(INFO, "filling filter programming descriptor.");
@@ -1087,9 +1085,13 @@ i40e_fdir_filter_programming(struct i40e_pf *pf,
 					  I40E_TXD_FLTR_QW0_PCTYPE_SHIFT) &
 					  I40E_TXD_FLTR_QW0_PCTYPE_MASK);
 
-	/* Use LAN VSI Id by default */
+	if (filter->input.flow_ext.is_vf)
+		vsi_id = pf->vfs[filter->input.flow_ext.dst_id].vsi->vsi_id;
+	else
+		/* Use LAN VSI Id by default */
+		vsi_id = pf->main_vsi->vsi_id;
 	fdirdp->qindex_flex_ptype_vsi |=
-		rte_cpu_to_le_32((pf->main_vsi->vsi_id <<
+		rte_cpu_to_le_32(((uint32_t)vsi_id <<
 				  I40E_TXD_FLTR_QW0_DEST_VSI_SHIFT) &
 				  I40E_TXD_FLTR_QW0_DEST_VSI_MASK);
 
@@ -1107,8 +1109,16 @@ i40e_fdir_filter_programming(struct i40e_pf *pf,
 
 	if (fdir_action->behavior == RTE_ETH_FDIR_REJECT)
 		dest = I40E_FILTER_PROGRAM_DESC_DEST_DROP_PACKET;
-	else
+	else if (fdir_action->behavior == RTE_ETH_FDIR_ACCEPT)
 		dest = I40E_FILTER_PROGRAM_DESC_DEST_DIRECT_PACKET_QINDEX;
+	else if (fdir_action->behavior == RTE_ETH_FDIR_PASSTHRU)
+		dest = I40E_FILTER_PROGRAM_DESC_DEST_DIRECT_PACKET_OTHER;
+	else {
+		PMD_DRV_LOG(ERR, "Failed to program FDIR filter:"
+			    " unsupported fdir behavior.");
+		return -EINVAL;
+	}
+
 	fdirdp->dtype_cmd_cntindex |= rte_cpu_to_le_32((dest <<
 				I40E_TXD_FLTR_QW1_DEST_SHIFT) &
 				I40E_TXD_FLTR_QW1_DEST_MASK);
@@ -1346,6 +1356,33 @@ i40e_fdir_stats_get(struct rte_eth_dev *dev, struct rte_eth_fdir_stats *stat)
 			    I40E_PFQF_FDSTAT_BEST_CNT_SHIFT);
 }
 
+static int
+i40e_fdir_filter_set(struct rte_eth_dev *dev,
+		     struct rte_eth_fdir_filter_info *info)
+{
+	struct i40e_pf *pf = I40E_DEV_PRIVATE_TO_PF(dev->data->dev_private);
+	struct i40e_hw *hw = I40E_PF_TO_HW(pf);
+	int ret = 0;
+
+	if (!info) {
+		PMD_DRV_LOG(ERR, "Invalid pointer");
+		return -EFAULT;
+	}
+
+	switch (info->info_type) {
+	case RTE_ETH_FDIR_FILTER_INPUT_SET_SELECT:
+		ret = i40e_filter_inset_select(hw,
+			&(info->info.input_set_conf), RTE_ETH_FILTER_FDIR);
+		break;
+	default:
+		PMD_DRV_LOG(ERR, "FD filter info type (%d) not supported",
+			    info->info_type);
+		return -EINVAL;
+	}
+
+	return ret;
+}
+
 /*
  * i40e_fdir_ctrl_func - deal with all operations on flow director.
  * @pf: board private structure
@@ -1385,6 +1422,10 @@ i40e_fdir_ctrl_func(struct rte_eth_dev *dev,
 		break;
 	case RTE_ETH_FILTER_INFO:
 		i40e_fdir_info_get(dev, (struct rte_eth_fdir_info *)arg);
+		break;
+	case RTE_ETH_FILTER_SET:
+		ret = i40e_fdir_filter_set(dev,
+			(struct rte_eth_fdir_filter_info *)arg);
 		break;
 	case RTE_ETH_FILTER_STATS:
 		i40e_fdir_stats_get(dev, (struct rte_eth_fdir_stats *)arg);

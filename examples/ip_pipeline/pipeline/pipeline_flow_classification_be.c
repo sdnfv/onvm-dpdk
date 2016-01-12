@@ -37,8 +37,10 @@
 #include <rte_malloc.h>
 #include <rte_table_hash.h>
 #include <rte_byteorder.h>
+#include <pipeline.h>
 
 #include "pipeline_flow_classification_be.h"
+#include "pipeline_actions_common.h"
 #include "hash_func.h"
 
 struct pipeline_flow_classification {
@@ -46,9 +48,14 @@ struct pipeline_flow_classification {
 	pipeline_msg_req_handler custom_handlers[PIPELINE_FC_MSG_REQS];
 
 	uint32_t n_flows;
-	uint32_t key_offset;
 	uint32_t key_size;
+	uint32_t flow_id;
+
+	uint32_t key_offset;
 	uint32_t hash_offset;
+	uint8_t *key_mask;
+	uint32_t flow_id_offset;
+
 } __rte_cache_aligned;
 
 static void *
@@ -104,6 +111,9 @@ static pipeline_msg_req_handler custom_handlers[] = {
  */
 struct flow_table_entry {
 	struct rte_pipeline_table_entry head;
+
+	uint32_t flow_id;
+	uint32_t pad;
 };
 
 rte_table_hash_op_hash hash_func[] = {
@@ -117,6 +127,86 @@ rte_table_hash_op_hash hash_func[] = {
 	hash_default_key64
 };
 
+/*
+ * Flow table AH - Write flow_id to packet meta-data
+ */
+static inline void
+pkt_work_flow_id(
+	struct rte_mbuf *pkt,
+	struct rte_pipeline_table_entry *table_entry,
+	void *arg)
+{
+	struct pipeline_flow_classification *p_fc = arg;
+	uint32_t *flow_id_ptr =
+		RTE_MBUF_METADATA_UINT32_PTR(pkt, p_fc->flow_id_offset);
+	struct flow_table_entry *entry =
+		(struct flow_table_entry *) table_entry;
+
+	/* Read */
+	uint32_t flow_id = entry->flow_id;
+
+	/* Compute */
+
+	/* Write */
+	*flow_id_ptr = flow_id;
+}
+
+static inline void
+pkt4_work_flow_id(
+	struct rte_mbuf **pkts,
+	struct rte_pipeline_table_entry **table_entries,
+	void *arg)
+{
+	struct pipeline_flow_classification *p_fc = arg;
+
+	uint32_t *flow_id_ptr0 =
+		RTE_MBUF_METADATA_UINT32_PTR(pkts[0], p_fc->flow_id_offset);
+	uint32_t *flow_id_ptr1 =
+		RTE_MBUF_METADATA_UINT32_PTR(pkts[1], p_fc->flow_id_offset);
+	uint32_t *flow_id_ptr2 =
+		RTE_MBUF_METADATA_UINT32_PTR(pkts[2], p_fc->flow_id_offset);
+	uint32_t *flow_id_ptr3 =
+		RTE_MBUF_METADATA_UINT32_PTR(pkts[3], p_fc->flow_id_offset);
+
+	struct flow_table_entry *entry0 =
+		(struct flow_table_entry *) table_entries[0];
+	struct flow_table_entry *entry1 =
+		(struct flow_table_entry *) table_entries[1];
+	struct flow_table_entry *entry2 =
+		(struct flow_table_entry *) table_entries[2];
+	struct flow_table_entry *entry3 =
+		(struct flow_table_entry *) table_entries[3];
+
+	/* Read */
+	uint32_t flow_id0 = entry0->flow_id;
+	uint32_t flow_id1 = entry1->flow_id;
+	uint32_t flow_id2 = entry2->flow_id;
+	uint32_t flow_id3 = entry3->flow_id;
+
+	/* Compute */
+
+	/* Write */
+	*flow_id_ptr0 = flow_id0;
+	*flow_id_ptr1 = flow_id1;
+	*flow_id_ptr2 = flow_id2;
+	*flow_id_ptr3 = flow_id3;
+}
+
+PIPELINE_TABLE_AH_HIT(fc_table_ah_hit,
+		pkt_work_flow_id, pkt4_work_flow_id);
+
+static rte_pipeline_table_action_handler_hit
+get_fc_table_ah_hit(struct pipeline_flow_classification *p)
+{
+	if (p->flow_id)
+		return fc_table_ah_hit;
+
+	return NULL;
+}
+
+/*
+ * Argument parsing
+ */
 static int
 pipeline_fc_parse_args(struct pipeline_flow_classification *p,
 	struct pipeline_params *params)
@@ -125,8 +215,16 @@ pipeline_fc_parse_args(struct pipeline_flow_classification *p,
 	uint32_t key_offset_present = 0;
 	uint32_t key_size_present = 0;
 	uint32_t hash_offset_present = 0;
+	uint32_t key_mask_present = 0;
+	uint32_t flow_id_offset_present = 0;
 
 	uint32_t i;
+	char *key_mask_str = NULL;
+
+	p->hash_offset = 0;
+
+	/* default values */
+	p->flow_id = 0;
 
 	for (i = 0; i < params->n_args; i++) {
 		char *arg_name = params->args_name[i];
@@ -135,12 +233,12 @@ pipeline_fc_parse_args(struct pipeline_flow_classification *p,
 		/* n_flows */
 		if (strcmp(arg_name, "n_flows") == 0) {
 			if (n_flows_present)
-				return -1;
+				goto error_parse;
 			n_flows_present = 1;
 
 			p->n_flows = atoi(arg_value);
 			if (p->n_flows == 0)
-				return -1;
+				goto error_parse;
 
 			continue;
 		}
@@ -148,7 +246,8 @@ pipeline_fc_parse_args(struct pipeline_flow_classification *p,
 		/* key_offset */
 		if (strcmp(arg_name, "key_offset") == 0) {
 			if (key_offset_present)
-				return -1;
+				goto error_parse;
+
 			key_offset_present = 1;
 
 			p->key_offset = atoi(arg_value);
@@ -159,14 +258,28 @@ pipeline_fc_parse_args(struct pipeline_flow_classification *p,
 		/* key_size */
 		if (strcmp(arg_name, "key_size") == 0) {
 			if (key_size_present)
-				return -1;
+				goto error_parse;
 			key_size_present = 1;
 
 			p->key_size = atoi(arg_value);
 			if ((p->key_size == 0) ||
 				(p->key_size > PIPELINE_FC_FLOW_KEY_MAX_SIZE) ||
 				(p->key_size % 8))
-				return -1;
+				goto error_parse;
+
+			continue;
+		}
+
+		/* key_mask */
+		if (strcmp(arg_name, "key_mask") == 0) {
+			if (key_mask_present)
+				goto error_parse;
+
+			key_mask_str = strdup(arg_value);
+			if (key_mask_str == NULL)
+				goto error_parse;
+
+			key_mask_present = 1;
 
 			continue;
 		}
@@ -174,7 +287,7 @@ pipeline_fc_parse_args(struct pipeline_flow_classification *p,
 		/* hash_offset */
 		if (strcmp(arg_name, "hash_offset") == 0) {
 			if (hash_offset_present)
-				return -1;
+				goto error_parse;
 			hash_offset_present = 1;
 
 			p->hash_offset = atoi(arg_value);
@@ -182,18 +295,49 @@ pipeline_fc_parse_args(struct pipeline_flow_classification *p,
 			continue;
 		}
 
+		/* flow_id_offset */
+		if (strcmp(arg_name, "flowid_offset") == 0) {
+			if (flow_id_offset_present)
+				goto error_parse;
+			flow_id_offset_present = 1;
+
+			p->flow_id = 1;
+			p->flow_id_offset = atoi(arg_value);
+
+			continue;
+		}
+
 		/* Unknown argument */
-		return -1;
+		goto error_parse;
 	}
 
 	/* Check that mandatory arguments are present */
 	if ((n_flows_present == 0) ||
 		(key_offset_present == 0) ||
-		(key_size_present == 0) ||
-		(hash_offset_present == 0))
-		return -1;
+		(key_size_present == 0))
+		goto error_parse;
+
+	if (key_mask_present) {
+		p->key_mask = rte_malloc(NULL, p->key_size, 0);
+		if (p->key_mask == NULL)
+			goto error_parse;
+
+		if (parse_hex_string(key_mask_str, p->key_mask, &p->key_size)
+			!= 0) {
+			goto error_parse;
+		}
+
+		free(key_mask_str);
+	}
 
 	return 0;
+
+error_parse:
+	if (key_mask_str != NULL)
+		free(key_mask_str);
+	if (p->key_mask != NULL)
+		free(p->key_mask);
+	return -1;
 }
 
 static void *pipeline_fc_init(struct pipeline_params *params,
@@ -297,6 +441,7 @@ static void *pipeline_fc_init(struct pipeline_params *params,
 			.signature_offset = p_fc->hash_offset,
 			.key_offset = p_fc->key_offset,
 			.f_hash = hash_func[(p_fc->key_size / 8) - 1],
+			.key_mask = p_fc->key_mask,
 			.seed = 0,
 		};
 
@@ -307,6 +452,7 @@ static void *pipeline_fc_init(struct pipeline_params *params,
 			.signature_offset = p_fc->hash_offset,
 			.key_offset = p_fc->key_offset,
 			.f_hash = hash_func[(p_fc->key_size / 8) - 1],
+			.key_mask = p_fc->key_mask,
 			.seed = 0,
 		};
 
@@ -325,9 +471,9 @@ static void *pipeline_fc_init(struct pipeline_params *params,
 		struct rte_pipeline_table_params table_params = {
 			.ops = NULL, /* set below */
 			.arg_create = NULL, /* set below */
-			.f_action_hit = NULL,
+			.f_action_hit = get_fc_table_ah_hit(p_fc),
 			.f_action_miss = NULL,
-			.arg_ah = NULL,
+			.arg_ah = p_fc,
 			.action_data_size = sizeof(struct flow_table_entry) -
 				sizeof(struct rte_pipeline_table_entry),
 		};
@@ -336,12 +482,24 @@ static void *pipeline_fc_init(struct pipeline_params *params,
 
 		switch (p_fc->key_size) {
 		case 8:
-			table_params.ops = &rte_table_hash_key8_lru_ops;
+			if (p_fc->hash_offset != 0) {
+				table_params.ops =
+					&rte_table_hash_key8_ext_ops;
+			} else {
+				table_params.ops =
+					&rte_table_hash_key8_ext_dosig_ops;
+			}
 			table_params.arg_create = &table_hash_key8_params;
 			break;
 
 		case 16:
-			table_params.ops = &rte_table_hash_key16_ext_ops;
+			if (p_fc->hash_offset != 0) {
+				table_params.ops =
+					&rte_table_hash_key16_ext_ops;
+			} else {
+				table_params.ops =
+					&rte_table_hash_key16_ext_dosig_ops;
+			}
 			table_params.arg_create = &table_hash_key16_params;
 			break;
 
@@ -485,6 +643,7 @@ pipeline_fc_msg_req_add_handler(struct pipeline *p, void *msg)
 			.action = RTE_PIPELINE_ACTION_PORT,
 			{.port_id = p->port_out_id[req->port_id]},
 		},
+		.flow_id = req->flow_id,
 	};
 
 	rsp->status = rte_pipeline_table_entry_add(p->p,
@@ -513,6 +672,7 @@ pipeline_fc_msg_req_add_bulk_handler(struct pipeline *p, void *msg)
 				.action = RTE_PIPELINE_ACTION_PORT,
 				{.port_id = p->port_out_id[flow_req->port_id]},
 			},
+			.flow_id = flow_req->flow_id,
 		};
 
 		int status = rte_pipeline_table_entry_add(p->p,
@@ -558,6 +718,8 @@ pipeline_fc_msg_req_add_default_handler(struct pipeline *p, void *msg)
 			.action = RTE_PIPELINE_ACTION_PORT,
 			{.port_id = p->port_out_id[req->port_id]},
 		},
+
+		.flow_id = 0,
 	};
 
 	rsp->status = rte_pipeline_table_default_entry_add(p->p,

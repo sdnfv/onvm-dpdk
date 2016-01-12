@@ -103,7 +103,11 @@ rte_table_lpm_create(void *params, int socket_id, uint32_t entry_size)
 			__func__);
 		return NULL;
 	}
-
+	if (p->name == NULL) {
+		RTE_LOG(ERR, TABLE, "%s: Table name is NULL\n",
+			__func__);
+		return NULL;
+	}
 	entry_size = RTE_ALIGN(entry_size, sizeof(uint64_t));
 
 	/* Memory allocation */
@@ -119,7 +123,7 @@ rte_table_lpm_create(void *params, int socket_id, uint32_t entry_size)
 	}
 
 	/* LPM low-level table creation */
-	lpm->lpm = rte_lpm_create("LPM", socket_id, p->n_rules, 0);
+	lpm->lpm = rte_lpm_create(p->name, socket_id, p->n_rules, 0);
 	if (lpm->lpm == NULL) {
 		rte_free(lpm);
 		RTE_LOG(ERR, TABLE, "Unable to create low-level LPM table\n");
@@ -373,6 +377,8 @@ struct rte_table_ops rte_table_lpm_ops = {
 	.f_free = rte_table_lpm_free,
 	.f_add = rte_table_lpm_entry_add,
 	.f_delete = rte_table_lpm_entry_delete,
+	.f_add_bulk = NULL,
+	.f_delete_bulk = NULL,
 	.f_lookup = rte_table_lpm_lookup,
 	.f_stats = rte_table_lpm_stats_read,
 };

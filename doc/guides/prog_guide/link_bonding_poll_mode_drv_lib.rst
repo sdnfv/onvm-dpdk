@@ -1,5 +1,5 @@
 ..  BSD LICENSE
-    Copyright(c) 2010-2014 Intel Corporation. All rights reserved.
+    Copyright(c) 2010-2015 Intel Corporation. All rights reserved.
     All rights reserved.
 
     Redistribution and use in source and binary forms, with or without
@@ -173,7 +173,28 @@ After a slave device is added to a bonded device slave is stopped using
 ``rte_eth_dev_stop`` and then reconfigured using ``rte_eth_dev_configure``
 the RX and TX queues are also reconfigured using ``rte_eth_tx_queue_setup`` /
 ``rte_eth_rx_queue_setup`` with the parameters use to configure the bonding
-device.
+device. If RSS is enabled for bonding device, this mode is also enabled on new
+slave and configured as well.
+
+Setting up multi-queue mode for bonding device to RSS, makes it fully
+RSS-capable, so all slaves are synchronized with its configuration. This mode is
+intended to provide RSS configuration on slaves transparent for client
+application implementation.
+
+Bonding device stores its own version of RSS settings i.e. RETA, RSS hash
+function and RSS key, used to set up its slaves. That let to define the meaning
+of RSS configuration of bonding device as desired configuration of whole bonding
+(as one unit), without pointing any of slave inside. It is required to ensure
+consistency and made it more error-proof.
+
+RSS hash function set for bonding device, is a maximal set of RSS hash functions
+supported by all bonded slaves. RETA size is a GCD of all its RETA's sizes, so
+it can be easily used as a pattern providing expected behavior, even if slave
+RETAs' sizes are different. If RSS Key is not set for bonded device, it's not
+changed on the slaves and default key for device is used.
+
+All settings are managed through the bonding port API and always are propagated
+in one direction (from bonding to slaves).
 
 Link Status Change Interrupts / Polling
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -188,7 +209,7 @@ conditions are not met. If a user wishes to monitor individual slaves then they
 must register callbacks with that slave directly.
 
 The link bonding library also supports devices which do not implement link
-status change interrupts, this is achieve by polling the devices link status at
+status change interrupts, this is achieved by polling the devices link status at
 a defined period which is set using the ``rte_eth_bond_link_monitoring_set``
 API, the default polling interval is 10ms. When a device is added as a slave to
 a bonding device it is determined using the ``RTE_PCI_DRV_INTR_LSC`` flag
@@ -206,6 +227,15 @@ these parameters.
 
 A bonding device must have a minimum of one slave before the bonding device
 itself can be started.
+
+To use a bonding device dynamic RSS configuration feature effectively, it is
+also required, that all slaves should be RSS-capable and support, at least one
+common hash function available for each of them. Changing RSS key is only
+possible, when all slave devices support the same key size.
+
+To prevent inconsistency on how slaves process packets, once a device is added
+to a bonding device, RSS configuration should be managed through the bonding
+device API, and not directly on the slave.
 
 Like all other PMD, all functions exported by a PMD are lock-free functions
 that are assumed not to be invoked in parallel on different logical cores to
@@ -286,7 +316,7 @@ and UDP protocols for load balancing.
 Using Link Bonding Devices
 --------------------------
 
-The librte_pmd_bond library support two modes of device creation, the libraries
+The librte_pmd_bond library supports two modes of device creation, the libraries
 export full C API or using the EAL command line to statically configure link
 bonding devices at application startup. Using the EAL option it is possible to
 use link bonding functionality transparently without specific knowledge of the
@@ -299,7 +329,7 @@ Using the Poll Mode Driver from an Application
 
 Using the librte_pmd_bond libraries API it is possible to dynamically create
 and manage link bonding device from within any application. Link bonding
-device are created using the ``rte_eth_bond_create`` API which requires a
+devices are created using the ``rte_eth_bond_create`` API which requires a
 unique device name, the link bonding mode to initial the device in and finally
 the socket Id which to allocate the devices resources onto. After successful
 creation of a bonding device it must be configured using the generic Ethernet
@@ -362,7 +392,7 @@ The different options are:
         mode=2
 
 *   slave: Defines the PMD device which will be added as slave to the bonded
-    device. This option can be selected multiple time, for each device to be
+    device. This option can be selected multiple times, for each device to be
     added as a slave. Physical devices should be specified using their PCI
     address, in the format domain:bus:devid.function
 

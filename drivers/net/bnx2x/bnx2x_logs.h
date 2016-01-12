@@ -1,7 +1,11 @@
 /*
  * Copyright (c) 2013-2015 Brocade Communications Systems, Inc.
  *
+ * Copyright (c) 2015 QLogic Corporation.
  * All rights reserved.
+ * www.qlogic.com
+ *
+ * See LICENSE.bnx2x_pmd for copyright and licensing details.
  */
 
 #ifndef _PMD_LOGS_H_
@@ -46,5 +50,13 @@
 
 #define PMD_DRV_LOG(level, fmt, args...) \
 	PMD_DRV_LOG_RAW(level, fmt "\n", ## args)
+
+#ifdef RTE_LIBRTE_BNX2X_DEBUG_PERIODIC
+#define PMD_DEBUG_PERIODIC_LOG(level, fmt, args...) \
+	RTE_LOG(level, PMD, "%s(): " fmt "\n", __func__, ## args)
+#else
+#define PMD_DEBUG_PERIODIC_LOG(level, fmt, args...) do { } while(0)
+#endif
+
 
 #endif /* _PMD_LOGS_H_ */

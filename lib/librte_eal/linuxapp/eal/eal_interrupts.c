@@ -45,6 +45,7 @@
 #include <sys/signalfd.h>
 #include <sys/ioctl.h>
 #include <sys/eventfd.h>
+#include <assert.h>
 
 #include <rte_common.h>
 #include <rte_interrupts.h>
@@ -67,6 +68,7 @@
 
 #include "eal_private.h"
 #include "eal_vfio.h"
+#include "eal_thread.h"
 
 #define EAL_INTR_EPOLL_WAIT_FOREVER (-1)
 #define NB_OTHER_INTR               1
@@ -290,26 +292,20 @@ vfio_enable_msix(struct rte_intr_handle *intr_handle) {
 
 	irq_set = (struct vfio_irq_set *) irq_set_buf;
 	irq_set->argsz = len;
-#ifdef RTE_NEXT_ABI
 	if (!intr_handle->max_intr)
 		intr_handle->max_intr = 1;
 	else if (intr_handle->max_intr > RTE_MAX_RXTX_INTR_VEC_ID)
 		intr_handle->max_intr = RTE_MAX_RXTX_INTR_VEC_ID + 1;
 
 	irq_set->count = intr_handle->max_intr;
-#else
-	irq_set->count = 1;
-#endif
 	irq_set->flags = VFIO_IRQ_SET_DATA_EVENTFD | VFIO_IRQ_SET_ACTION_TRIGGER;
 	irq_set->index = VFIO_PCI_MSIX_IRQ_INDEX;
 	irq_set->start = 0;
 	fd_ptr = (int *) &irq_set->data;
-#ifdef RTE_NEXT_ABI
-	memcpy(fd_ptr, intr_handle->efds, sizeof(intr_handle->efds));
-	fd_ptr[intr_handle->max_intr - 1] = intr_handle->fd;
-#else
-	fd_ptr[0] = intr_handle->fd;
-#endif
+	/* INTR vector offset 0 reserve for non-efds mapping */
+	fd_ptr[RTE_INTR_VEC_ZERO_OFFSET] = intr_handle->fd;
+	memcpy(&fd_ptr[RTE_INTR_VEC_RXTX_OFFSET], intr_handle->efds,
+		sizeof(*intr_handle->efds) * intr_handle->nb_efd);
 
 	ret = ioctl(intr_handle->vfio_dev_fd, VFIO_DEVICE_SET_IRQS, irq_set);
 
@@ -699,26 +695,30 @@ eal_intr_process_interrupts(struct epoll_event *events, int nfds)
 			bytes_read = sizeof(buf.vfio_intr_count);
 			break;
 #endif
+		case RTE_INTR_HANDLE_EXT:
 		default:
 			bytes_read = 1;
 			break;
 		}
 
-		/**
-		 * read out to clear the ready-to-be-read flag
-		 * for epoll_wait.
-		 */
-		bytes_read = read(events[n].data.fd, &buf, bytes_read);
-		if (bytes_read < 0) {
-			if (errno == EINTR || errno == EWOULDBLOCK)
-				continue;
+		if (src->intr_handle.type != RTE_INTR_HANDLE_EXT) {
+			/**
+			 * read out to clear the ready-to-be-read flag
+			 * for epoll_wait.
+			 */
+			bytes_read = read(events[n].data.fd, &buf, bytes_read);
+			if (bytes_read < 0) {
+				if (errno == EINTR || errno == EWOULDBLOCK)
+					continue;
 
-			RTE_LOG(ERR, EAL, "Error reading from file "
-				"descriptor %d: %s\n", events[n].data.fd,
-							strerror(errno));
-		} else if (bytes_read == 0)
-			RTE_LOG(ERR, EAL, "Read nothing from file "
-				"descriptor %d\n", events[n].data.fd);
+				RTE_LOG(ERR, EAL, "Error reading from file "
+					"descriptor %d: %s\n",
+					events[n].data.fd,
+					strerror(errno));
+			} else if (bytes_read == 0)
+				RTE_LOG(ERR, EAL, "Read nothing from file "
+					"descriptor %d\n", events[n].data.fd);
+		}
 
 		/* grab a lock, again to call callbacks and update status. */
 		rte_spinlock_lock(&intr_lock);
@@ -864,7 +864,8 @@ eal_intr_thread_main(__rte_unused void *arg)
 int
 rte_eal_intr_init(void)
 {
-	int ret = 0;
+	int ret = 0, ret_1 = 0;
+	char thread_name[RTE_MAX_THREAD_NAME_LEN];
 
 	/* init the global interrupt source head */
 	TAILQ_INIT(&intr_sources);
@@ -879,19 +880,28 @@ rte_eal_intr_init(void)
 	/* create the host thread to wait/handle the interrupt */
 	ret = pthread_create(&intr_thread, NULL,
 			eal_intr_thread_main, NULL);
-	if (ret != 0)
+	if (ret != 0) {
 		RTE_LOG(ERR, EAL,
 			"Failed to create thread for interrupt handling\n");
+	} else {
+		/* Set thread_name for aid in debugging. */
+		snprintf(thread_name, RTE_MAX_THREAD_NAME_LEN,
+			"eal-intr-thread");
+		ret_1 = rte_thread_setname(intr_thread, thread_name);
+		if (ret_1 != 0)
+			RTE_LOG(ERR, EAL,
+			"Failed to set thread name for interrupt handling\n");
+	}
 
 	return -ret;
 }
 
-#ifdef RTE_NEXT_ABI
 static void
 eal_intr_proc_rxtx_intr(int fd, const struct rte_intr_handle *intr_handle)
 {
 	union rte_intr_read_buffer buf;
 	int bytes_read = 1;
+	int nbytes;
 
 	switch (intr_handle->type) {
 	case RTE_INTR_HANDLE_UIO:
@@ -916,20 +926,19 @@ eal_intr_proc_rxtx_intr(int fd, const struct rte_intr_handle *intr_handle)
 	 * for epoll_wait.
 	 */
 	do {
-		bytes_read = read(fd, &buf, bytes_read);
-		if (bytes_read < 0) {
+		nbytes = read(fd, &buf, bytes_read);
+		if (nbytes < 0) {
 			if (errno == EINTR || errno == EWOULDBLOCK ||
 			    errno == EAGAIN)
 				continue;
 			RTE_LOG(ERR, EAL,
 				"Error reading from fd %d: %s\n",
 				fd, strerror(errno));
-		} else if (bytes_read == 0)
+		} else if (nbytes == 0)
 			RTE_LOG(ERR, EAL, "Read nothing from fd %d\n", fd);
 		return;
 	} while (1);
 }
-#endif
 
 static int
 eal_epoll_process_event(struct epoll_event *evs, unsigned int n,
@@ -1012,6 +1021,9 @@ rte_epoll_wait(int epfd, struct rte_epoll_event *events,
 				strerror(errno));
 			rc = -1;
 			break;
+		} else {
+			/* rc == 0, epoll_wait timed out */
+			break;
 		}
 	}
 
@@ -1068,7 +1080,6 @@ rte_epoll_ctl(int epfd, int op, int fd,
 	return 0;
 }
 
-#ifdef RTE_NEXT_ABI
 int
 rte_intr_rx_ctl(struct rte_intr_handle *intr_handle, int epfd,
 		int op, unsigned int vec, void *data)
@@ -1076,10 +1087,14 @@ rte_intr_rx_ctl(struct rte_intr_handle *intr_handle, int epfd,
 	struct rte_epoll_event *rev;
 	struct rte_epoll_data *epdata;
 	int epfd_op;
+	unsigned int efd_idx;
 	int rc = 0;
 
+	efd_idx = (vec >= RTE_INTR_VEC_RXTX_OFFSET) ?
+		(vec - RTE_INTR_VEC_RXTX_OFFSET) : vec;
+
 	if (!intr_handle || intr_handle->nb_efd == 0 ||
-	    vec >= intr_handle->nb_efd) {
+	    efd_idx >= intr_handle->nb_efd) {
 		RTE_LOG(ERR, EAL, "Wrong intr vector number.\n");
 		return -EPERM;
 	}
@@ -1087,7 +1102,7 @@ rte_intr_rx_ctl(struct rte_intr_handle *intr_handle, int epfd,
 	switch (op) {
 	case RTE_INTR_EVENT_ADD:
 		epfd_op = EPOLL_CTL_ADD;
-		rev = &intr_handle->elist[vec];
+		rev = &intr_handle->elist[efd_idx];
 		if (rev->status != RTE_EPOLL_INVALID) {
 			RTE_LOG(INFO, EAL, "Event already been added.\n");
 			return -EEXIST;
@@ -1099,7 +1114,8 @@ rte_intr_rx_ctl(struct rte_intr_handle *intr_handle, int epfd,
 		epdata->data   = data;
 		epdata->cb_fun = (rte_intr_event_cb_t)eal_intr_proc_rxtx_intr;
 		epdata->cb_arg = (void *)intr_handle;
-		rc = rte_epoll_ctl(epfd, epfd_op, intr_handle->efds[vec], rev);
+		rc = rte_epoll_ctl(epfd, epfd_op,
+				   intr_handle->efds[efd_idx], rev);
 		if (!rc)
 			RTE_LOG(DEBUG, EAL,
 				"efd %d associated with vec %d added on epfd %d"
@@ -1109,7 +1125,7 @@ rte_intr_rx_ctl(struct rte_intr_handle *intr_handle, int epfd,
 		break;
 	case RTE_INTR_EVENT_DEL:
 		epfd_op = EPOLL_CTL_DEL;
-		rev = &intr_handle->elist[vec];
+		rev = &intr_handle->elist[efd_idx];
 		if (rev->status == RTE_EPOLL_INVALID) {
 			RTE_LOG(INFO, EAL, "Event does not exist.\n");
 			return -EPERM;
@@ -1133,6 +1149,8 @@ rte_intr_efd_enable(struct rte_intr_handle *intr_handle, uint32_t nb_efd)
 	uint32_t i;
 	int fd;
 	uint32_t n = RTE_MIN(nb_efd, (uint32_t)RTE_MAX_RXTX_INTR_VEC_ID);
+
+	assert(nb_efd != 0);
 
 	if (intr_handle->type == RTE_INTR_HANDLE_VFIO_MSIX) {
 		for (i = 0; i < n; i++) {
@@ -1190,47 +1208,17 @@ rte_intr_dp_is_en(struct rte_intr_handle *intr_handle)
 int
 rte_intr_allow_others(struct rte_intr_handle *intr_handle)
 {
-	return !!(intr_handle->max_intr - intr_handle->nb_efd);
-}
-
-#else
-int
-rte_intr_rx_ctl(struct rte_intr_handle *intr_handle,
-		int epfd, int op, unsigned int vec, void *data)
-{
-	RTE_SET_USED(intr_handle);
-	RTE_SET_USED(epfd);
-	RTE_SET_USED(op);
-	RTE_SET_USED(vec);
-	RTE_SET_USED(data);
-	return -ENOTSUP;
+	if (!rte_intr_dp_is_en(intr_handle))
+		return 1;
+	else
+		return !!(intr_handle->max_intr - intr_handle->nb_efd);
 }
 
 int
-rte_intr_efd_enable(struct rte_intr_handle *intr_handle, uint32_t nb_efd)
+rte_intr_cap_multiple(struct rte_intr_handle *intr_handle)
 {
-	RTE_SET_USED(intr_handle);
-	RTE_SET_USED(nb_efd);
+	if (intr_handle->type == RTE_INTR_HANDLE_VFIO_MSIX)
+		return 1;
+
 	return 0;
 }
-
-void
-rte_intr_efd_disable(struct rte_intr_handle *intr_handle)
-{
-	RTE_SET_USED(intr_handle);
-}
-
-int
-rte_intr_dp_is_en(struct rte_intr_handle *intr_handle)
-{
-	RTE_SET_USED(intr_handle);
-	return 0;
-}
-
-int
-rte_intr_allow_others(struct rte_intr_handle *intr_handle)
-{
-	RTE_SET_USED(intr_handle);
-	return 1;
-}
-#endif

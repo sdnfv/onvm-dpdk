@@ -80,6 +80,7 @@ struct mpipe_context {
 
 static struct mpipe_context mpipe_contexts[GXIO_MPIPE_INSTANCE_MAX];
 static int mpipe_instances;
+static const char *drivername = "MPIPE PMD";
 
 /* Per queue statistics. */
 struct mpipe_queue_stats {
@@ -122,7 +123,6 @@ struct mpipe_dev_priv {
 	int channel;			/* Device channel. */
 	int port_id;			/* DPDK port index. */
 	struct rte_eth_dev *eth_dev;	/* DPDK device. */
-	struct rte_pci_device pci_dev;	/* PCI device data. */
 	struct rte_mbuf **tx_comps;	/* TX completion array. */
 	struct rte_mempool *rx_mpool;	/* mpool used by the rx queues. */
 	unsigned rx_offset;		/* Receive head room. */
@@ -1567,7 +1567,6 @@ rte_pmd_mpipe_devinit(const char *ifname,
 	priv->context = context;
 	priv->instance = instance;
 	priv->is_xaui = (strncmp(ifname, "xgbe", 4) == 0);
-	priv->pci_dev.numa_node = instance;
 	priv->channel = -1;
 
 	mac = priv->mac_addr.addr_bytes;
@@ -1582,6 +1581,7 @@ rte_pmd_mpipe_devinit(const char *ifname,
 	if (!eth_dev) {
 		RTE_LOG(ERR, PMD, "%s: Failed to allocate device.\n", ifname);
 		rte_free(priv);
+		return -ENOMEM;
 	}
 
 	RTE_LOG(INFO, PMD, "%s: Initialized mpipe device"
@@ -1591,8 +1591,13 @@ rte_pmd_mpipe_devinit(const char *ifname,
 	priv->eth_dev = eth_dev;
 	priv->port_id = eth_dev->data->port_id;
 	eth_dev->data->dev_private = priv;
-	eth_dev->pci_dev = &priv->pci_dev;
 	eth_dev->data->mac_addrs = &priv->mac_addr;
+
+	eth_dev->data->dev_flags = 0;
+	eth_dev->data->kdrv = RTE_KDRV_NONE;
+	eth_dev->driver = NULL;
+	eth_dev->data->drv_name = drivername;
+	eth_dev->data->numa_node = instance;
 
 	eth_dev->dev_ops      = &mpipe_dev_ops;
 	eth_dev->rx_pkt_burst = &mpipe_recv_pkts;

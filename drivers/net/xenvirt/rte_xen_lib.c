@@ -1,7 +1,7 @@
 /*-
  *   BSD LICENSE
  *
- *   Copyright(c) 2010-2014 Intel Corporation. All rights reserved.
+ *   Copyright(c) 2010-2015 Intel Corporation. All rights reserved.
  *   All rights reserved.
  *
  *   Redistribution and use in source and binary forms, with or without
@@ -50,6 +50,7 @@
 
 #include <rte_common.h>
 #include <rte_string_fns.h>
+#include <rte_malloc.h>
 
 #include "rte_xen_lib.h"
 
@@ -72,6 +73,8 @@ int gntalloc_fd = -1;
 static char *dompath = NULL;
 /* handle to xenstore read/write operations */
 static struct xs_handle *xs = NULL;
+/* flag to indicate if xenstore cleanup is required */
+static bool is_xenstore_cleaned_up;
 
 /*
  * Reserve a virtual address space.
@@ -112,8 +115,8 @@ get_phys_map(void *va, phys_addr_t pa[], uint32_t pg_num, uint32_t pg_sz)
 			(rc = pread(fd, pa, nb, ofs)) < 0 ||
 			(rc -= nb) != 0) {
 		RTE_LOG(ERR, PMD, "%s: failed read of %u bytes from \'%s\' "
-			"at offset %zu, error code: %d\n",
-			__func__, nb, PAGEMAP_FNAME, ofs, errno);
+			"at offset %lu, error code: %d\n",
+			__func__, nb, PAGEMAP_FNAME, (unsigned long)ofs, errno);
 		rc = ENOENT;
 	}
 
@@ -275,7 +278,6 @@ xenstore_init(void)
 {
 	unsigned int len, domid;
 	char *buf;
-	static int cleanup = 0;
 	char *end;
 
 	xs = xs_domain_open();
@@ -301,11 +303,27 @@ xenstore_init(void)
 
 	xs_transaction_start(xs); /* When to stop transaction */
 
-	if (cleanup == 0) {
+	if (is_xenstore_cleaned_up == 0) {
 		if (xenstore_cleanup())
 			return -1;
-		cleanup = 1;
+		is_xenstore_cleaned_up = 1;
 	}
+
+	return 0;
+}
+
+int
+xenstore_uninit(void)
+{
+	xs_close(xs);
+
+	if (is_xenstore_cleaned_up == 0) {
+		if (xenstore_cleanup())
+			return -1;
+		is_xenstore_cleaned_up = 1;
+	}
+	free(dompath);
+	dompath = NULL;
 
 	return 0;
 }
@@ -344,7 +362,7 @@ grant_node_create(uint32_t pg_num, uint32_t *gref_arr, phys_addr_t *pa_arr, char
 	uint32_t pg_shift;
 	void *ptr = NULL;
 	uint32_t count, entries_per_pg;
-	uint32_t i, j = 0, k = 0;;
+	uint32_t i, j = 0, k = 0;
 	uint32_t *gref_tmp;
 	int first = 1;
 	char tmp_str[PATH_MAX] = {0};

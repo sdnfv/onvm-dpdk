@@ -66,6 +66,7 @@
 static rte_hash_function hashtest_funcs[] = {rte_jhash, rte_hash_crc};
 static uint32_t hashtest_initvals[] = {0};
 static uint32_t hashtest_key_lens[] = {0, 2, 4, 5, 6, 7, 8, 10, 11, 15, 16, 21, 31, 32, 33, 63, 64};
+#define MAX_KEYSIZE 64
 /******************************************************************************/
 #define LOCAL_FBK_HASH_ENTRIES_MAX (1 << 15)
 
@@ -216,6 +217,13 @@ test_crc32_hash_alg_equiv(void)
 			printf("Failed checking CRC32_SW against CRC32_SSE42_x64\n");
 			break;
 		}
+
+		/* Check against 8-byte-operand ARM64 CRC32 if available */
+		rte_hash_crc_set_alg(CRC32_ARM64);
+		if (hash_val != rte_hash_crc(data64, data_len, init_val)) {
+			printf("Failed checking CRC32_SW against CRC32_ARM64\n");
+			break;
+		}
 	}
 
 	/* Resetting to best available algorithm */
@@ -238,7 +246,7 @@ test_crc32_hash_alg_equiv(void)
 static void run_hash_func_test(rte_hash_function f, uint32_t init_val,
 		uint32_t key_len)
 {
-	static uint8_t key[RTE_HASH_KEY_LENGTH_MAX];
+	static uint8_t key[MAX_KEYSIZE];
 	unsigned i;
 
 
@@ -1100,7 +1108,7 @@ test_hash_creation_with_good_parameters(void)
 static int test_average_table_utilization(void)
 {
 	struct rte_hash *handle;
-	uint8_t simple_key[RTE_HASH_KEY_LENGTH_MAX];
+	uint8_t simple_key[MAX_KEYSIZE];
 	unsigned i, j;
 	unsigned added_keys, average_keys_added = 0;
 	int ret;
@@ -1154,7 +1162,7 @@ static int test_hash_iteration(void)
 {
 	struct rte_hash *handle;
 	unsigned i;
-	uint8_t keys[NUM_ENTRIES][RTE_HASH_KEY_LENGTH_MAX];
+	uint8_t keys[NUM_ENTRIES][MAX_KEYSIZE];
 	const void *next_key;
 	void *next_data;
 	void *data[NUM_ENTRIES];

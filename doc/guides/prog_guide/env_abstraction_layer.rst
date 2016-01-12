@@ -115,7 +115,7 @@ The physical address of the reserved memory for that memory zone is also returne
 
 .. note::
 
-    Memory reservations done using the APIs provided by the rte_malloc library are also backed by pages from the hugetlbfs filesystem.
+    Memory reservations done using the APIs provided by rte_malloc are also backed by pages from the hugetlbfs filesystem.
 
 Xen Dom0 support without hugetbls
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -555,7 +555,7 @@ The most important fields in the structure and how they are used are described b
 Memory Allocation
 ^^^^^^^^^^^^^^^^^
 
-On EAL initialisation, all memsegs are setup as part of the malloc heap.
+On EAL initialization, all memsegs are setup as part of the malloc heap.
 This setup involves placing a dummy structure at the end with ``BUSY`` state,
 which may contain a sentinel value if ``CONFIG_RTE_MALLOC_DEBUG`` is enabled,
 and a proper :ref:`element header<malloc_elem>` with ``FREE`` at the start

@@ -74,7 +74,6 @@ The lib directory contains::
     +-- librte_kni          # Kernel NIC interface
     +-- librte_kvargs       # Argument parsing library
     +-- librte_lpm          # Longest prefix match library
-    +-- librte_malloc       # Malloc-like functions
     +-- librte_mbuf         # Packet and control mbuf manipulation
     +-- librte_mempool      # Memory pool manager (fixed sized objects)
     +-- librte_meter        # QoS metering library
@@ -107,6 +106,7 @@ The drivers directory has a *net* subdirectory which contains::
     +-- null               # NULL poll mode driver for testing
     +-- pcap               # PCAP poll mode driver
     +-- ring               # Ring poll mode driver
+    +-- szedata2           # SZEDATA2 poll mode driver
     +-- virtio             # Virtio poll mode driver
     +-- vmxnet3            # VMXNET3 poll mode driver
     +-- xenvirt            # Xen virtio poll mode driver

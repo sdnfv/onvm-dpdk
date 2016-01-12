@@ -60,7 +60,7 @@ extern "C" {
 /**
  * Minor version number i.e. the y in x.y.z
  */
-#define RTE_VER_MINOR 1
+#define RTE_VER_MINOR 2
 
 /**
  * Patch level number i.e. the z in x.y.z

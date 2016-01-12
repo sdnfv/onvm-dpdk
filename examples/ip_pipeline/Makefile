@@ -54,6 +54,7 @@ SRCS-$(CONFIG_RTE_LIBRTE_PIPELINE) += config_parse_tm.c
 SRCS-$(CONFIG_RTE_LIBRTE_PIPELINE) += config_check.c
 SRCS-$(CONFIG_RTE_LIBRTE_PIPELINE) += init.c
 SRCS-$(CONFIG_RTE_LIBRTE_PIPELINE) += thread.c
+SRCS-$(CONFIG_RTE_LIBRTE_PIPELINE) += thread_fe.c
 SRCS-$(CONFIG_RTE_LIBRTE_PIPELINE) += cpu_core_map.c
 
 SRCS-$(CONFIG_RTE_LIBRTE_PIPELINE) += pipeline_common_be.c
@@ -66,6 +67,8 @@ SRCS-$(CONFIG_RTE_LIBRTE_PIPELINE) += pipeline_firewall_be.c
 SRCS-$(CONFIG_RTE_LIBRTE_PIPELINE) += pipeline_firewall.c
 SRCS-$(CONFIG_RTE_LIBRTE_PIPELINE) += pipeline_flow_classification_be.c
 SRCS-$(CONFIG_RTE_LIBRTE_PIPELINE) += pipeline_flow_classification.c
+SRCS-$(CONFIG_RTE_LIBRTE_PIPELINE) += pipeline_flow_actions_be.c
+SRCS-$(CONFIG_RTE_LIBRTE_PIPELINE) += pipeline_flow_actions.c
 SRCS-$(CONFIG_RTE_LIBRTE_PIPELINE) += pipeline_routing_be.c
 SRCS-$(CONFIG_RTE_LIBRTE_PIPELINE) += pipeline_routing.c
 

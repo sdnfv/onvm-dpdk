@@ -239,9 +239,7 @@ static struct rte_eth_conf port_conf = {
 	},
 	.intr_conf = {
 		.lsc = 1,
-#ifdef RTE_NEXT_ABI
 		.rxq = 1,
-#endif
 	},
 };
 
@@ -652,11 +650,7 @@ l3fwd_simple_forward(struct rte_mbuf *m, uint8_t portid,
 
 	eth_hdr = rte_pktmbuf_mtod(m, struct ether_hdr *);
 
-#ifdef RTE_NEXT_ABI
 	if (RTE_ETH_IS_IPV4_HDR(m->packet_type)) {
-#else
-	if (m->ol_flags & PKT_RX_IPV4_HDR) {
-#endif
 		/* Handle IPv4 headers.*/
 		ipv4_hdr =
 			rte_pktmbuf_mtod_offset(m, struct ipv4_hdr *,
@@ -691,12 +685,7 @@ l3fwd_simple_forward(struct rte_mbuf *m, uint8_t portid,
 		ether_addr_copy(&ports_eth_addr[dst_port], &eth_hdr->s_addr);
 
 		send_single_packet(m, dst_port);
-#ifdef RTE_NEXT_ABI
 	} else if (RTE_ETH_IS_IPV6_HDR(m->packet_type)) {
-#else
-	}
-	else {
-#endif
 		/* Handle IPv6 headers.*/
 #if (APP_LOOKUP_METHOD == APP_LOOKUP_EXACT_MATCH)
 		struct ipv6_hdr *ipv6_hdr;
@@ -809,6 +798,7 @@ sleep_until_rx_interrupt(int num)
 		port_id = ((uintptr_t)data) >> CHAR_BIT;
 		queue_id = ((uintptr_t)data) &
 			RTE_LEN2MASK(CHAR_BIT, uint8_t);
+		rte_eth_dev_rx_intr_disable(port_id, queue_id);
 		RTE_LOG(INFO, L3FWD_POWER,
 			"lcore %u is waked up from rx interrupt on"
 			" port %d queue %d\n",
@@ -1383,7 +1373,7 @@ setup_hash(int socketid)
 	char s[64];
 
 	/* create ipv4 hash */
-	rte_snprintf(s, sizeof(s), "ipv4_l3fwd_hash_%d", socketid);
+	snprintf(s, sizeof(s), "ipv4_l3fwd_hash_%d", socketid);
 	ipv4_l3fwd_hash_params.name = s;
 	ipv4_l3fwd_hash_params.socket_id = socketid;
 	ipv4_l3fwd_lookup_struct[socketid] =
@@ -1393,7 +1383,7 @@ setup_hash(int socketid)
 				"socket %d\n", socketid);
 
 	/* create ipv6 hash */
-	rte_snprintf(s, sizeof(s), "ipv6_l3fwd_hash_%d", socketid);
+	snprintf(s, sizeof(s), "ipv6_l3fwd_hash_%d", socketid);
 	ipv6_l3fwd_hash_params.name = s;
 	ipv6_l3fwd_hash_params.socket_id = socketid;
 	ipv6_l3fwd_lookup_struct[socketid] =

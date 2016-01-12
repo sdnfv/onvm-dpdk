@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-Copyright (c) 2001-2014, Intel Corporation
+Copyright (c) 2001-2015, Intel Corporation
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -197,6 +197,7 @@ POSSIBILITY OF SUCH DAMAGE.
 #define E1000_RCTL_LBM_TCVR	0x000000C0 /* tcvr loopback mode */
 #define E1000_RCTL_DTYP_PS	0x00000400 /* Packet Split descriptor */
 #define E1000_RCTL_RDMTS_HALF	0x00000000 /* Rx desc min thresh size */
+#define E1000_RCTL_RDMTS_HEX	0x00010000
 #define E1000_RCTL_MO_SHIFT	12 /* multicast offset shift */
 #define E1000_RCTL_MO_3		0x00003000 /* multicast offset 15:4 */
 #define E1000_RCTL_BAM		0x00008000 /* broadcast enable */
@@ -467,6 +468,7 @@ POSSIBILITY OF SUCH DAMAGE.
 
 #define ETHERNET_FCS_SIZE		4
 #define MAX_JUMBO_FRAME_SIZE		0x3F00
+#define E1000_TX_PTR_GAP		0x1F
 
 /* Extended Configuration Control and Size */
 #define E1000_EXTCNF_CTRL_MDIO_SW_OWNERSHIP	0x00000020
@@ -845,6 +847,7 @@ POSSIBILITY OF SUCH DAMAGE.
 #define E1000_M88E1543_PAGE_ADDR	0x16       /* Page Offset Register */
 #define E1000_M88E1543_EEE_CTRL_1	0x0
 #define E1000_M88E1543_EEE_CTRL_1_MS	0x0001     /* EEE Master/Slave */
+#define E1000_M88E1543_FIBER_CTRL	0x0        /* Fiber Control Register */
 #define E1000_EEE_ADV_DEV_I354		7
 #define E1000_EEE_ADV_ADDR_I354		60
 #define E1000_EEE_ADV_100_SUPPORTED	(1 << 1)   /* 100BaseTx EEE Supported */
@@ -1466,6 +1469,9 @@ POSSIBILITY OF SUCH DAMAGE.
 #define E1000_RXPBS_CFG_TS_EN		0x80000000 /* Timestamp in Rx buffer */
 #define E1000_RXPBS_SIZE_I210_MASK	0x0000003F /* Rx packet buffer size */
 #define E1000_TXPB0S_SIZE_I210_MASK	0x0000003F /* Tx packet buffer 0 size */
+#define I210_RXPBSIZE_DEFAULT		0x000000A2 /* RXPBSIZE default */
+#define I210_TXPBSIZE_DEFAULT		0x04000014 /* TXPBSIZE default */
+
 
 /* Proxy Filter Control */
 #define E1000_PROXYFC_D0		0x00000001 /* Enable offload in D0 */

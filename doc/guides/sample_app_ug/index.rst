@@ -31,16 +31,13 @@
 Sample Applications User Guide
 ==============================
 
-|today|
-
-**Contents**
-
 .. toctree::
     :maxdepth: 2
     :numbered:
 
     intro
     cmd_line
+    ethtool
     exception_path
     hello_world
     skeleton
@@ -49,6 +46,7 @@ Sample Applications User Guide
     ipv4_multicast
     ip_reassembly
     kernel_nic_interface
+    keep_alive
     l2_forward_job_stats
     l2_forward_real_virtual
     l3_forward
@@ -73,6 +71,8 @@ Sample Applications User Guide
     vm_power_management
     tep_termination
     proc_info
+    ptpclient
+    performance_thread
 
 **Figures**
 
@@ -135,6 +135,8 @@ Sample Applications User Guide
 :numref:`figure_vm_power_mgr_vm_request_seq` :ref:`figure_vm_power_mgr_vm_request_seq`
 :numref:`figure_overlay_networking` :ref:`figure_overlay_networking`
 :numref:`figure_tep_termination_arch` :ref:`figure_tep_termination_arch`
+
+:numref:`figure_ptpclient_highlevel` :ref:`figure_ptpclient_highlevel`
 
 **Tables**
 

@@ -53,13 +53,21 @@
 
 #include "virtio_logs.h"
 #include "virtio_ethdev.h"
+#include "virtio_pci.h"
 #include "virtqueue.h"
+#include "virtio_rxtx.h"
 
 #ifdef RTE_LIBRTE_VIRTIO_DEBUG_DUMP
 #define VIRTIO_DUMP_PACKET(m, len) rte_pktmbuf_dump(stdout, m, len)
 #else
 #define  VIRTIO_DUMP_PACKET(m, len) do { } while (0)
 #endif
+
+
+#define VIRTIO_SIMPLE_FLAGS ((uint32_t)ETH_TXQ_FLAGS_NOMULTSEGS | \
+	ETH_TXQ_FLAGS_NOOFFLOADS)
+
+static int use_simple_rxtx;
 
 static void
 vq_ring_free_chain(struct virtqueue *vq, uint16_t desc_idx)
@@ -206,7 +214,7 @@ virtqueue_enqueue_xmit(struct virtqueue *txvq, struct rte_mbuf *cookie)
 	uint16_t seg_num = cookie->nb_segs;
 	uint16_t needed = 1 + seg_num;
 	uint16_t head_idx, idx;
-	uint16_t head_size = txvq->hw->vtnet_hdr_size;
+	size_t head_size = txvq->hw->vtnet_hdr_size;
 
 	if (unlikely(txvq->vq_free_cnt == 0))
 		return -ENOSPC;
@@ -224,7 +232,7 @@ virtqueue_enqueue_xmit(struct virtqueue *txvq, struct rte_mbuf *cookie)
 	start_dp = txvq->vq_ring.desc;
 	start_dp[idx].addr =
 		txvq->virtio_net_hdr_mem + idx * head_size;
-	start_dp[idx].len = (uint32_t)head_size;
+	start_dp[idx].len = head_size;
 	start_dp[idx].flags = VRING_DESC_F_NEXT;
 
 	for (; ((seg_num > 0) && (cookie != NULL)); seg_num--) {
@@ -298,6 +306,17 @@ virtio_dev_vring_start(struct virtqueue *vq, int queue_type)
 		/* Allocate blank mbufs for the each rx descriptor */
 		nbufs = 0;
 		error = ENOSPC;
+
+		if (use_simple_rxtx)
+			for (i = 0; i < vq->vq_nentries; i++) {
+				vq->vq_ring.avail->ring[i] = i;
+				vq->vq_ring.desc[i].flags = VRING_DESC_F_WRITE;
+			}
+
+		memset(&vq->fake_mbuf, 0, sizeof(vq->fake_mbuf));
+		for (i = 0; i < RTE_PMD_VIRTIO_RX_MAX_BURST; i++)
+			vq->sw_ring[vq->vq_nentries + i] = &vq->fake_mbuf;
+
 		while (!virtqueue_full(vq)) {
 			m = rte_rxmbuf_alloc(vq->mpool);
 			if (m == NULL)
@@ -306,8 +325,10 @@ virtio_dev_vring_start(struct virtqueue *vq, int queue_type)
 			/******************************************
 			*         Enqueue allocated buffers        *
 			*******************************************/
-			error = virtqueue_enqueue_recv_refill(vq, m);
-
+			if (use_simple_rxtx)
+				error = virtqueue_enqueue_recv_refill_simple(vq, m);
+			else
+				error = virtqueue_enqueue_recv_refill(vq, m);
 			if (error) {
 				rte_pktmbuf_free(m);
 				break;
@@ -324,6 +345,24 @@ virtio_dev_vring_start(struct virtqueue *vq, int queue_type)
 		VIRTIO_WRITE_REG_4(vq->hw, VIRTIO_PCI_QUEUE_PFN,
 			vq->mz->phys_addr >> VIRTIO_PCI_QUEUE_ADDR_SHIFT);
 	} else if (queue_type == VTNET_TQ) {
+		if (use_simple_rxtx) {
+			int mid_idx  = vq->vq_nentries >> 1;
+			for (i = 0; i < mid_idx; i++) {
+				vq->vq_ring.avail->ring[i] = i + mid_idx;
+				vq->vq_ring.desc[i + mid_idx].next = i;
+				vq->vq_ring.desc[i + mid_idx].addr =
+					vq->virtio_net_hdr_mem +
+						mid_idx * vq->hw->vtnet_hdr_size;
+				vq->vq_ring.desc[i + mid_idx].len =
+					vq->hw->vtnet_hdr_size;
+				vq->vq_ring.desc[i + mid_idx].flags =
+					VRING_DESC_F_NEXT;
+				vq->vq_ring.desc[i].flags = 0;
+			}
+			for (i = mid_idx; i < vq->vq_nentries; i++)
+				vq->vq_ring.avail->ring[i] = i;
+		}
+
 		VIRTIO_WRITE_REG_2(vq->hw, VIRTIO_PCI_QUEUE_SEL,
 			vq->vq_queue_index);
 		VIRTIO_WRITE_REG_4(vq->hw, VIRTIO_PCI_QUEUE_PFN,
@@ -398,6 +437,9 @@ virtio_dev_rx_queue_setup(struct rte_eth_dev *dev,
 	vq->mpool = mp;
 
 	dev->data->rx_queues[queue_idx] = vq;
+
+	virtio_rxq_vec_setup(vq);
+
 	return 0;
 }
 
@@ -422,6 +464,7 @@ virtio_dev_tx_queue_setup(struct rte_eth_dev *dev,
 			const struct rte_eth_txconf *tx_conf)
 {
 	uint8_t vtpci_queue_idx = 2 * queue_idx + VTNET_SQ_TQ_QUEUE_IDX;
+	struct virtio_hw *hw = dev->data->dev_private;
 	struct virtqueue *vq;
 	uint16_t tx_free_thresh;
 	int ret;
@@ -432,6 +475,15 @@ virtio_dev_tx_queue_setup(struct rte_eth_dev *dev,
 	    != ETH_TXQ_FLAGS_NOXSUMS) {
 		PMD_INIT_LOG(ERR, "TX checksum offload not supported\n");
 		return -EINVAL;
+	}
+
+	/* Use simple rx/tx func if single segment and no offloads */
+	if ((tx_conf->txq_flags & VIRTIO_SIMPLE_FLAGS) == VIRTIO_SIMPLE_FLAGS &&
+	     !vtpci_with_feature(hw, VIRTIO_NET_F_MRG_RXBUF)) {
+		PMD_INIT_LOG(INFO, "Using simple rx/tx path");
+		dev->tx_pkt_burst = virtio_xmit_pkts_simple;
+		dev->rx_pkt_burst = virtio_recv_pkts_vec;
+		use_simple_rxtx = 1;
 	}
 
 	ret = virtio_dev_queue_setup(dev, VTNET_TQ, queue_idx, vtpci_queue_idx,
@@ -480,6 +532,34 @@ virtio_discard_rxbuf(struct virtqueue *vq, struct rte_mbuf *m)
 		RTE_LOG(ERR, PMD, "cannot requeue discarded mbuf");
 		rte_pktmbuf_free(m);
 	}
+}
+
+static void
+virtio_update_packet_stats(struct virtqueue *vq, struct rte_mbuf *mbuf)
+{
+	uint32_t s = mbuf->pkt_len;
+	struct ether_addr *ea;
+
+	if (s == 64) {
+		vq->size_bins[1]++;
+	} else if (s > 64 && s < 1024) {
+		uint32_t bin;
+
+		/* count zeros, and offset into correct bin */
+		bin = (sizeof(s) * 8) - __builtin_clz(s) - 5;
+		vq->size_bins[bin]++;
+	} else {
+		if (s < 64)
+			vq->size_bins[0]++;
+		else if (s < 1519)
+			vq->size_bins[6]++;
+		else if (s >= 1519)
+			vq->size_bins[7]++;
+	}
+
+	ea = rte_pktmbuf_mtod(mbuf, struct ether_addr *);
+	vq->multicast += is_multicast_ether_addr(ea);
+	vq->broadcast += is_broadcast_ether_addr(ea);
 }
 
 #define VIRTIO_MBUF_BURST_SZ 64
@@ -531,6 +611,8 @@ virtio_recv_pkts(void *rx_queue, struct rte_mbuf **rx_pkts, uint16_t nb_pkts)
 
 		rxm->port = rxvq->port_id;
 		rxm->data_off = RTE_PKTMBUF_HEADROOM;
+		rxm->ol_flags = 0;
+		rxm->vlan_tci = 0;
 
 		rxm->nb_segs = 1;
 		rxm->next = NULL;
@@ -543,7 +625,9 @@ virtio_recv_pkts(void *rx_queue, struct rte_mbuf **rx_pkts, uint16_t nb_pkts)
 		VIRTIO_DUMP_PACKET(rxm, rxm->data_len);
 
 		rx_pkts[nb_rx++] = rxm;
+
 		rxvq->bytes += rx_pkts[nb_rx - 1]->pkt_len;
+		virtio_update_packet_stats(rxvq, rxm);
 	}
 
 	rxvq->packets += nb_rx;
@@ -649,6 +733,8 @@ virtio_recv_mergeable_pkts(void *rx_queue,
 		rxm->data_off = RTE_PKTMBUF_HEADROOM;
 		rxm->nb_segs = seg_num;
 		rxm->next = NULL;
+		rxm->ol_flags = 0;
+		rxm->vlan_tci = 0;
 		rxm->pkt_len = (uint32_t)(len[0] - hdr_size);
 		rxm->data_len = (uint16_t)(len[0] - hdr_size);
 
@@ -706,6 +792,7 @@ virtio_recv_mergeable_pkts(void *rx_queue,
 			rx_pkts[nb_rx]->data_len);
 
 		rxvq->bytes += rx_pkts[nb_rx]->pkt_len;
+		virtio_update_packet_stats(rxvq, rx_pkts[nb_rx]);
 		nb_rx++;
 	}
 
@@ -745,7 +832,6 @@ uint16_t
 virtio_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts)
 {
 	struct virtqueue *txvq = tx_queue;
-	struct rte_mbuf *txm;
 	uint16_t nb_used, nb_tx;
 	int error;
 
@@ -759,57 +845,49 @@ virtio_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts)
 	if (likely(nb_used > txvq->vq_nentries - txvq->vq_free_thresh))
 		virtio_xmit_cleanup(txvq, nb_used);
 
-	nb_tx = 0;
-
-	while (nb_tx < nb_pkts) {
+	for (nb_tx = 0; nb_tx < nb_pkts; nb_tx++) {
+		struct rte_mbuf *txm = tx_pkts[nb_tx];
 		/* Need one more descriptor for virtio header. */
-		int need = tx_pkts[nb_tx]->nb_segs - txvq->vq_free_cnt + 1;
+		int need = txm->nb_segs - txvq->vq_free_cnt + 1;
 
-		/*Positive value indicates it need free vring descriptors */
+		/* Positive value indicates it need free vring descriptors */
 		if (unlikely(need > 0)) {
 			nb_used = VIRTQUEUE_NUSED(txvq);
 			virtio_rmb();
 			need = RTE_MIN(need, (int)nb_used);
 
 			virtio_xmit_cleanup(txvq, need);
-			need = (int)tx_pkts[nb_tx]->nb_segs -
-				txvq->vq_free_cnt + 1;
-		}
-
-		/*
-		 * Zero or negative value indicates it has enough free
-		 * descriptors to use for transmitting.
-		 */
-		if (likely(need <= 0)) {
-			txm = tx_pkts[nb_tx];
-
-			/* Do VLAN tag insertion */
-			if (unlikely(txm->ol_flags & PKT_TX_VLAN_PKT)) {
-				error = rte_vlan_insert(&txm);
-				if (unlikely(error)) {
-					rte_pktmbuf_free(txm);
-					++nb_tx;
-					continue;
-				}
-			}
-
-			/* Enqueue Packet buffers */
-			error = virtqueue_enqueue_xmit(txvq, txm);
-			if (unlikely(error)) {
-				if (error == ENOSPC)
-					PMD_TX_LOG(ERR, "virtqueue_enqueue Free count = 0");
-				else if (error == EMSGSIZE)
-					PMD_TX_LOG(ERR, "virtqueue_enqueue Free count < 1");
-				else
-					PMD_TX_LOG(ERR, "virtqueue_enqueue error: %d", error);
+			need = txm->nb_segs - txvq->vq_free_cnt + 1;
+			if (unlikely(need > 0)) {
+				PMD_TX_LOG(ERR,
+					   "No free tx descriptors to transmit");
 				break;
 			}
-			nb_tx++;
-			txvq->bytes += txm->pkt_len;
-		} else {
-			PMD_TX_LOG(ERR, "No free tx descriptors to transmit");
+		}
+
+		/* Do VLAN tag insertion */
+		if (unlikely(txm->ol_flags & PKT_TX_VLAN_PKT)) {
+			error = rte_vlan_insert(&txm);
+			if (unlikely(error)) {
+				rte_pktmbuf_free(txm);
+				continue;
+			}
+		}
+
+		/* Enqueue Packet buffers */
+		error = virtqueue_enqueue_xmit(txvq, txm);
+		if (unlikely(error)) {
+			if (error == ENOSPC)
+				PMD_TX_LOG(ERR, "virtqueue_enqueue Free count = 0");
+			else if (error == EMSGSIZE)
+				PMD_TX_LOG(ERR, "virtqueue_enqueue Free count < 1");
+			else
+				PMD_TX_LOG(ERR, "virtqueue_enqueue error: %d", error);
 			break;
 		}
+
+		txvq->bytes += txm->pkt_len;
+		virtio_update_packet_stats(txvq, txm);
 	}
 
 	txvq->packets += nb_tx;

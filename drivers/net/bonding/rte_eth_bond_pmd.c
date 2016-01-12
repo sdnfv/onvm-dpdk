@@ -39,6 +39,7 @@
 #include <rte_tcp.h>
 #include <rte_udp.h>
 #include <rte_ip.h>
+#include <rte_ip_frag.h>
 #include <rte_devargs.h>
 #include <rte_kvargs.h>
 #include <rte_dev.h>
@@ -552,17 +553,20 @@ xmit_l34_hash(const struct rte_mbuf *buf, uint8_t slave_count)
 
 		l3hash = ipv4_hash(ipv4_hdr);
 
-		ip_hdr_offset = (ipv4_hdr->version_ihl & IPV4_HDR_IHL_MASK) *
-				IPV4_IHL_MULTIPLIER;
+		/* there is no L4 header in fragmented packet */
+		if (likely(rte_ipv4_frag_pkt_is_fragmented(ipv4_hdr) == 0)) {
+			ip_hdr_offset = (ipv4_hdr->version_ihl & IPV4_HDR_IHL_MASK) *
+					IPV4_IHL_MULTIPLIER;
 
-		if (ipv4_hdr->next_proto_id == IPPROTO_TCP) {
-			tcp_hdr = (struct tcp_hdr *)((char *)ipv4_hdr +
-					ip_hdr_offset);
-			l4hash = HASH_L4_PORTS(tcp_hdr);
-		} else if (ipv4_hdr->next_proto_id == IPPROTO_UDP) {
-			udp_hdr = (struct udp_hdr *)((char *)ipv4_hdr +
-					ip_hdr_offset);
-			l4hash = HASH_L4_PORTS(udp_hdr);
+			if (ipv4_hdr->next_proto_id == IPPROTO_TCP) {
+				tcp_hdr = (struct tcp_hdr *)((char *)ipv4_hdr +
+						ip_hdr_offset);
+				l4hash = HASH_L4_PORTS(tcp_hdr);
+			} else if (ipv4_hdr->next_proto_id == IPPROTO_UDP) {
+				udp_hdr = (struct udp_hdr *)((char *)ipv4_hdr +
+						ip_hdr_offset);
+				l4hash = HASH_L4_PORTS(udp_hdr);
+			}
 		}
 	} else if  (rte_cpu_to_be_16(ETHER_TYPE_IPv6) == proto) {
 		struct ipv6_hdr *ipv6_hdr = (struct ipv6_hdr *)
@@ -1307,8 +1311,26 @@ slave_configure(struct rte_eth_dev *bonded_eth_dev,
 	rte_eth_dev_stop(slave_eth_dev->data->port_id);
 
 	/* Enable interrupts on slave device if supported */
-	if (slave_eth_dev->driver->pci_drv.drv_flags & RTE_PCI_DRV_INTR_LSC)
+	if (slave_eth_dev->data->dev_flags & RTE_ETH_DEV_INTR_LSC)
 		slave_eth_dev->data->dev_conf.intr_conf.lsc = 1;
+
+	/* If RSS is enabled for bonding, try to enable it for slaves  */
+	if (bonded_eth_dev->data->dev_conf.rxmode.mq_mode & ETH_MQ_RX_RSS_FLAG) {
+		if (bonded_eth_dev->data->dev_conf.rx_adv_conf.rss_conf.rss_key_len
+				!= 0) {
+			slave_eth_dev->data->dev_conf.rx_adv_conf.rss_conf.rss_key_len =
+					bonded_eth_dev->data->dev_conf.rx_adv_conf.rss_conf.rss_key_len;
+			slave_eth_dev->data->dev_conf.rx_adv_conf.rss_conf.rss_key =
+					bonded_eth_dev->data->dev_conf.rx_adv_conf.rss_conf.rss_key;
+		} else {
+			slave_eth_dev->data->dev_conf.rx_adv_conf.rss_conf.rss_key = NULL;
+		}
+
+		slave_eth_dev->data->dev_conf.rx_adv_conf.rss_conf.rss_hf =
+				bonded_eth_dev->data->dev_conf.rx_adv_conf.rss_conf.rss_hf;
+		slave_eth_dev->data->dev_conf.rxmode.mq_mode =
+				bonded_eth_dev->data->dev_conf.rxmode.mq_mode;
+	}
 
 	/* Configure device */
 	errval = rte_eth_dev_configure(slave_eth_dev->data->port_id,
@@ -1361,10 +1383,34 @@ slave_configure(struct rte_eth_dev *bonded_eth_dev,
 		return -1;
 	}
 
+	/* If RSS is enabled for bonding, synchronize RETA */
+	if (bonded_eth_dev->data->dev_conf.rxmode.mq_mode & ETH_MQ_RX_RSS) {
+		int i;
+		struct bond_dev_private *internals;
+
+		internals = bonded_eth_dev->data->dev_private;
+
+		for (i = 0; i < internals->slave_count; i++) {
+			if (internals->slaves[i].port_id == slave_eth_dev->data->port_id) {
+				errval = rte_eth_dev_rss_reta_update(
+						slave_eth_dev->data->port_id,
+						&internals->reta_conf[0],
+						internals->slaves[i].reta_size);
+				if (errval != 0) {
+					RTE_LOG(WARNING, PMD,
+							"rte_eth_dev_rss_reta_update on slave port %d fails (err %d)."
+							" RSS Configuration for bonding may be inconsistent.\n",
+							slave_eth_dev->data->port_id, errval);
+				}
+				break;
+			}
+		}
+	}
+
 	/* If lsc interrupt is set, check initial slave's link status */
-	if (slave_eth_dev->driver->pci_drv.drv_flags & RTE_PCI_DRV_INTR_LSC)
+	if (slave_eth_dev->data->dev_flags & RTE_ETH_DEV_INTR_LSC)
 		bond_ethdev_lsc_event_callback(slave_eth_dev->data->port_id,
-				RTE_ETH_EVENT_INTR_LSC, &bonded_eth_dev->data->port_id);
+			RTE_ETH_EVENT_INTR_LSC, &bonded_eth_dev->data->port_id);
 
 	return 0;
 }
@@ -1403,7 +1449,7 @@ slave_add(struct bond_dev_private *internals,
 
 	/* If slave device doesn't support interrupts then we need to enabled
 	 * polling to monitor link status */
-	if (!(slave_eth_dev->pci_dev->driver->drv_flags & RTE_PCI_DRV_INTR_LSC)) {
+	if (!(slave_eth_dev->data->dev_flags & RTE_ETH_DEV_INTR_LSC)) {
 		slave_details->link_status_poll_enabled = 1;
 
 		if (!internals->link_status_polling_enabled) {
@@ -1447,7 +1493,7 @@ bond_ethdev_start(struct rte_eth_dev *eth_dev)
 	int i;
 
 	/* slave eth dev will be started by bonded device */
-	if (valid_bonded_ethdev(eth_dev)) {
+	if (check_for_bonded_ethdev(eth_dev)) {
 		RTE_BOND_LOG(ERR, "User tried to explicitly start a slave eth_dev (%d)",
 				eth_dev->data->port_id);
 		return -1;
@@ -1517,17 +1563,21 @@ bond_ethdev_free_queues(struct rte_eth_dev *dev)
 {
 	uint8_t i;
 
-	for (i = 0; i < dev->data->nb_rx_queues; i++) {
-		rte_free(dev->data->rx_queues[i]);
-		dev->data->rx_queues[i] = NULL;
+	if (dev->data->rx_queues != NULL) {
+		for (i = 0; i < dev->data->nb_rx_queues; i++) {
+			rte_free(dev->data->rx_queues[i]);
+			dev->data->rx_queues[i] = NULL;
+		}
+		dev->data->nb_rx_queues = 0;
 	}
-	dev->data->nb_rx_queues = 0;
 
-	for (i = 0; i < dev->data->nb_tx_queues; i++) {
-		rte_free(dev->data->tx_queues[i]);
-		dev->data->tx_queues[i] = NULL;
+	if (dev->data->tx_queues != NULL) {
+		for (i = 0; i < dev->data->nb_tx_queues; i++) {
+			rte_free(dev->data->tx_queues[i]);
+			dev->data->tx_queues[i] = NULL;
+		}
+		dev->data->nb_tx_queues = 0;
 	}
-	dev->data->nb_tx_queues = 0;
 }
 
 void
@@ -1592,10 +1642,13 @@ bond_ethdev_info(struct rte_eth_dev *dev, struct rte_eth_dev_info *dev_info)
 	dev_info->max_tx_queues = (uint16_t)512;
 
 	dev_info->min_rx_bufsize = 0;
-	dev_info->pci_dev = dev->pci_dev;
+	dev_info->pci_dev = NULL;
 
 	dev_info->rx_offload_capa = internals->rx_offload_capa;
 	dev_info->tx_offload_capa = internals->tx_offload_capa;
+	dev_info->flow_type_rss_offloads = internals->flow_type_rss_offloads;
+
+	dev_info->reta_size = internals->reta_size;
 }
 
 static int
@@ -1605,7 +1658,7 @@ bond_ethdev_rx_queue_setup(struct rte_eth_dev *dev, uint16_t rx_queue_id,
 {
 	struct bond_rx_queue *bd_rx_q = (struct bond_rx_queue *)
 			rte_zmalloc_socket(NULL, sizeof(struct bond_rx_queue),
-					0, dev->pci_dev->numa_node);
+					0, dev->data->numa_node);
 	if (bd_rx_q == NULL)
 		return -1;
 
@@ -1629,7 +1682,7 @@ bond_ethdev_tx_queue_setup(struct rte_eth_dev *dev, uint16_t tx_queue_id,
 {
 	struct bond_tx_queue *bd_tx_q  = (struct bond_tx_queue *)
 			rte_zmalloc_socket(NULL, sizeof(struct bond_tx_queue),
-					0, dev->pci_dev->numa_node);
+					0, dev->data->numa_node);
 
 	if (bd_tx_q == NULL)
 		return -1;
@@ -1757,7 +1810,7 @@ bond_ethdev_stats_get(struct rte_eth_dev *dev, struct rte_eth_stats *stats)
 {
 	struct bond_dev_private *internals = dev->data->dev_private;
 	struct rte_eth_stats slave_stats;
-	int i;
+	int i, j;
 
 	for (i = 0; i < internals->slave_count; i++) {
 		rte_eth_stats_get(internals->slaves[i].port_id, &slave_stats);
@@ -1766,16 +1819,20 @@ bond_ethdev_stats_get(struct rte_eth_dev *dev, struct rte_eth_stats *stats)
 		stats->opackets += slave_stats.opackets;
 		stats->ibytes += slave_stats.ibytes;
 		stats->obytes += slave_stats.obytes;
+		stats->imissed += slave_stats.imissed;
 		stats->ierrors += slave_stats.ierrors;
 		stats->oerrors += slave_stats.oerrors;
 		stats->imcasts += slave_stats.imcasts;
 		stats->rx_nombuf += slave_stats.rx_nombuf;
-		stats->fdirmatch += slave_stats.fdirmatch;
-		stats->fdirmiss += slave_stats.fdirmiss;
-		stats->tx_pause_xon += slave_stats.tx_pause_xon;
-		stats->rx_pause_xon += slave_stats.rx_pause_xon;
-		stats->tx_pause_xoff += slave_stats.tx_pause_xoff;
-		stats->rx_pause_xoff += slave_stats.rx_pause_xoff;
+
+		for (j = 0; j < RTE_ETHDEV_QUEUE_STAT_CNTRS; j++) {
+			stats->q_ipackets[j] += slave_stats.q_ipackets[j];
+			stats->q_opackets[j] += slave_stats.q_opackets[j];
+			stats->q_ibytes[j] += slave_stats.q_ibytes[j];
+			stats->q_obytes[j] += slave_stats.q_obytes[j];
+			stats->q_errors[j] += slave_stats.q_errors[j];
+		}
+
 	}
 }
 
@@ -1873,7 +1930,7 @@ bond_ethdev_lsc_event_callback(uint8_t port_id, enum rte_eth_event_type type,
 	bonded_eth_dev = &rte_eth_devices[*(uint8_t *)param];
 	slave_eth_dev = &rte_eth_devices[port_id];
 
-	if (valid_bonded_ethdev(bonded_eth_dev))
+	if (check_for_bonded_ethdev(bonded_eth_dev))
 		return;
 
 	internals = bonded_eth_dev->data->dev_private;
@@ -1977,21 +2034,132 @@ bond_ethdev_lsc_event_callback(uint8_t port_id, enum rte_eth_event_type type,
 	}
 }
 
+static int
+bond_ethdev_rss_reta_update(struct rte_eth_dev *dev,
+		struct rte_eth_rss_reta_entry64 *reta_conf, uint16_t reta_size)
+{
+	unsigned i, j;
+	int result = 0;
+	int slave_reta_size;
+	unsigned reta_count;
+	struct bond_dev_private *internals = dev->data->dev_private;
+
+	if (reta_size != internals->reta_size)
+		return -EINVAL;
+
+	 /* Copy RETA table */
+	reta_count = reta_size / RTE_RETA_GROUP_SIZE;
+
+	for (i = 0; i < reta_count; i++) {
+		internals->reta_conf[i].mask = reta_conf[i].mask;
+		for (j = 0; j < RTE_RETA_GROUP_SIZE; j++)
+			if ((reta_conf[i].mask >> j) & 0x01)
+				internals->reta_conf[i].reta[j] = reta_conf[i].reta[j];
+	}
+
+	/* Fill rest of array */
+	for (; i < RTE_DIM(internals->reta_conf); i += reta_count)
+		memcpy(&internals->reta_conf[i], &internals->reta_conf[0],
+				sizeof(internals->reta_conf[0]) * reta_count);
+
+	/* Propagate RETA over slaves */
+	for (i = 0; i < internals->slave_count; i++) {
+		slave_reta_size = internals->slaves[i].reta_size;
+		result = rte_eth_dev_rss_reta_update(internals->slaves[i].port_id,
+				&internals->reta_conf[0], slave_reta_size);
+		if (result < 0)
+			return result;
+	}
+
+	return 0;
+}
+
+static int
+bond_ethdev_rss_reta_query(struct rte_eth_dev *dev,
+		struct rte_eth_rss_reta_entry64 *reta_conf, uint16_t reta_size)
+{
+	int i, j;
+	struct bond_dev_private *internals = dev->data->dev_private;
+
+	if (reta_size != internals->reta_size)
+		return -EINVAL;
+
+	 /* Copy RETA table */
+	for (i = 0; i < reta_size / RTE_RETA_GROUP_SIZE; i++)
+		for (j = 0; j < RTE_RETA_GROUP_SIZE; j++)
+			if ((reta_conf[i].mask >> j) & 0x01)
+				reta_conf[i].reta[j] = internals->reta_conf[i].reta[j];
+
+	return 0;
+}
+
+static int
+bond_ethdev_rss_hash_update(struct rte_eth_dev *dev,
+		struct rte_eth_rss_conf *rss_conf)
+{
+	int i, result = 0;
+	struct bond_dev_private *internals = dev->data->dev_private;
+	struct rte_eth_rss_conf bond_rss_conf;
+
+	memcpy(&bond_rss_conf, rss_conf, sizeof(struct rte_eth_rss_conf));
+
+	bond_rss_conf.rss_hf &= internals->flow_type_rss_offloads;
+
+	if (bond_rss_conf.rss_hf != 0)
+		dev->data->dev_conf.rx_adv_conf.rss_conf.rss_hf = bond_rss_conf.rss_hf;
+
+	if (bond_rss_conf.rss_key && bond_rss_conf.rss_key_len <
+			sizeof(internals->rss_key)) {
+		if (bond_rss_conf.rss_key_len == 0)
+			bond_rss_conf.rss_key_len = 40;
+		internals->rss_key_len = bond_rss_conf.rss_key_len;
+		memcpy(internals->rss_key, bond_rss_conf.rss_key,
+				internals->rss_key_len);
+	}
+
+	for (i = 0; i < internals->slave_count; i++) {
+		result = rte_eth_dev_rss_hash_update(internals->slaves[i].port_id,
+				&bond_rss_conf);
+		if (result < 0)
+			return result;
+	}
+
+	return 0;
+}
+
+static int
+bond_ethdev_rss_hash_conf_get(struct rte_eth_dev *dev,
+		struct rte_eth_rss_conf *rss_conf)
+{
+	struct bond_dev_private *internals = dev->data->dev_private;
+
+	rss_conf->rss_hf = dev->data->dev_conf.rx_adv_conf.rss_conf.rss_hf;
+	rss_conf->rss_key_len = internals->rss_key_len;
+	if (rss_conf->rss_key)
+		memcpy(rss_conf->rss_key, internals->rss_key, internals->rss_key_len);
+
+	return 0;
+}
+
 struct eth_dev_ops default_dev_ops = {
-		.dev_start = bond_ethdev_start,
-		.dev_stop = bond_ethdev_stop,
-		.dev_close = bond_ethdev_close,
-		.dev_configure = bond_ethdev_configure,
-		.dev_infos_get = bond_ethdev_info,
-		.rx_queue_setup = bond_ethdev_rx_queue_setup,
-		.tx_queue_setup = bond_ethdev_tx_queue_setup,
-		.rx_queue_release = bond_ethdev_rx_queue_release,
-		.tx_queue_release = bond_ethdev_tx_queue_release,
-		.link_update = bond_ethdev_link_update,
-		.stats_get = bond_ethdev_stats_get,
-		.stats_reset = bond_ethdev_stats_reset,
-		.promiscuous_enable = bond_ethdev_promiscuous_enable,
-		.promiscuous_disable = bond_ethdev_promiscuous_disable
+		.dev_start            = bond_ethdev_start,
+		.dev_stop             = bond_ethdev_stop,
+		.dev_close            = bond_ethdev_close,
+		.dev_configure        = bond_ethdev_configure,
+		.dev_infos_get        = bond_ethdev_info,
+		.rx_queue_setup       = bond_ethdev_rx_queue_setup,
+		.tx_queue_setup       = bond_ethdev_tx_queue_setup,
+		.rx_queue_release     = bond_ethdev_rx_queue_release,
+		.tx_queue_release     = bond_ethdev_tx_queue_release,
+		.link_update          = bond_ethdev_link_update,
+		.stats_get            = bond_ethdev_stats_get,
+		.stats_reset          = bond_ethdev_stats_reset,
+		.promiscuous_enable   = bond_ethdev_promiscuous_enable,
+		.promiscuous_disable  = bond_ethdev_promiscuous_disable,
+		.reta_update          = bond_ethdev_rss_reta_update,
+		.reta_query           = bond_ethdev_rss_reta_query,
+		.rss_hash_update      = bond_ethdev_rss_hash_update,
+		.rss_hash_conf_get    = bond_ethdev_rss_hash_conf_get
 };
 
 static int
@@ -2089,6 +2257,28 @@ bond_ethdev_configure(struct rte_eth_dev *dev)
 	struct rte_kvargs *kvlist = internals->kvlist;
 	int arg_count;
 	uint8_t port_id = dev - rte_eth_devices;
+
+	static const uint8_t default_rss_key[40] = {
+		0x6D, 0x5A, 0x56, 0xDA, 0x25, 0x5B, 0x0E, 0xC2, 0x41, 0x67, 0x25, 0x3D,
+		0x43, 0xA3, 0x8F, 0xB0, 0xD0, 0xCA, 0x2B, 0xCB, 0xAE, 0x7B, 0x30, 0xB4,
+		0x77, 0xCB, 0x2D, 0xA3, 0x80, 0x30, 0xF2, 0x0C, 0x6A, 0x42, 0xB7, 0x3B,
+		0xBE, 0xAC, 0x01, 0xFA
+	};
+
+	unsigned i, j;
+
+	/* If RSS is enabled, fill table and key with default values */
+	if (dev->data->dev_conf.rxmode.mq_mode & ETH_MQ_RX_RSS) {
+		dev->data->dev_conf.rx_adv_conf.rss_conf.rss_key = internals->rss_key;
+		dev->data->dev_conf.rx_adv_conf.rss_conf.rss_key_len = 0;
+		memcpy(internals->rss_key, default_rss_key, 40);
+
+		for (i = 0; i < RTE_DIM(internals->reta_conf); i++) {
+			internals->reta_conf[i].mask = ~0LL;
+			for (j = 0; j < RTE_RETA_GROUP_SIZE; j++)
+				internals->reta_conf[i].reta[j] = j % dev->data->nb_rx_queues;
+		}
+	}
 
 	/*
 	 * if no kvlist, it means that this bonded device has been created

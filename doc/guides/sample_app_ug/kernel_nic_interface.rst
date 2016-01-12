@@ -87,8 +87,8 @@ Compile the application as follows:
 
     .. code-block:: console
 
-        export RTE_SDK=/path/to/rte_sdk cd
-        ${RTE_SDK}/examples/kni
+        export RTE_SDK=/path/to/rte_sdk
+        cd ${RTE_SDK}/examples/kni
 
 #.  Set the target (a default target is used if not specified)
 
@@ -242,15 +242,6 @@ Setup of mbuf pool, driver and queues is similar to the setup done in the L2 For
 In addition, one or more kernel NIC interfaces are allocated for each
 of the configured ports according to the command line parameters.
 
-The code for creating the kernel NIC interface for a specific port is as follows:
-
-.. code-block:: c
-
-    kni = rte_kni_create(port, MAX_PACKET_SZ, pktmbuf_pool, &kni_ops);
-    if (kni == NULL)
-        rte_exit(EXIT_FAILURE, "Fail to create kni dev "
-           "for port: %d\n", port);
-
 The code for allocating the kernel NIC interfaces for a specific port is as follows:
 
 .. code-block:: c
@@ -274,11 +265,11 @@ The code for allocating the kernel NIC interfaces for a specific port is as foll
 
             memset(&conf, 0, sizeof(conf));
             if (params[port_id]->nb_lcore_k) {
-                rte_snprintf(conf.name, RTE_KNI_NAMESIZE, "vEth%u_%u", port_id, i);
+                snprintf(conf.name, RTE_KNI_NAMESIZE, "vEth%u_%u", port_id, i);
                 conf.core_id = params[port_id]->lcore_k[i];
                 conf.force_bind = 1;
             } else
-                rte_snprintf(conf.name, RTE_KNI_NAMESIZE, "vEth%u", port_id);
+                snprintf(conf.name, RTE_KNI_NAMESIZE, "vEth%u", port_id);
                 conf.group_id = (uint16_t)port_id;
                 conf.mbuf_size = MAX_PACKET_SZ;
 
@@ -361,7 +352,7 @@ The code is as follows:
                 goto fail;
             }
 
-            rte_snprintf(s, sizeof(s), "%.*s", size, p);
+            snprintf(s, sizeof(s), "%.*s", size, p);
             nb_token = rte_strsplit(s, sizeof(s), str_fld, _NUM_FLD, ',');
 
             if (nb_token <= FLD_LCORE_TX) {

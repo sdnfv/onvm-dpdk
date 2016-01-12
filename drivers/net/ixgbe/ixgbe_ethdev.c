@@ -126,10 +126,17 @@
 #define IXGBE_HKEY_MAX_INDEX 10
 
 /* Additional timesync values. */
-#define IXGBE_TIMINCA_16NS_SHIFT 24
-#define IXGBE_TIMINCA_INCVALUE   16000000
-#define IXGBE_TIMINCA_INIT       ((0x02 << IXGBE_TIMINCA_16NS_SHIFT) \
-				  | IXGBE_TIMINCA_INCVALUE)
+#define NSEC_PER_SEC             1000000000L
+#define IXGBE_INCVAL_10GB        0x66666666
+#define IXGBE_INCVAL_1GB         0x40000000
+#define IXGBE_INCVAL_100         0x50000000
+#define IXGBE_INCVAL_SHIFT_10GB  28
+#define IXGBE_INCVAL_SHIFT_1GB   24
+#define IXGBE_INCVAL_SHIFT_100   21
+#define IXGBE_INCVAL_SHIFT_82599 7
+#define IXGBE_INCPER_SHIFT_82599 24
+
+#define IXGBE_CYCLECOUNTER_MASK   0xffffffffffffffffULL
 
 static int eth_ixgbe_dev_init(struct rte_eth_dev *eth_dev);
 static int eth_ixgbe_dev_uninit(struct rte_eth_dev *eth_dev);
@@ -149,6 +156,8 @@ static void ixgbe_dev_stats_get(struct rte_eth_dev *dev,
 				struct rte_eth_stats *stats);
 static int ixgbe_dev_xstats_get(struct rte_eth_dev *dev,
 				struct rte_eth_xstats *xstats, unsigned n);
+static int ixgbevf_dev_xstats_get(struct rte_eth_dev *dev,
+				  struct rte_eth_xstats *xstats, unsigned n);
 static void ixgbe_dev_stats_reset(struct rte_eth_dev *dev);
 static void ixgbe_dev_xstats_reset(struct rte_eth_dev *dev);
 static int ixgbe_dev_queue_stats_mapping_set(struct rte_eth_dev *eth_dev,
@@ -190,9 +199,7 @@ static int ixgbe_dev_rss_reta_query(struct rte_eth_dev *dev,
 			uint16_t reta_size);
 static void ixgbe_dev_link_status_print(struct rte_eth_dev *dev);
 static int ixgbe_dev_lsc_interrupt_setup(struct rte_eth_dev *dev);
-#ifdef RTE_NEXT_ABI
 static int ixgbe_dev_rxq_interrupt_setup(struct rte_eth_dev *dev);
-#endif
 static int ixgbe_dev_interrupt_get_status(struct rte_eth_dev *dev);
 static int ixgbe_dev_interrupt_action(struct rte_eth_dev *dev);
 static void ixgbe_dev_interrupt_handler(struct rte_intr_handle *handle,
@@ -208,8 +215,6 @@ static void ixgbe_dcb_init(struct ixgbe_hw *hw,struct ixgbe_dcb_config *dcb_conf
 /* For Virtual Function support */
 static int eth_ixgbevf_dev_init(struct rte_eth_dev *eth_dev);
 static int eth_ixgbevf_dev_uninit(struct rte_eth_dev *eth_dev);
-static int ixgbevf_dev_interrupt_get_status(struct rte_eth_dev *dev);
-static int ixgbevf_dev_interrupt_action(struct rte_eth_dev *dev);
 static int  ixgbevf_dev_configure(struct rte_eth_dev *dev);
 static int  ixgbevf_dev_start(struct rte_eth_dev *dev);
 static void ixgbevf_dev_stop(struct rte_eth_dev *dev);
@@ -225,16 +230,12 @@ static void ixgbevf_vlan_strip_queue_set(struct rte_eth_dev *dev,
 		uint16_t queue, int on);
 static void ixgbevf_vlan_offload_set(struct rte_eth_dev *dev, int mask);
 static void ixgbevf_set_vfta_all(struct rte_eth_dev *dev, bool on);
-static void ixgbevf_dev_interrupt_handler(struct rte_intr_handle *handle,
-					  void *param);
-#ifdef RTE_NEXT_ABI
 static int ixgbevf_dev_rx_queue_intr_enable(struct rte_eth_dev *dev,
 					    uint16_t queue_id);
 static int ixgbevf_dev_rx_queue_intr_disable(struct rte_eth_dev *dev,
 					     uint16_t queue_id);
 static void ixgbevf_set_ivar_map(struct ixgbe_hw *hw, int8_t direction,
 				 uint8_t queue, uint8_t msix_vector);
-#endif
 static void ixgbevf_configure_msix(struct rte_eth_dev *dev);
 
 /* For Eth VMDQ APIs support */
@@ -252,14 +253,12 @@ static int ixgbe_mirror_rule_set(struct rte_eth_dev *dev,
 		uint8_t rule_id, uint8_t on);
 static int ixgbe_mirror_rule_reset(struct rte_eth_dev *dev,
 		uint8_t	rule_id);
-#ifdef RTE_NEXT_ABI
 static int ixgbe_dev_rx_queue_intr_enable(struct rte_eth_dev *dev,
 					  uint16_t queue_id);
 static int ixgbe_dev_rx_queue_intr_disable(struct rte_eth_dev *dev,
 					   uint16_t queue_id);
 static void ixgbe_set_ivar_map(struct ixgbe_hw *hw, int8_t direction,
 			       uint8_t queue, uint8_t msix_vector);
-#endif
 static void ixgbe_configure_msix(struct rte_eth_dev *dev);
 
 static int ixgbe_set_queue_rate_limit(struct rte_eth_dev *dev,
@@ -310,6 +309,8 @@ static int ixgbevf_dev_set_mtu(struct rte_eth_dev *dev, uint16_t mtu);
 static int ixgbe_dev_set_mc_addr_list(struct rte_eth_dev *dev,
 				      struct ether_addr *mc_addr_set,
 				      uint32_t nb_mc_addr);
+static int ixgbe_dev_get_dcb_info(struct rte_eth_dev *dev,
+				   struct rte_eth_dcb_info *dcb_info);
 
 static int ixgbe_get_reg_length(struct rte_eth_dev *dev);
 static int ixgbe_get_regs(struct rte_eth_dev *dev,
@@ -331,14 +332,19 @@ static int ixgbe_timesync_read_rx_timestamp(struct rte_eth_dev *dev,
 					    uint32_t flags);
 static int ixgbe_timesync_read_tx_timestamp(struct rte_eth_dev *dev,
 					    struct timespec *timestamp);
+static int ixgbe_timesync_adjust_time(struct rte_eth_dev *dev, int64_t delta);
+static int ixgbe_timesync_read_time(struct rte_eth_dev *dev,
+				   struct timespec *timestamp);
+static int ixgbe_timesync_write_time(struct rte_eth_dev *dev,
+				   const struct timespec *timestamp);
 
 /*
  * Define VF Stats MACRO for Non "cleared on read" register
  */
-#define UPDATE_VF_STAT(reg, last, cur)	                        \
+#define UPDATE_VF_STAT(reg, last, cur)                          \
 {                                                               \
 	uint32_t latest = IXGBE_READ_REG(hw, reg);              \
-	cur += latest - last;                                   \
+	cur += (latest - last) & UINT_MAX;                      \
 	last = latest;                                          \
 }
 
@@ -392,6 +398,18 @@ static const struct rte_pci_id pci_id_ixgbevf_map[] = {
 
 };
 
+static const struct rte_eth_desc_lim rx_desc_lim = {
+	.nb_max = IXGBE_MAX_RING_DESC,
+	.nb_min = IXGBE_MIN_RING_DESC,
+	.nb_align = IXGBE_RXD_ALIGN,
+};
+
+static const struct rte_eth_desc_lim tx_desc_lim = {
+	.nb_max = IXGBE_MAX_RING_DESC,
+	.nb_min = IXGBE_MIN_RING_DESC,
+	.nb_align = IXGBE_TXD_ALIGN,
+};
+
 static const struct eth_dev_ops ixgbe_eth_dev_ops = {
 	.dev_configure        = ixgbe_dev_configure,
 	.dev_start            = ixgbe_dev_start,
@@ -420,10 +438,8 @@ static const struct eth_dev_ops ixgbe_eth_dev_ops = {
 	.tx_queue_start	      = ixgbe_dev_tx_queue_start,
 	.tx_queue_stop        = ixgbe_dev_tx_queue_stop,
 	.rx_queue_setup       = ixgbe_dev_rx_queue_setup,
-#ifdef RTE_NEXT_ABI
 	.rx_queue_intr_enable = ixgbe_dev_rx_queue_intr_enable,
 	.rx_queue_intr_disable = ixgbe_dev_rx_queue_intr_disable,
-#endif
 	.rx_queue_release     = ixgbe_dev_rx_queue_release,
 	.rx_queue_count       = ixgbe_dev_rx_queue_count,
 	.rx_descriptor_done   = ixgbe_dev_rx_descriptor_done,
@@ -464,6 +480,8 @@ static const struct eth_dev_ops ixgbe_eth_dev_ops = {
 	.rss_hash_conf_get    = ixgbe_dev_rss_hash_conf_get,
 	.filter_ctrl          = ixgbe_dev_filter_ctrl,
 	.set_mc_addr_list     = ixgbe_dev_set_mc_addr_list,
+	.rxq_info_get         = ixgbe_rxq_info_get,
+	.txq_info_get         = ixgbe_txq_info_get,
 	.timesync_enable      = ixgbe_timesync_enable,
 	.timesync_disable     = ixgbe_timesync_disable,
 	.timesync_read_rx_timestamp = ixgbe_timesync_read_rx_timestamp,
@@ -473,6 +491,10 @@ static const struct eth_dev_ops ixgbe_eth_dev_ops = {
 	.get_eeprom_length    = ixgbe_get_eeprom_length,
 	.get_eeprom           = ixgbe_get_eeprom,
 	.set_eeprom           = ixgbe_set_eeprom,
+	.get_dcb_info         = ixgbe_dev_get_dcb_info,
+	.timesync_adjust_time = ixgbe_timesync_adjust_time,
+	.timesync_read_time   = ixgbe_timesync_read_time,
+	.timesync_write_time  = ixgbe_timesync_write_time,
 };
 
 /*
@@ -485,7 +507,9 @@ static const struct eth_dev_ops ixgbevf_eth_dev_ops = {
 	.dev_stop             = ixgbevf_dev_stop,
 	.link_update          = ixgbe_dev_link_update,
 	.stats_get            = ixgbevf_dev_stats_get,
+	.xstats_get           = ixgbevf_dev_xstats_get,
 	.stats_reset          = ixgbevf_dev_stats_reset,
+	.xstats_reset         = ixgbevf_dev_stats_reset,
 	.dev_close            = ixgbevf_dev_close,
 	.dev_infos_get        = ixgbevf_dev_info_get,
 	.mtu_set              = ixgbevf_dev_set_mtu,
@@ -497,16 +521,20 @@ static const struct eth_dev_ops ixgbevf_eth_dev_ops = {
 	.rx_descriptor_done   = ixgbe_dev_rx_descriptor_done,
 	.tx_queue_setup       = ixgbe_dev_tx_queue_setup,
 	.tx_queue_release     = ixgbe_dev_tx_queue_release,
-#ifdef RTE_NEXT_ABI
 	.rx_queue_intr_enable = ixgbevf_dev_rx_queue_intr_enable,
 	.rx_queue_intr_disable = ixgbevf_dev_rx_queue_intr_disable,
-#endif
 	.mac_addr_add         = ixgbevf_add_mac_addr,
 	.mac_addr_remove      = ixgbevf_remove_mac_addr,
 	.set_mc_addr_list     = ixgbe_dev_set_mc_addr_list,
+	.rxq_info_get         = ixgbe_rxq_info_get,
+	.txq_info_get         = ixgbe_txq_info_get,
 	.mac_addr_set         = ixgbevf_set_default_mac_addr,
 	.get_reg_length       = ixgbevf_get_reg_length,
 	.get_reg              = ixgbevf_get_regs,
+	.reta_update          = ixgbe_dev_rss_reta_update,
+	.reta_query           = ixgbe_dev_rss_reta_query,
+	.rss_hash_update      = ixgbe_dev_rss_hash_update,
+	.rss_hash_conf_get    = ixgbe_dev_rss_hash_conf_get,
 };
 
 /* store statistics names and its offset in stats structure */
@@ -516,33 +544,116 @@ struct rte_ixgbe_xstats_name_off {
 };
 
 static const struct rte_ixgbe_xstats_name_off rte_ixgbe_stats_strings[] = {
-	{"rx_illegal_byte_err", offsetof(struct ixgbe_hw_stats, errbc)},
-	{"rx_len_err", offsetof(struct ixgbe_hw_stats, rlec)},
-	{"rx_undersize_count", offsetof(struct ixgbe_hw_stats, ruc)},
-	{"rx_oversize_count", offsetof(struct ixgbe_hw_stats, roc)},
-	{"rx_fragment_count", offsetof(struct ixgbe_hw_stats, rfc)},
-	{"rx_jabber_count", offsetof(struct ixgbe_hw_stats, rjc)},
-	{"l3_l4_xsum_error", offsetof(struct ixgbe_hw_stats, xec)},
-	{"mac_local_fault", offsetof(struct ixgbe_hw_stats, mlfc)},
-	{"mac_remote_fault", offsetof(struct ixgbe_hw_stats, mrfc)},
-	{"mac_short_pkt_discard", offsetof(struct ixgbe_hw_stats, mspdc)},
-	{"fccrc_error", offsetof(struct ixgbe_hw_stats, fccrc)},
-	{"fcoe_drop", offsetof(struct ixgbe_hw_stats, fcoerpdc)},
-	{"fc_last_error", offsetof(struct ixgbe_hw_stats, fclast)},
-	{"rx_broadcast_packets", offsetof(struct ixgbe_hw_stats, bprc)},
-	{"rx_phy_multicast_packets", offsetof(struct ixgbe_hw_stats, mprc)},
-	{"mgmt_pkts_dropped", offsetof(struct ixgbe_hw_stats, mngpdc)},
 	{"rx_crc_errors", offsetof(struct ixgbe_hw_stats, crcerrs)},
-	{"fdir_match", offsetof(struct ixgbe_hw_stats, fdirmatch)},
-	{"fdir_miss", offsetof(struct ixgbe_hw_stats, fdirmiss)},
-	{"tx_flow_control_xon", offsetof(struct ixgbe_hw_stats, lxontxc)},
-	{"rx_flow_control_xon", offsetof(struct ixgbe_hw_stats, lxonrxc)},
-	{"tx_flow_control_xoff", offsetof(struct ixgbe_hw_stats, lxofftxc)},
-	{"rx_flow_control_xoff", offsetof(struct ixgbe_hw_stats, lxoffrxc)},
+	{"rx_illegal_byte_errors", offsetof(struct ixgbe_hw_stats, illerrc)},
+	{"rx_error_bytes", offsetof(struct ixgbe_hw_stats, errbc)},
+	{"mac_local_errors", offsetof(struct ixgbe_hw_stats, mlfc)},
+	{"mac_remote_errors", offsetof(struct ixgbe_hw_stats, mrfc)},
+	{"rx_length_errors", offsetof(struct ixgbe_hw_stats, rlec)},
+	{"tx_xon_packets", offsetof(struct ixgbe_hw_stats, lxontxc)},
+	{"rx_xon_packets", offsetof(struct ixgbe_hw_stats, lxonrxc)},
+	{"tx_xoff_packets", offsetof(struct ixgbe_hw_stats, lxofftxc)},
+	{"rx_xoff_packets", offsetof(struct ixgbe_hw_stats, lxoffrxc)},
+	{"rx_size_64_packets", offsetof(struct ixgbe_hw_stats, prc64)},
+	{"rx_size_65_to_127_packets", offsetof(struct ixgbe_hw_stats, prc127)},
+	{"rx_size_128_to_255_packets", offsetof(struct ixgbe_hw_stats, prc255)},
+	{"rx_size_256_to_511_packets", offsetof(struct ixgbe_hw_stats, prc511)},
+	{"rx_size_512_to_1023_packets", offsetof(struct ixgbe_hw_stats,
+		prc1023)},
+	{"rx_size_1024_to_max_packets", offsetof(struct ixgbe_hw_stats,
+		prc1522)},
+	{"rx_broadcast_packets", offsetof(struct ixgbe_hw_stats, bprc)},
+	{"rx_multicast_packets", offsetof(struct ixgbe_hw_stats, mprc)},
+	{"rx_fragment_errors", offsetof(struct ixgbe_hw_stats, rfc)},
+	{"rx_undersize_errors", offsetof(struct ixgbe_hw_stats, ruc)},
+	{"rx_oversize_errors", offsetof(struct ixgbe_hw_stats, roc)},
+	{"rx_jabber_errors", offsetof(struct ixgbe_hw_stats, rjc)},
+	{"rx_management_packets", offsetof(struct ixgbe_hw_stats, mngprc)},
+	{"rx_management_dropped", offsetof(struct ixgbe_hw_stats, mngpdc)},
+	{"tx_management_packets", offsetof(struct ixgbe_hw_stats, mngptc)},
+	{"rx_total_packets", offsetof(struct ixgbe_hw_stats, tpr)},
+	{"rx_total_bytes", offsetof(struct ixgbe_hw_stats, tor)},
+	{"tx_total_packets", offsetof(struct ixgbe_hw_stats, tpt)},
+	{"tx_size_64_packets", offsetof(struct ixgbe_hw_stats, ptc64)},
+	{"tx_size_65_to_127_packets", offsetof(struct ixgbe_hw_stats, ptc127)},
+	{"tx_size_128_to_255_packets", offsetof(struct ixgbe_hw_stats, ptc255)},
+	{"tx_size_256_to_511_packets", offsetof(struct ixgbe_hw_stats, ptc511)},
+	{"tx_size_512_to_1023_packets", offsetof(struct ixgbe_hw_stats,
+		ptc1023)},
+	{"tx_size_1024_to_max_packets", offsetof(struct ixgbe_hw_stats,
+		ptc1522)},
+	{"tx_multicast_packets", offsetof(struct ixgbe_hw_stats, mptc)},
+	{"tx_broadcast_packets", offsetof(struct ixgbe_hw_stats, bptc)},
+	{"rx_mac_short_packet_dropped", offsetof(struct ixgbe_hw_stats, mspdc)},
+	{"rx_l3_l4_xsum_error", offsetof(struct ixgbe_hw_stats, xec)},
+
+	{"flow_director_added_filters", offsetof(struct ixgbe_hw_stats,
+		fdirustat_add)},
+	{"flow_director_removed_filters", offsetof(struct ixgbe_hw_stats,
+		fdirustat_remove)},
+	{"flow_director_filter_add_errors", offsetof(struct ixgbe_hw_stats,
+		fdirfstat_fadd)},
+	{"flow_director_filter_remove_errors", offsetof(struct ixgbe_hw_stats,
+		fdirfstat_fremove)},
+	{"flow_director_matched_filters", offsetof(struct ixgbe_hw_stats,
+		fdirmatch)},
+	{"flow_director_missed_filters", offsetof(struct ixgbe_hw_stats,
+		fdirmiss)},
+
+	{"rx_fcoe_crc_errors", offsetof(struct ixgbe_hw_stats, fccrc)},
+	{"rx_fcoe_dropped", offsetof(struct ixgbe_hw_stats, fcoerpdc)},
+	{"rx_fcoe_mbuf_allocation_errors", offsetof(struct ixgbe_hw_stats,
+		fclast)},
+	{"rx_fcoe_packets", offsetof(struct ixgbe_hw_stats, fcoeprc)},
+	{"tx_fcoe_packets", offsetof(struct ixgbe_hw_stats, fcoeptc)},
+	{"rx_fcoe_bytes", offsetof(struct ixgbe_hw_stats, fcoedwrc)},
+	{"tx_fcoe_bytes", offsetof(struct ixgbe_hw_stats, fcoedwtc)},
+	{"rx_fcoe_no_direct_data_placement", offsetof(struct ixgbe_hw_stats,
+		fcoe_noddp)},
+	{"rx_fcoe_no_direct_data_placement_ext_buff",
+		offsetof(struct ixgbe_hw_stats, fcoe_noddp_ext_buff)},
+
+	{"tx_flow_control_xon_packets", offsetof(struct ixgbe_hw_stats,
+		lxontxc)},
+	{"rx_flow_control_xon_packets", offsetof(struct ixgbe_hw_stats,
+		lxonrxc)},
+	{"tx_flow_control_xoff_packets", offsetof(struct ixgbe_hw_stats,
+		lxofftxc)},
+	{"rx_flow_control_xoff_packets", offsetof(struct ixgbe_hw_stats,
+		lxoffrxc)},
+	{"rx_total_missed_packets", offsetof(struct ixgbe_hw_stats, mpctotal)},
 };
 
-#define IXGBE_NB_XSTATS (sizeof(rte_ixgbe_stats_strings) /	\
-		sizeof(rte_ixgbe_stats_strings[0]))
+#define IXGBE_NB_HW_STATS (sizeof(rte_ixgbe_stats_strings) / \
+			   sizeof(rte_ixgbe_stats_strings[0]))
+
+/* Per-queue statistics */
+static const struct rte_ixgbe_xstats_name_off rte_ixgbe_rxq_strings[] = {
+	{"mbuf_allocation_errors", offsetof(struct ixgbe_hw_stats, rnbc)},
+	{"dropped", offsetof(struct ixgbe_hw_stats, mpc)},
+	{"xon_packets", offsetof(struct ixgbe_hw_stats, pxonrxc)},
+	{"xoff_packets", offsetof(struct ixgbe_hw_stats, pxoffrxc)},
+};
+
+#define IXGBE_NB_RXQ_PRIO_STATS (sizeof(rte_ixgbe_rxq_strings) / \
+			   sizeof(rte_ixgbe_rxq_strings[0]))
+
+static const struct rte_ixgbe_xstats_name_off rte_ixgbe_txq_strings[] = {
+	{"xon_packets", offsetof(struct ixgbe_hw_stats, pxontxc)},
+	{"xoff_packets", offsetof(struct ixgbe_hw_stats, pxofftxc)},
+	{"xon_to_xoff_packets", offsetof(struct ixgbe_hw_stats,
+		pxon2offc)},
+};
+
+#define IXGBE_NB_TXQ_PRIO_STATS (sizeof(rte_ixgbe_txq_strings) / \
+			   sizeof(rte_ixgbe_txq_strings[0]))
+
+static const struct rte_ixgbe_xstats_name_off rte_ixgbevf_stats_strings[] = {
+	{"rx_multicast_packets", offsetof(struct ixgbevf_hw_stats, vfmprc)},
+};
+
+#define IXGBEVF_NB_XSTATS (sizeof(rte_ixgbevf_stats_strings) /	\
+		sizeof(rte_ixgbevf_stats_strings[0]))
 
 /**
  * Atomically reads the link status information from global
@@ -897,6 +1008,8 @@ eth_ixgbe_dev_init(struct rte_eth_dev *eth_dev)
 	}
 	pci_dev = eth_dev->pci_dev;
 
+	rte_eth_copy_pci_info(eth_dev, pci_dev);
+
 	/* Vendor and Device ID need to be set before init of shared code */
 	hw->device_id = pci_dev->id.device_id;
 	hw->vendor_id = pci_dev->id.vendor_id;
@@ -1038,6 +1151,13 @@ eth_ixgbe_dev_init(struct rte_eth_dev *eth_dev)
 			eth_dev->data->port_id, pci_dev->id.vendor_id,
 			pci_dev->id.device_id);
 
+	rte_intr_callback_register(&pci_dev->intr_handle,
+				   ixgbe_dev_interrupt_handler,
+				   (void *)eth_dev);
+
+	/* enable uio/vfio intr/eventfd mapping */
+	rte_intr_enable(&pci_dev->intr_handle);
+
 	/* enable support intr */
 	ixgbe_enable_intr(eth_dev);
 
@@ -1164,6 +1284,8 @@ eth_ixgbevf_dev_init(struct rte_eth_dev *eth_dev)
 	}
 
 	pci_dev = eth_dev->pci_dev;
+
+	rte_eth_copy_pci_info(eth_dev, pci_dev);
 
 	hw->device_id = pci_dev->id.device_id;
 	hw->vendor_id = pci_dev->id.vendor_id;
@@ -1646,14 +1768,185 @@ ixgbe_vmdq_vlan_hw_filter_enable(struct rte_eth_dev *dev)
 }
 
 static int
+ixgbe_check_vf_rss_rxq_num(struct rte_eth_dev *dev, uint16_t nb_rx_q)
+{
+	switch (nb_rx_q) {
+	case 1:
+	case 2:
+		RTE_ETH_DEV_SRIOV(dev).active = ETH_64_POOLS;
+		break;
+	case 4:
+		RTE_ETH_DEV_SRIOV(dev).active = ETH_32_POOLS;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	RTE_ETH_DEV_SRIOV(dev).nb_q_per_pool = nb_rx_q;
+	RTE_ETH_DEV_SRIOV(dev).def_pool_q_idx = dev->pci_dev->max_vfs * nb_rx_q;
+
+	return 0;
+}
+
+static int
+ixgbe_check_mq_mode(struct rte_eth_dev *dev)
+{
+	struct rte_eth_conf *dev_conf = &dev->data->dev_conf;
+	uint16_t nb_rx_q = dev->data->nb_rx_queues;
+	uint16_t nb_tx_q = dev->data->nb_rx_queues;
+
+	if (RTE_ETH_DEV_SRIOV(dev).active != 0) {
+		/* check multi-queue mode */
+		switch (dev_conf->rxmode.mq_mode) {
+		case ETH_MQ_RX_VMDQ_DCB:
+		case ETH_MQ_RX_VMDQ_DCB_RSS:
+			/* DCB/RSS VMDQ in SRIOV mode, not implement yet */
+			PMD_INIT_LOG(ERR, "SRIOV active,"
+					" unsupported mq_mode rx %d.",
+					dev_conf->rxmode.mq_mode);
+			return -EINVAL;
+		case ETH_MQ_RX_RSS:
+		case ETH_MQ_RX_VMDQ_RSS:
+			dev->data->dev_conf.rxmode.mq_mode = ETH_MQ_RX_VMDQ_RSS;
+			if (nb_rx_q <= RTE_ETH_DEV_SRIOV(dev).nb_q_per_pool)
+				if (ixgbe_check_vf_rss_rxq_num(dev, nb_rx_q)) {
+					PMD_INIT_LOG(ERR, "SRIOV is active,"
+						" invalid queue number"
+						" for VMDQ RSS, allowed"
+						" value are 1, 2 or 4.");
+					return -EINVAL;
+				}
+			break;
+		case ETH_MQ_RX_VMDQ_ONLY:
+		case ETH_MQ_RX_NONE:
+			/* if nothing mq mode configure, use default scheme */
+			dev->data->dev_conf.rxmode.mq_mode = ETH_MQ_RX_VMDQ_ONLY;
+			if (RTE_ETH_DEV_SRIOV(dev).nb_q_per_pool > 1)
+				RTE_ETH_DEV_SRIOV(dev).nb_q_per_pool = 1;
+			break;
+		default: /* ETH_MQ_RX_DCB, ETH_MQ_RX_DCB_RSS or ETH_MQ_TX_DCB*/
+			/* SRIOV only works in VMDq enable mode */
+			PMD_INIT_LOG(ERR, "SRIOV is active,"
+					" wrong mq_mode rx %d.",
+					dev_conf->rxmode.mq_mode);
+			return -EINVAL;
+		}
+
+		switch (dev_conf->txmode.mq_mode) {
+		case ETH_MQ_TX_VMDQ_DCB:
+			/* DCB VMDQ in SRIOV mode, not implement yet */
+			PMD_INIT_LOG(ERR, "SRIOV is active,"
+					" unsupported VMDQ mq_mode tx %d.",
+					dev_conf->txmode.mq_mode);
+			return -EINVAL;
+		default: /* ETH_MQ_TX_VMDQ_ONLY or ETH_MQ_TX_NONE */
+			dev->data->dev_conf.txmode.mq_mode = ETH_MQ_TX_VMDQ_ONLY;
+			break;
+		}
+
+		/* check valid queue number */
+		if ((nb_rx_q > RTE_ETH_DEV_SRIOV(dev).nb_q_per_pool) ||
+		    (nb_tx_q > RTE_ETH_DEV_SRIOV(dev).nb_q_per_pool)) {
+			PMD_INIT_LOG(ERR, "SRIOV is active,"
+					" queue number must less equal to %d.",
+					RTE_ETH_DEV_SRIOV(dev).nb_q_per_pool);
+			return -EINVAL;
+		}
+	} else {
+		/* check configuration for vmdb+dcb mode */
+		if (dev_conf->rxmode.mq_mode == ETH_MQ_RX_VMDQ_DCB) {
+			const struct rte_eth_vmdq_dcb_conf *conf;
+
+			if (nb_rx_q != IXGBE_VMDQ_DCB_NB_QUEUES) {
+				PMD_INIT_LOG(ERR, "VMDQ+DCB, nb_rx_q != %d.",
+						IXGBE_VMDQ_DCB_NB_QUEUES);
+				return -EINVAL;
+			}
+			conf = &dev_conf->rx_adv_conf.vmdq_dcb_conf;
+			if (!(conf->nb_queue_pools == ETH_16_POOLS ||
+			       conf->nb_queue_pools == ETH_32_POOLS)) {
+				PMD_INIT_LOG(ERR, "VMDQ+DCB selected,"
+						" nb_queue_pools must be %d or %d.",
+						ETH_16_POOLS, ETH_32_POOLS);
+				return -EINVAL;
+			}
+		}
+		if (dev_conf->txmode.mq_mode == ETH_MQ_TX_VMDQ_DCB) {
+			const struct rte_eth_vmdq_dcb_tx_conf *conf;
+
+			if (nb_tx_q != IXGBE_VMDQ_DCB_NB_QUEUES) {
+				PMD_INIT_LOG(ERR, "VMDQ+DCB, nb_tx_q != %d",
+						 IXGBE_VMDQ_DCB_NB_QUEUES);
+				return -EINVAL;
+			}
+			conf = &dev_conf->tx_adv_conf.vmdq_dcb_tx_conf;
+			if (!(conf->nb_queue_pools == ETH_16_POOLS ||
+			       conf->nb_queue_pools == ETH_32_POOLS)) {
+				PMD_INIT_LOG(ERR, "VMDQ+DCB selected,"
+						" nb_queue_pools != %d and"
+						" nb_queue_pools != %d.",
+						ETH_16_POOLS, ETH_32_POOLS);
+				return -EINVAL;
+			}
+		}
+
+		/* For DCB mode check our configuration before we go further */
+		if (dev_conf->rxmode.mq_mode == ETH_MQ_RX_DCB) {
+			const struct rte_eth_dcb_rx_conf *conf;
+
+			if (nb_rx_q != IXGBE_DCB_NB_QUEUES) {
+				PMD_INIT_LOG(ERR, "DCB selected, nb_rx_q != %d.",
+						 IXGBE_DCB_NB_QUEUES);
+				return -EINVAL;
+			}
+			conf = &dev_conf->rx_adv_conf.dcb_rx_conf;
+			if (!(conf->nb_tcs == ETH_4_TCS ||
+			       conf->nb_tcs == ETH_8_TCS)) {
+				PMD_INIT_LOG(ERR, "DCB selected, nb_tcs != %d"
+						" and nb_tcs != %d.",
+						ETH_4_TCS, ETH_8_TCS);
+				return -EINVAL;
+			}
+		}
+
+		if (dev_conf->txmode.mq_mode == ETH_MQ_TX_DCB) {
+			const struct rte_eth_dcb_tx_conf *conf;
+
+			if (nb_tx_q != IXGBE_DCB_NB_QUEUES) {
+				PMD_INIT_LOG(ERR, "DCB, nb_tx_q != %d.",
+						 IXGBE_DCB_NB_QUEUES);
+				return -EINVAL;
+			}
+			conf = &dev_conf->tx_adv_conf.dcb_tx_conf;
+			if (!(conf->nb_tcs == ETH_4_TCS ||
+			       conf->nb_tcs == ETH_8_TCS)) {
+				PMD_INIT_LOG(ERR, "DCB selected, nb_tcs != %d"
+						" and nb_tcs != %d.",
+						ETH_4_TCS, ETH_8_TCS);
+				return -EINVAL;
+			}
+		}
+	}
+	return 0;
+}
+
+static int
 ixgbe_dev_configure(struct rte_eth_dev *dev)
 {
 	struct ixgbe_interrupt *intr =
 		IXGBE_DEV_PRIVATE_TO_INTR(dev->data->dev_private);
 	struct ixgbe_adapter *adapter =
 		(struct ixgbe_adapter *)dev->data->dev_private;
+	int ret;
 
 	PMD_INIT_FUNC_TRACE();
+	/* multipe queue mode checking */
+	ret  = ixgbe_check_mq_mode(dev);
+	if (ret != 0) {
+		PMD_DRV_LOG(ERR, "ixgbe_check_mq_mode fails with %d.",
+			    ret);
+		return ret;
+	}
 
 	/* set flag to update link status after init */
 	intr->flags |= IXGBE_FLAG_NEED_LINK_UPDATE;
@@ -1680,9 +1973,7 @@ ixgbe_dev_start(struct rte_eth_dev *dev)
 	struct ixgbe_vf_info *vfinfo =
 		*IXGBE_DEV_PRIVATE_TO_P_VFDATA(dev->data->dev_private);
 	struct rte_intr_handle *intr_handle = &dev->pci_dev->intr_handle;
-#ifdef RTE_NEXT_ABI
 	uint32_t intr_vector = 0;
-#endif
 	int err, link_up = 0, negotiate = 0;
 	uint32_t speed = 0;
 	int mask = 0;
@@ -1700,6 +1991,9 @@ ixgbe_dev_start(struct rte_eth_dev *dev)
 		return -EINVAL;
 	}
 
+	/* disable uio/vfio intr/eventfd mapping */
+	rte_intr_disable(intr_handle);
+
 	/* stop adapter */
 	hw->adapter_stopped = 0;
 	ixgbe_stop_adapter(hw);
@@ -1715,26 +2009,25 @@ ixgbe_dev_start(struct rte_eth_dev *dev)
 	/* configure PF module if SRIOV enabled */
 	ixgbe_pf_host_configure(dev);
 
-#ifdef RTE_NEXT_ABI
 	/* check and configure queue intr-vector mapping */
-	if (dev->data->dev_conf.intr_conf.rxq != 0)
+	if ((rte_intr_cap_multiple(intr_handle) ||
+	     !RTE_ETH_DEV_SRIOV(dev).active) &&
+	    dev->data->dev_conf.intr_conf.rxq != 0) {
 		intr_vector = dev->data->nb_rx_queues;
-
-	if (rte_intr_efd_enable(intr_handle, intr_vector))
-		return -1;
+		if (rte_intr_efd_enable(intr_handle, intr_vector))
+			return -1;
+	}
 
 	if (rte_intr_dp_is_en(intr_handle) && !intr_handle->intr_vec) {
 		intr_handle->intr_vec =
 			rte_zmalloc("intr_vec",
-				    dev->data->nb_rx_queues * sizeof(int),
-				    0);
+				    dev->data->nb_rx_queues * sizeof(int), 0);
 		if (intr_handle->intr_vec == NULL) {
 			PMD_INIT_LOG(ERR, "Failed to allocate %d rx_queues"
 				     " intr_vec\n", dev->data->nb_rx_queues);
 			return -ENOMEM;
 		}
 	}
-#endif
 
 	/* confiugre msix for sleep until rx interrupt */
 	ixgbe_configure_msix(dev);
@@ -1815,23 +2108,23 @@ ixgbe_dev_start(struct rte_eth_dev *dev)
 
 skip_link_setup:
 
-	/* check if lsc interrupt is enabled */
-	if (dev->data->dev_conf.intr_conf.lsc != 0) {
-		if (rte_intr_allow_others(intr_handle)) {
-			rte_intr_callback_register(intr_handle,
-						   ixgbe_dev_interrupt_handler,
-						   (void *)dev);
+	if (rte_intr_allow_others(intr_handle)) {
+		/* check if lsc interrupt is enabled */
+		if (dev->data->dev_conf.intr_conf.lsc != 0)
 			ixgbe_dev_lsc_interrupt_setup(dev);
-		} else
+	} else {
+		rte_intr_callback_unregister(intr_handle,
+					     ixgbe_dev_interrupt_handler,
+					     (void *)dev);
+		if (dev->data->dev_conf.intr_conf.lsc != 0)
 			PMD_INIT_LOG(INFO, "lsc won't enable because of"
 				     " no intr multiplex\n");
 	}
 
-#ifdef RTE_NEXT_ABI
 	/* check if rxq interrupt is enabled */
-	if (dev->data->dev_conf.intr_conf.rxq != 0)
+	if (dev->data->dev_conf.intr_conf.rxq != 0 &&
+	    rte_intr_dp_is_en(intr_handle))
 		ixgbe_dev_rxq_interrupt_setup(dev);
-#endif
 
 	/* enable uio/vfio intr/eventfd mapping */
 	rte_intr_enable(intr_handle);
@@ -1942,14 +2235,18 @@ ixgbe_dev_stop(struct rte_eth_dev *dev)
 	memset(filter_info->fivetuple_mask, 0,
 		sizeof(uint32_t) * IXGBE_5TUPLE_ARRAY_SIZE);
 
-#ifdef RTE_NEXT_ABI
+	if (!rte_intr_allow_others(intr_handle))
+		/* resume to the default handler */
+		rte_intr_callback_register(intr_handle,
+					   ixgbe_dev_interrupt_handler,
+					   (void *)dev);
+
 	/* Clean datapath event and queue/vec mapping */
 	rte_intr_efd_disable(intr_handle);
 	if (intr_handle->intr_vec != NULL) {
 		rte_free(intr_handle->intr_vec);
 		intr_handle->intr_vec = NULL;
 	}
-#endif
 }
 
 /*
@@ -2037,13 +2334,20 @@ ixgbe_dev_close(struct rte_eth_dev *dev)
 }
 
 static void
-ixgbe_read_stats_registers(struct ixgbe_hw *hw, struct ixgbe_hw_stats
-						   *hw_stats, uint64_t *total_missed_rx,
-						   uint64_t *total_qbrc, uint64_t *total_qprc,
-						   uint64_t *total_qprdc)
+ixgbe_read_stats_registers(struct ixgbe_hw *hw,
+			   struct ixgbe_hw_stats *hw_stats,
+			   uint64_t *total_missed_rx, uint64_t *total_qbrc,
+			   uint64_t *total_qprc, uint64_t *total_qprdc)
 {
 	uint32_t bprc, lxon, lxoff, total;
+	uint32_t delta_gprc = 0;
 	unsigned i;
+	/* Workaround for RX byte count not including CRC bytes when CRC
++	 * strip is enabled. CRC bytes are removed from counters when crc_strip
+	 * is disabled.
++	 */
+	int crc_strip = (IXGBE_READ_REG(hw, IXGBE_HLREG0) &
+			IXGBE_HLREG0_RXCRCSTRP);
 
 	hw_stats->crcerrs += IXGBE_READ_REG(hw, IXGBE_CRCERRS);
 	hw_stats->illerrc += IXGBE_READ_REG(hw, IXGBE_ILLERRC);
@@ -2057,31 +2361,48 @@ ixgbe_read_stats_registers(struct ixgbe_hw *hw, struct ixgbe_hw_stats
 		hw_stats->mpc[i] += mp;
 		/* Running comprehensive total for stats display */
 		*total_missed_rx += hw_stats->mpc[i];
-		if (hw->mac.type == ixgbe_mac_82598EB)
+		if (hw->mac.type == ixgbe_mac_82598EB) {
 			hw_stats->rnbc[i] +=
 			    IXGBE_READ_REG(hw, IXGBE_RNBC(i));
+			hw_stats->pxonrxc[i] +=
+				IXGBE_READ_REG(hw, IXGBE_PXONRXC(i));
+			hw_stats->pxoffrxc[i] +=
+				IXGBE_READ_REG(hw, IXGBE_PXOFFRXC(i));
+		} else {
+			hw_stats->pxonrxc[i] +=
+				IXGBE_READ_REG(hw, IXGBE_PXONRXCNT(i));
+			hw_stats->pxoffrxc[i] +=
+				IXGBE_READ_REG(hw, IXGBE_PXOFFRXCNT(i));
+			hw_stats->pxon2offc[i] +=
+				IXGBE_READ_REG(hw, IXGBE_PXON2OFFCNT(i));
+		}
 		hw_stats->pxontxc[i] +=
 		    IXGBE_READ_REG(hw, IXGBE_PXONTXC(i));
-		hw_stats->pxonrxc[i] +=
-		    IXGBE_READ_REG(hw, IXGBE_PXONRXC(i));
 		hw_stats->pxofftxc[i] +=
 		    IXGBE_READ_REG(hw, IXGBE_PXOFFTXC(i));
-		hw_stats->pxoffrxc[i] +=
-		    IXGBE_READ_REG(hw, IXGBE_PXOFFRXC(i));
-		hw_stats->pxon2offc[i] +=
-		    IXGBE_READ_REG(hw, IXGBE_PXON2OFFCNT(i));
 	}
 	for (i = 0; i < IXGBE_QUEUE_STAT_COUNTERS; i++) {
-		hw_stats->qprc[i] += IXGBE_READ_REG(hw, IXGBE_QPRC(i));
-		hw_stats->qptc[i] += IXGBE_READ_REG(hw, IXGBE_QPTC(i));
+		uint32_t delta_qprc = IXGBE_READ_REG(hw, IXGBE_QPRC(i));
+		uint32_t delta_qptc = IXGBE_READ_REG(hw, IXGBE_QPTC(i));
+		uint32_t delta_qprdc = IXGBE_READ_REG(hw, IXGBE_QPRDC(i));
+
+		delta_gprc += delta_qprc;
+
+		hw_stats->qprc[i] += delta_qprc;
+		hw_stats->qptc[i] += delta_qptc;
+
 		hw_stats->qbrc[i] += IXGBE_READ_REG(hw, IXGBE_QBRC_L(i));
 		hw_stats->qbrc[i] +=
 		    ((uint64_t)IXGBE_READ_REG(hw, IXGBE_QBRC_H(i)) << 32);
+		if (crc_strip == 0)
+			hw_stats->qbrc[i] -= delta_qprc * ETHER_CRC_LEN;
+
 		hw_stats->qbtc[i] += IXGBE_READ_REG(hw, IXGBE_QBTC_L(i));
 		hw_stats->qbtc[i] +=
 		    ((uint64_t)IXGBE_READ_REG(hw, IXGBE_QBTC_H(i)) << 32);
-		*total_qprdc += hw_stats->qprdc[i] +=
-				IXGBE_READ_REG(hw, IXGBE_QPRDC(i));
+
+		hw_stats->qprdc[i] += delta_qprdc;
+		*total_qprdc += hw_stats->qprdc[i];
 
 		*total_qprc += hw_stats->qprc[i];
 		*total_qbrc += hw_stats->qbrc[i];
@@ -2090,8 +2411,11 @@ ixgbe_read_stats_registers(struct ixgbe_hw *hw, struct ixgbe_hw_stats
 	hw_stats->mrfc += IXGBE_READ_REG(hw, IXGBE_MRFC);
 	hw_stats->rlec += IXGBE_READ_REG(hw, IXGBE_RLEC);
 
-	/* Note that gprc counts missed packets */
-	hw_stats->gprc += IXGBE_READ_REG(hw, IXGBE_GPRC);
+	/*
+	 * An errata states that gprc actually counts good + missed packets:
+	 * Workaround to set gprc to summated queue packet receives
+	 */
+	hw_stats->gprc = *total_qprc;
 
 	if (hw->mac.type != ixgbe_mac_82598EB) {
 		hw_stats->gorc += IXGBE_READ_REG(hw, IXGBE_GORCL);
@@ -2110,6 +2434,18 @@ ixgbe_read_stats_registers(struct ixgbe_hw *hw, struct ixgbe_hw_stats
 		hw_stats->gotc += IXGBE_READ_REG(hw, IXGBE_GOTCH);
 		hw_stats->tor += IXGBE_READ_REG(hw, IXGBE_TORH);
 	}
+	uint64_t old_tpr = hw_stats->tpr;
+
+	hw_stats->tpr += IXGBE_READ_REG(hw, IXGBE_TPR);
+	hw_stats->tpt += IXGBE_READ_REG(hw, IXGBE_TPT);
+
+	if (crc_strip == 0)
+		hw_stats->gorc -= delta_gprc * ETHER_CRC_LEN;
+
+	uint64_t delta_gptc = IXGBE_READ_REG(hw, IXGBE_GPTC);
+	hw_stats->gptc += delta_gptc;
+	hw_stats->gotc -= delta_gptc * ETHER_CRC_LEN;
+	hw_stats->tor -= (hw_stats->tpr - old_tpr) * ETHER_CRC_LEN;
 
 	/*
 	 * Workaround: mprc hardware is incorrectly counting
@@ -2134,7 +2470,6 @@ ixgbe_read_stats_registers(struct ixgbe_hw *hw, struct ixgbe_hw_stats
 	hw_stats->lxofftxc += lxoff;
 	total = lxon + lxoff;
 
-	hw_stats->gptc += IXGBE_READ_REG(hw, IXGBE_GPTC);
 	hw_stats->mptc += IXGBE_READ_REG(hw, IXGBE_MPTC);
 	hw_stats->ptc64 += IXGBE_READ_REG(hw, IXGBE_PTC64);
 	hw_stats->gptc -= total;
@@ -2149,8 +2484,6 @@ ixgbe_read_stats_registers(struct ixgbe_hw *hw, struct ixgbe_hw_stats
 	hw_stats->mngprc += IXGBE_READ_REG(hw, IXGBE_MNGPRC);
 	hw_stats->mngpdc += IXGBE_READ_REG(hw, IXGBE_MNGPDC);
 	hw_stats->mngptc += IXGBE_READ_REG(hw, IXGBE_MNGPTC);
-	hw_stats->tpr += IXGBE_READ_REG(hw, IXGBE_TPR);
-	hw_stats->tpt += IXGBE_READ_REG(hw, IXGBE_TPT);
 	hw_stats->ptc127 += IXGBE_READ_REG(hw, IXGBE_PTC127);
 	hw_stats->ptc255 += IXGBE_READ_REG(hw, IXGBE_PTC255);
 	hw_stats->ptc511 += IXGBE_READ_REG(hw, IXGBE_PTC511);
@@ -2213,18 +2546,16 @@ ixgbe_dev_stats_get(struct rte_eth_dev *dev, struct rte_eth_stats *stats)
 	}
 
 	/* Rx Errors */
+	stats->imissed  = total_missed_rx;
 	stats->ierrors  = hw_stats->crcerrs +
+	                  hw_stats->mspdc +
 	                  hw_stats->rlec +
 	                  hw_stats->ruc +
 	                  hw_stats->roc +
 	                  total_missed_rx +
 	                  hw_stats->illerrc +
 	                  hw_stats->errbc +
-	                  hw_stats->xec +
-	                  hw_stats->mlfc +
-	                  hw_stats->mrfc +
 	                  hw_stats->rfc +
-	                  hw_stats->rjc +
 	                  hw_stats->fccrc +
 	                  hw_stats->fclast;
 
@@ -2245,6 +2576,13 @@ ixgbe_dev_stats_reset(struct rte_eth_dev *dev)
 	memset(stats, 0, sizeof(*stats));
 }
 
+/* This function calculates the number of xstats based on the current config */
+static unsigned
+ixgbe_xstats_calc_num(void) {
+	return IXGBE_NB_HW_STATS + (IXGBE_NB_RXQ_PRIO_STATS * 8) +
+		(IXGBE_NB_TXQ_PRIO_STATS * 8);
+}
+
 static int
 ixgbe_dev_xstats_get(struct rte_eth_dev *dev, struct rte_eth_xstats *xstats,
 					 unsigned n)
@@ -2254,7 +2592,9 @@ ixgbe_dev_xstats_get(struct rte_eth_dev *dev, struct rte_eth_xstats *xstats,
 	struct ixgbe_hw_stats *hw_stats =
 			IXGBE_DEV_PRIVATE_TO_STATS(dev->data->dev_private);
 	uint64_t total_missed_rx, total_qbrc, total_qprc, total_qprdc;
-	unsigned i, count = IXGBE_NB_XSTATS;
+	unsigned i, stat, count = 0;
+
+	count = ixgbe_xstats_calc_num();
 
 	if (n < count)
 		return count;
@@ -2265,7 +2605,7 @@ ixgbe_dev_xstats_get(struct rte_eth_dev *dev, struct rte_eth_xstats *xstats,
 	total_qprdc = 0;
 
 	ixgbe_read_stats_registers(hw, hw_stats, &total_missed_rx, &total_qbrc,
-							   &total_qprc, &total_qprdc);
+				   &total_qprc, &total_qprdc);
 
 	/* If this is a reset xstats is NULL, and we have cleared the
 	 * registers by reading them.
@@ -2273,12 +2613,40 @@ ixgbe_dev_xstats_get(struct rte_eth_dev *dev, struct rte_eth_xstats *xstats,
 	if (!xstats)
 		return 0;
 
-	/* Extended stats */
-	for (i = 0; i < IXGBE_NB_XSTATS; i++) {
-		snprintf(xstats[i].name, sizeof(xstats[i].name),
-				"%s", rte_ixgbe_stats_strings[i].name);
-		xstats[i].value = *(uint64_t *)(((char *)hw_stats) +
-							rte_ixgbe_stats_strings[i].offset);
+	/* Extended stats from ixgbe_hw_stats */
+	count = 0;
+	for (i = 0; i < IXGBE_NB_HW_STATS; i++) {
+		snprintf(xstats[count].name, sizeof(xstats[count].name), "%s",
+			 rte_ixgbe_stats_strings[i].name);
+		xstats[count].value = *(uint64_t *)(((char *)hw_stats) +
+				rte_ixgbe_stats_strings[i].offset);
+		count++;
+	}
+
+	/* RX Priority Stats */
+	for (stat = 0; stat < IXGBE_NB_RXQ_PRIO_STATS; stat++) {
+		for (i = 0; i < 8; i++) {
+			snprintf(xstats[count].name, sizeof(xstats[count].name),
+				 "rx_priority%u_%s", i,
+				 rte_ixgbe_rxq_strings[stat].name);
+			xstats[count].value = *(uint64_t *)(((char *)hw_stats) +
+					rte_ixgbe_rxq_strings[stat].offset +
+					(sizeof(uint64_t) * i));
+			count++;
+		}
+	}
+
+	/* TX Priority Stats */
+	for (stat = 0; stat < IXGBE_NB_TXQ_PRIO_STATS; stat++) {
+		for (i = 0; i < 8; i++) {
+			snprintf(xstats[count].name, sizeof(xstats[count].name),
+				 "tx_priority%u_%s", i,
+				 rte_ixgbe_txq_strings[stat].name);
+			xstats[count].value = *(uint64_t *)(((char *)hw_stats) +
+					rte_ixgbe_txq_strings[stat].offset +
+					(sizeof(uint64_t) * i));
+			count++;
+		}
 	}
 
 	return count;
@@ -2290,15 +2658,17 @@ ixgbe_dev_xstats_reset(struct rte_eth_dev *dev)
 	struct ixgbe_hw_stats *stats =
 			IXGBE_DEV_PRIVATE_TO_STATS(dev->data->dev_private);
 
+	unsigned count = ixgbe_xstats_calc_num();
+
 	/* HW registers are cleared on read */
-	ixgbe_dev_xstats_get(dev, NULL, IXGBE_NB_XSTATS);
+	ixgbe_dev_xstats_get(dev, NULL, count);
 
 	/* Reset software totals */
 	memset(stats, 0, sizeof(*stats));
 }
 
 static void
-ixgbevf_dev_stats_get(struct rte_eth_dev *dev, struct rte_eth_stats *stats)
+ixgbevf_update_stats(struct rte_eth_dev *dev)
 {
 	struct ixgbe_hw *hw = IXGBE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
 	struct ixgbevf_hw_stats *hw_stats = (struct ixgbevf_hw_stats*)
@@ -2323,6 +2693,42 @@ ixgbevf_dev_stats_get(struct rte_eth_dev *dev, struct rte_eth_stats *stats)
 	/* Rx Multicst Packet */
 	UPDATE_VF_STAT(IXGBE_VFMPRC,
 	    hw_stats->last_vfmprc, hw_stats->vfmprc);
+}
+
+static int
+ixgbevf_dev_xstats_get(struct rte_eth_dev *dev, struct rte_eth_xstats *xstats,
+		       unsigned n)
+{
+	struct ixgbevf_hw_stats *hw_stats = (struct ixgbevf_hw_stats *)
+			IXGBE_DEV_PRIVATE_TO_STATS(dev->data->dev_private);
+	unsigned i;
+
+	if (n < IXGBEVF_NB_XSTATS)
+		return IXGBEVF_NB_XSTATS;
+
+	ixgbevf_update_stats(dev);
+
+	if (!xstats)
+		return 0;
+
+	/* Extended stats */
+	for (i = 0; i < IXGBEVF_NB_XSTATS; i++) {
+		snprintf(xstats[i].name, sizeof(xstats[i].name),
+			 "%s", rte_ixgbevf_stats_strings[i].name);
+		xstats[i].value = *(uint64_t *)(((char *)hw_stats) +
+			rte_ixgbevf_stats_strings[i].offset);
+	}
+
+	return IXGBEVF_NB_XSTATS;
+}
+
+static void
+ixgbevf_dev_stats_get(struct rte_eth_dev *dev, struct rte_eth_stats *stats)
+{
+	struct ixgbevf_hw_stats *hw_stats = (struct ixgbevf_hw_stats *)
+			  IXGBE_DEV_PRIVATE_TO_STATS(dev->data->dev_private);
+
+	ixgbevf_update_stats(dev);
 
 	if (stats == NULL)
 		return;
@@ -2414,8 +2820,12 @@ ixgbe_dev_info_get(struct rte_eth_dev *dev, struct rte_eth_dev_info *dev_info)
 		.txq_flags = ETH_TXQ_FLAGS_NOMULTSEGS |
 				ETH_TXQ_FLAGS_NOOFFLOADS,
 	};
+
+	dev_info->rx_desc_lim = rx_desc_lim;
+	dev_info->tx_desc_lim = tx_desc_lim;
+
 	dev_info->hash_key_size = IXGBE_HKEY_MAX_INDEX * sizeof(uint32_t);
-	dev_info->reta_size = ETH_RSS_RETA_SIZE_128;
+	dev_info->reta_size = ixgbe_reta_size_get(hw->mac.type);
 	dev_info->flow_type_rss_offloads = IXGBE_RSS_OFFLOAD_ALL;
 }
 
@@ -2444,7 +2854,8 @@ ixgbevf_dev_info_get(struct rte_eth_dev *dev,
 				DEV_TX_OFFLOAD_IPV4_CKSUM  |
 				DEV_TX_OFFLOAD_UDP_CKSUM   |
 				DEV_TX_OFFLOAD_TCP_CKSUM   |
-				DEV_TX_OFFLOAD_SCTP_CKSUM;
+				DEV_TX_OFFLOAD_SCTP_CKSUM  |
+				DEV_TX_OFFLOAD_TCP_TSO;
 
 	dev_info->default_rxconf = (struct rte_eth_rxconf) {
 		.rx_thresh = {
@@ -2467,6 +2878,9 @@ ixgbevf_dev_info_get(struct rte_eth_dev *dev,
 		.txq_flags = ETH_TXQ_FLAGS_NOMULTSEGS |
 				ETH_TXQ_FLAGS_NOOFFLOADS,
 	};
+
+	dev_info->rx_desc_lim = rx_desc_lim;
+	dev_info->tx_desc_lim = tx_desc_lim;
 }
 
 /* return 0 means link status changed, -1 means not changed */
@@ -2623,7 +3037,6 @@ ixgbe_dev_lsc_interrupt_setup(struct rte_eth_dev *dev)
  *  - On success, zero.
  *  - On failure, a negative value.
  */
-#ifdef RTE_NEXT_ABI
 static int
 ixgbe_dev_rxq_interrupt_setup(struct rte_eth_dev *dev)
 {
@@ -2634,7 +3047,6 @@ ixgbe_dev_rxq_interrupt_setup(struct rte_eth_dev *dev)
 
 	return 0;
 }
-#endif
 
 /*
  * It reads ICR and sets flag (IXGBE_EICR_LSC) for the link_update.
@@ -2669,30 +3081,6 @@ ixgbe_dev_interrupt_get_status(struct rte_eth_dev *dev)
 
 	if (eicr & IXGBE_EICR_MAILBOX)
 		intr->flags |= IXGBE_FLAG_MAILBOX;
-
-	return 0;
-}
-
-static int
-ixgbevf_dev_interrupt_get_status(struct rte_eth_dev *dev)
-{
-	uint32_t eicr;
-	struct ixgbe_hw *hw = IXGBE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
-	struct ixgbe_interrupt *intr =
-		IXGBE_DEV_PRIVATE_TO_INTR(dev->data->dev_private);
-
-	/* clear all cause mask */
-	ixgbevf_intr_disable(hw);
-
-	/* read-on-clear nic registers here */
-	eicr = IXGBE_READ_REG(hw, IXGBE_VTEICR);
-	PMD_DRV_LOG(INFO, "eicr %x", eicr);
-
-	intr->flags = 0;
-
-	/* set flag for async link update */
-	if (eicr & IXGBE_EICR_LSC)
-		intr->flags |= IXGBE_FLAG_NEED_LINK_UPDATE;
 
 	return 0;
 }
@@ -2792,18 +3180,6 @@ ixgbe_dev_interrupt_action(struct rte_eth_dev *dev)
 	return 0;
 }
 
-static int
-ixgbevf_dev_interrupt_action(struct rte_eth_dev *dev)
-{
-	struct ixgbe_hw *hw =
-		IXGBE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
-
-	PMD_DRV_LOG(DEBUG, "enable intr immediately");
-	ixgbevf_intr_enable(hw);
-	rte_intr_enable(&dev->pci_dev->intr_handle);
-	return 0;
-}
-
 /**
  * Interrupt handler which shall be registered for alarm callback for delayed
  * handling specific interrupt to wait for the stable nic state. As the
@@ -2864,16 +3240,6 @@ ixgbe_dev_interrupt_handler(__rte_unused struct rte_intr_handle *handle,
 
 	ixgbe_dev_interrupt_get_status(dev);
 	ixgbe_dev_interrupt_action(dev);
-}
-
-static void
-ixgbevf_dev_interrupt_handler(__rte_unused struct rte_intr_handle *handle,
-			      void *param)
-{
-	struct rte_eth_dev *dev = (struct rte_eth_dev *)param;
-
-	ixgbevf_dev_interrupt_get_status(dev);
-	ixgbevf_dev_interrupt_action(dev);
 }
 
 static int
@@ -3223,12 +3589,22 @@ ixgbe_dev_rss_reta_update(struct rte_eth_dev *dev,
 	uint32_t reta, r;
 	uint16_t idx, shift;
 	struct ixgbe_hw *hw = IXGBE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
+	uint16_t sp_reta_size;
+	uint32_t reta_reg;
 
 	PMD_INIT_FUNC_TRACE();
-	if (reta_size != ETH_RSS_RETA_SIZE_128) {
+
+	if (!ixgbe_rss_update_sp(hw->mac.type)) {
+		PMD_DRV_LOG(ERR, "RSS reta update is not supported on this "
+			"NIC.");
+		return -ENOTSUP;
+	}
+
+	sp_reta_size = ixgbe_reta_size_get(hw->mac.type);
+	if (reta_size != sp_reta_size) {
 		PMD_DRV_LOG(ERR, "The size of hash lookup table configured "
 			"(%d) doesn't match the number hardware can supported "
-			"(%d)\n", reta_size, ETH_RSS_RETA_SIZE_128);
+			"(%d)\n", reta_size, sp_reta_size);
 		return -EINVAL;
 	}
 
@@ -3239,10 +3615,11 @@ ixgbe_dev_rss_reta_update(struct rte_eth_dev *dev,
 						IXGBE_4_BIT_MASK);
 		if (!mask)
 			continue;
+		reta_reg = ixgbe_reta_reg_get(hw->mac.type, i);
 		if (mask == IXGBE_4_BIT_MASK)
 			r = 0;
 		else
-			r = IXGBE_READ_REG(hw, IXGBE_RETA(i >> 2));
+			r = IXGBE_READ_REG(hw, reta_reg);
 		for (j = 0, reta = 0; j < IXGBE_4_BIT_WIDTH; j++) {
 			if (mask & (0x1 << j))
 				reta |= reta_conf[idx].reta[shift + j] <<
@@ -3251,7 +3628,7 @@ ixgbe_dev_rss_reta_update(struct rte_eth_dev *dev,
 				reta |= r & (IXGBE_8_BIT_MASK <<
 						(CHAR_BIT * j));
 		}
-		IXGBE_WRITE_REG(hw, IXGBE_RETA(i >> 2), reta);
+		IXGBE_WRITE_REG(hw, reta_reg, reta);
 	}
 
 	return 0;
@@ -3266,16 +3643,19 @@ ixgbe_dev_rss_reta_query(struct rte_eth_dev *dev,
 	uint32_t reta;
 	uint16_t idx, shift;
 	struct ixgbe_hw *hw = IXGBE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
+	uint16_t sp_reta_size;
+	uint32_t reta_reg;
 
 	PMD_INIT_FUNC_TRACE();
-	if (reta_size != ETH_RSS_RETA_SIZE_128) {
+	sp_reta_size = ixgbe_reta_size_get(hw->mac.type);
+	if (reta_size != sp_reta_size) {
 		PMD_DRV_LOG(ERR, "The size of hash lookup table configured "
 			"(%d) doesn't match the number hardware can supported "
-				"(%d)\n", reta_size, ETH_RSS_RETA_SIZE_128);
+			"(%d)\n", reta_size, sp_reta_size);
 		return -EINVAL;
 	}
 
-	for (i = 0; i < ETH_RSS_RETA_SIZE_128; i += IXGBE_4_BIT_WIDTH) {
+	for (i = 0; i < reta_size; i += IXGBE_4_BIT_WIDTH) {
 		idx = i / RTE_RETA_GROUP_SIZE;
 		shift = i % RTE_RETA_GROUP_SIZE;
 		mask = (uint8_t)((reta_conf[idx].mask >> shift) &
@@ -3283,7 +3663,8 @@ ixgbe_dev_rss_reta_query(struct rte_eth_dev *dev,
 		if (!mask)
 			continue;
 
-		reta = IXGBE_READ_REG(hw, IXGBE_RETA(i >> 2));
+		reta_reg = ixgbe_reta_reg_get(hw->mac.type, i);
+		reta = IXGBE_READ_REG(hw, reta_reg);
 		for (j = 0; j < IXGBE_4_BIT_WIDTH; j++) {
 			if (mask & (0x1 << j))
 				reta_conf[idx].reta[shift + j] =
@@ -3435,9 +3816,7 @@ ixgbevf_dev_start(struct rte_eth_dev *dev)
 {
 	struct ixgbe_hw *hw =
 		IXGBE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
-#ifdef RTE_NEXT_ABI
 	uint32_t intr_vector = 0;
-#endif
 	struct rte_intr_handle *intr_handle = &dev->pci_dev->intr_handle;
 
 	int err, mask = 0;
@@ -3470,13 +3849,12 @@ ixgbevf_dev_start(struct rte_eth_dev *dev)
 
 	ixgbevf_dev_rxtx_start(dev);
 
-#ifdef RTE_NEXT_ABI
 	/* check and configure queue intr-vector mapping */
-	if (dev->data->dev_conf.intr_conf.rxq != 0)
+	if (dev->data->dev_conf.intr_conf.rxq != 0) {
 		intr_vector = dev->data->nb_rx_queues;
-
-	if (rte_intr_efd_enable(intr_handle, intr_vector))
-		return -1;
+		if (rte_intr_efd_enable(intr_handle, intr_vector))
+			return -1;
+	}
 
 	if (rte_intr_dp_is_en(intr_handle) && !intr_handle->intr_vec) {
 		intr_handle->intr_vec =
@@ -3488,18 +3866,7 @@ ixgbevf_dev_start(struct rte_eth_dev *dev)
 			return -ENOMEM;
 		}
 	}
-#endif
 	ixgbevf_configure_msix(dev);
-
-	if (dev->data->dev_conf.intr_conf.lsc != 0) {
-		if (rte_intr_allow_others(intr_handle))
-			rte_intr_callback_register(intr_handle,
-					ixgbevf_dev_interrupt_handler,
-					(void *)dev);
-		else
-			PMD_INIT_LOG(INFO, "lsc won't enable because of"
-				     " no intr multiplex\n");
-	}
 
 	rte_intr_enable(intr_handle);
 
@@ -3534,23 +3901,18 @@ ixgbevf_dev_stop(struct rte_eth_dev *dev)
 	/* disable intr eventfd mapping */
 	rte_intr_disable(intr_handle);
 
-#ifdef RTE_NEXT_ABI
 	/* Clean datapath event and queue/vec mapping */
 	rte_intr_efd_disable(intr_handle);
 	if (intr_handle->intr_vec != NULL) {
 		rte_free(intr_handle->intr_vec);
 		intr_handle->intr_vec = NULL;
 	}
-#endif
 }
 
 static void
 ixgbevf_dev_close(struct rte_eth_dev *dev)
 {
 	struct ixgbe_hw *hw = IXGBE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
-#ifdef RTE_NEXT_ABI
-	struct rte_pci_device *pci_dev;
-#endif
 
 	PMD_INIT_FUNC_TRACE();
 
@@ -3562,14 +3924,6 @@ ixgbevf_dev_close(struct rte_eth_dev *dev)
 
 	/* reprogram the RAR[0] in case user changed it. */
 	ixgbe_set_rar(hw, 0, hw->mac.addr, 0, IXGBE_RAH_AV);
-
-#ifdef RTE_NEXT_ABI
-	pci_dev = dev->pci_dev;
-	if (pci_dev->intr_handle.intr_vec) {
-		rte_free(pci_dev->intr_handle.intr_vec);
-		pci_dev->intr_handle.intr_vec = NULL;
-	}
-#endif
 }
 
 static void ixgbevf_set_vfta_all(struct rte_eth_dev *dev, bool on)
@@ -4087,7 +4441,6 @@ ixgbe_mirror_rule_reset(struct rte_eth_dev *dev, uint8_t rule_id)
 	return 0;
 }
 
-#ifdef RTE_NEXT_ABI
 static int
 ixgbevf_dev_rx_queue_intr_enable(struct rte_eth_dev *dev, uint16_t queue_id)
 {
@@ -4096,7 +4449,8 @@ ixgbevf_dev_rx_queue_intr_enable(struct rte_eth_dev *dev, uint16_t queue_id)
 		IXGBE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
 
 	mask = IXGBE_READ_REG(hw, IXGBE_VTEIMS);
-	mask |= (1 << queue_id);
+	mask |= (1 << IXGBE_MISC_VEC_ID);
+	RTE_SET_USED(queue_id);
 	IXGBE_WRITE_REG(hw, IXGBE_VTEIMS, mask);
 
 	rte_intr_enable(&dev->pci_dev->intr_handle);
@@ -4112,7 +4466,8 @@ ixgbevf_dev_rx_queue_intr_disable(struct rte_eth_dev *dev, uint16_t queue_id)
 		IXGBE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
 
 	mask = IXGBE_READ_REG(hw, IXGBE_VTEIMS);
-	mask &= ~(1 << queue_id);
+	mask &= ~(1 << IXGBE_MISC_VEC_ID);
+	RTE_SET_USED(queue_id);
 	IXGBE_WRITE_REG(hw, IXGBE_VTEIMS, mask);
 
 	return 0;
@@ -4240,18 +4595,15 @@ ixgbe_set_ivar_map(struct ixgbe_hw *hw, int8_t direction,
 		}
 	}
 }
-#endif
 
 static void
 ixgbevf_configure_msix(struct rte_eth_dev *dev)
 {
 	struct rte_intr_handle *intr_handle = &dev->pci_dev->intr_handle;
-#ifdef RTE_NEXT_ABI
 	struct ixgbe_hw *hw =
 		IXGBE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
 	uint32_t q_idx;
-	uint32_t vector_idx = 0;
-#endif
+	uint32_t vector_idx = IXGBE_MISC_VEC_ID;
 
 	/* won't configure msix register if no mapping is done
 	 * between intr vector and event fd.
@@ -4259,7 +4611,6 @@ ixgbevf_configure_msix(struct rte_eth_dev *dev)
 	if (!rte_intr_dp_is_en(intr_handle))
 		return;
 
-#ifdef RTE_NEXT_ABI
 	/* Configure all RX queues of VF */
 	for (q_idx = 0; q_idx < dev->data->nb_rx_queues; q_idx++) {
 		/* Force all queue use vector 0,
@@ -4269,9 +4620,8 @@ ixgbevf_configure_msix(struct rte_eth_dev *dev)
 		intr_handle->intr_vec[q_idx] = vector_idx;
 	}
 
-	/* Configure VF Rx queue ivar */
+	/* Configure VF other cause ivar */
 	ixgbevf_set_ivar_map(hw, -1, 1, vector_idx);
-#endif
 }
 
 /**
@@ -4283,13 +4633,12 @@ static void
 ixgbe_configure_msix(struct rte_eth_dev *dev)
 {
 	struct rte_intr_handle *intr_handle = &dev->pci_dev->intr_handle;
-#ifdef RTE_NEXT_ABI
 	struct ixgbe_hw *hw =
 		IXGBE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
-	uint32_t queue_id, vec = 0;
+	uint32_t queue_id, base = IXGBE_MISC_VEC_ID;
+	uint32_t vec = IXGBE_MISC_VEC_ID;
 	uint32_t mask;
 	uint32_t gpie;
-#endif
 
 	/* won't configure msix register if no mapping is done
 	 * between intr vector and event fd
@@ -4297,7 +4646,9 @@ ixgbe_configure_msix(struct rte_eth_dev *dev)
 	if (!rte_intr_dp_is_en(intr_handle))
 		return;
 
-#ifdef RTE_NEXT_ABI
+	if (rte_intr_allow_others(intr_handle))
+		vec = base = IXGBE_RX_VEC_START;
+
 	/* setup GPIE for MSI-x mode */
 	gpie = IXGBE_READ_REG(hw, IXGBE_GPIE);
 	gpie |= IXGBE_GPIE_MSIX_MODE | IXGBE_GPIE_PBA_SUPPORT |
@@ -4321,23 +4672,23 @@ ixgbe_configure_msix(struct rte_eth_dev *dev)
 		/* by default, 1:1 mapping */
 		ixgbe_set_ivar_map(hw, 0, queue_id, vec);
 		intr_handle->intr_vec[queue_id] = vec;
-		if (vec < intr_handle->nb_efd - 1)
+		if (vec < base + intr_handle->nb_efd - 1)
 			vec++;
 	}
 
 	switch (hw->mac.type) {
 	case ixgbe_mac_82598EB:
 		ixgbe_set_ivar_map(hw, -1, IXGBE_IVAR_OTHER_CAUSES_INDEX,
-				   intr_handle->max_intr - 1);
+				   IXGBE_MISC_VEC_ID);
 		break;
 	case ixgbe_mac_82599EB:
 	case ixgbe_mac_X540:
-		ixgbe_set_ivar_map(hw, -1, 1, intr_handle->max_intr - 1);
+		ixgbe_set_ivar_map(hw, -1, 1, IXGBE_MISC_VEC_ID);
 		break;
 	default:
 		break;
 	}
-	IXGBE_WRITE_REG(hw, IXGBE_EITR(queue_id),
+	IXGBE_WRITE_REG(hw, IXGBE_EITR(IXGBE_MISC_VEC_ID),
 			IXGBE_MIN_INTER_INTERRUPT_INTERVAL_DEFAULT & 0xFFF);
 
 	/* set up to autoclear timer, and the vectors */
@@ -4347,7 +4698,6 @@ ixgbe_configure_msix(struct rte_eth_dev *dev)
 		  IXGBE_EIMS_LSC);
 
 	IXGBE_WRITE_REG(hw, IXGBE_EIAC, mask);
-#endif
 }
 
 static int ixgbe_set_queue_rate_limit(struct rte_eth_dev *dev,
@@ -5281,6 +5631,186 @@ ixgbe_dev_set_mc_addr_list(struct rte_eth_dev *dev,
 					 ixgbe_dev_addr_list_itr, TRUE);
 }
 
+static uint64_t
+ixgbe_read_systime_cyclecounter(struct rte_eth_dev *dev)
+{
+	struct ixgbe_hw *hw = IXGBE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
+	uint64_t systime_cycles;
+
+	switch (hw->mac.type) {
+	case ixgbe_mac_X550:
+		/* SYSTIMEL stores ns and SYSTIMEH stores seconds. */
+		systime_cycles = (uint64_t)IXGBE_READ_REG(hw, IXGBE_SYSTIML);
+		systime_cycles += (uint64_t)IXGBE_READ_REG(hw, IXGBE_SYSTIMH)
+				* NSEC_PER_SEC;
+		break;
+	default:
+		systime_cycles = (uint64_t)IXGBE_READ_REG(hw, IXGBE_SYSTIML);
+		systime_cycles |= (uint64_t)IXGBE_READ_REG(hw, IXGBE_SYSTIMH)
+				<< 32;
+	}
+
+	return systime_cycles;
+}
+
+static uint64_t
+ixgbe_read_rx_tstamp_cyclecounter(struct rte_eth_dev *dev)
+{
+	struct ixgbe_hw *hw = IXGBE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
+	uint64_t rx_tstamp_cycles;
+
+	switch (hw->mac.type) {
+	case ixgbe_mac_X550:
+		/* RXSTMPL stores ns and RXSTMPH stores seconds. */
+		rx_tstamp_cycles = (uint64_t)IXGBE_READ_REG(hw, IXGBE_RXSTMPL);
+		rx_tstamp_cycles += (uint64_t)IXGBE_READ_REG(hw, IXGBE_RXSTMPH)
+				* NSEC_PER_SEC;
+		break;
+	default:
+		/* RXSTMPL stores ns and RXSTMPH stores seconds. */
+		rx_tstamp_cycles = (uint64_t)IXGBE_READ_REG(hw, IXGBE_RXSTMPL);
+		rx_tstamp_cycles |= (uint64_t)IXGBE_READ_REG(hw, IXGBE_RXSTMPH)
+				<< 32;
+	}
+
+	return rx_tstamp_cycles;
+}
+
+static uint64_t
+ixgbe_read_tx_tstamp_cyclecounter(struct rte_eth_dev *dev)
+{
+	struct ixgbe_hw *hw = IXGBE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
+	uint64_t tx_tstamp_cycles;
+
+	switch (hw->mac.type) {
+	case ixgbe_mac_X550:
+		/* TXSTMPL stores ns and TXSTMPH stores seconds. */
+		tx_tstamp_cycles = (uint64_t)IXGBE_READ_REG(hw, IXGBE_TXSTMPL);
+		tx_tstamp_cycles += (uint64_t)IXGBE_READ_REG(hw, IXGBE_TXSTMPH)
+				* NSEC_PER_SEC;
+		break;
+	default:
+		/* TXSTMPL stores ns and TXSTMPH stores seconds. */
+		tx_tstamp_cycles = (uint64_t)IXGBE_READ_REG(hw, IXGBE_TXSTMPL);
+		tx_tstamp_cycles |= (uint64_t)IXGBE_READ_REG(hw, IXGBE_TXSTMPH)
+				<< 32;
+	}
+
+	return tx_tstamp_cycles;
+}
+
+static void
+ixgbe_start_timecounters(struct rte_eth_dev *dev)
+{
+	struct ixgbe_hw *hw = IXGBE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
+	struct ixgbe_adapter *adapter =
+		(struct ixgbe_adapter *)dev->data->dev_private;
+	struct rte_eth_link link;
+	uint32_t incval = 0;
+	uint32_t shift = 0;
+
+	/* Get current link speed. */
+	memset(&link, 0, sizeof(link));
+	ixgbe_dev_link_update(dev, 1);
+	rte_ixgbe_dev_atomic_read_link_status(dev, &link);
+
+	switch (link.link_speed) {
+	case ETH_LINK_SPEED_100:
+		incval = IXGBE_INCVAL_100;
+		shift = IXGBE_INCVAL_SHIFT_100;
+		break;
+	case ETH_LINK_SPEED_1000:
+		incval = IXGBE_INCVAL_1GB;
+		shift = IXGBE_INCVAL_SHIFT_1GB;
+		break;
+	case ETH_LINK_SPEED_10000:
+	default:
+		incval = IXGBE_INCVAL_10GB;
+		shift = IXGBE_INCVAL_SHIFT_10GB;
+		break;
+	}
+
+	switch (hw->mac.type) {
+	case ixgbe_mac_X550:
+		/* Independent of link speed. */
+		incval = 1;
+		/* Cycles read will be interpreted as ns. */
+		shift = 0;
+		/* Fall-through */
+	case ixgbe_mac_X540:
+		IXGBE_WRITE_REG(hw, IXGBE_TIMINCA, incval);
+		break;
+	case ixgbe_mac_82599EB:
+		incval >>= IXGBE_INCVAL_SHIFT_82599;
+		shift -= IXGBE_INCVAL_SHIFT_82599;
+		IXGBE_WRITE_REG(hw, IXGBE_TIMINCA,
+				(1 << IXGBE_INCPER_SHIFT_82599) | incval);
+		break;
+	default:
+		/* Not supported. */
+		return;
+	}
+
+	memset(&adapter->systime_tc, 0, sizeof(struct rte_timecounter));
+	memset(&adapter->rx_tstamp_tc, 0, sizeof(struct rte_timecounter));
+	memset(&adapter->tx_tstamp_tc, 0, sizeof(struct rte_timecounter));
+
+	adapter->systime_tc.cc_mask = IXGBE_CYCLECOUNTER_MASK;
+	adapter->systime_tc.cc_shift = shift;
+	adapter->systime_tc.nsec_mask = (1ULL << shift) - 1;
+
+	adapter->rx_tstamp_tc.cc_mask = IXGBE_CYCLECOUNTER_MASK;
+	adapter->rx_tstamp_tc.cc_shift = shift;
+	adapter->rx_tstamp_tc.nsec_mask = (1ULL << shift) - 1;
+
+	adapter->tx_tstamp_tc.cc_mask = IXGBE_CYCLECOUNTER_MASK;
+	adapter->tx_tstamp_tc.cc_shift = shift;
+	adapter->tx_tstamp_tc.nsec_mask = (1ULL << shift) - 1;
+}
+
+static int
+ixgbe_timesync_adjust_time(struct rte_eth_dev *dev, int64_t delta)
+{
+	struct ixgbe_adapter *adapter =
+			(struct ixgbe_adapter *)dev->data->dev_private;
+
+	adapter->systime_tc.nsec += delta;
+	adapter->rx_tstamp_tc.nsec += delta;
+	adapter->tx_tstamp_tc.nsec += delta;
+
+	return 0;
+}
+
+static int
+ixgbe_timesync_write_time(struct rte_eth_dev *dev, const struct timespec *ts)
+{
+	uint64_t ns;
+	struct ixgbe_adapter *adapter =
+			(struct ixgbe_adapter *)dev->data->dev_private;
+
+	ns = rte_timespec_to_ns(ts);
+	/* Set the timecounters to a new value. */
+	adapter->systime_tc.nsec = ns;
+	adapter->rx_tstamp_tc.nsec = ns;
+	adapter->tx_tstamp_tc.nsec = ns;
+
+	return 0;
+}
+
+static int
+ixgbe_timesync_read_time(struct rte_eth_dev *dev, struct timespec *ts)
+{
+	uint64_t ns, systime_cycles;
+	struct ixgbe_adapter *adapter =
+			(struct ixgbe_adapter *)dev->data->dev_private;
+
+	systime_cycles = ixgbe_read_systime_cyclecounter(dev);
+	ns = rte_timecounter_update(&adapter->systime_tc, systime_cycles);
+	*ts = rte_ns_to_timespec(ns);
+
+	return 0;
+}
+
 static int
 ixgbe_timesync_enable(struct rte_eth_dev *dev)
 {
@@ -5288,13 +5818,18 @@ ixgbe_timesync_enable(struct rte_eth_dev *dev)
 	uint32_t tsync_ctl;
 	uint32_t tsauxc;
 
+	/* Stop the timesync system time. */
+	IXGBE_WRITE_REG(hw, IXGBE_TIMINCA, 0x0);
+	/* Reset the timesync system time value. */
+	IXGBE_WRITE_REG(hw, IXGBE_SYSTIML, 0x0);
+	IXGBE_WRITE_REG(hw, IXGBE_SYSTIMH, 0x0);
+
 	/* Enable system time for platforms where it isn't on by default. */
 	tsauxc = IXGBE_READ_REG(hw, IXGBE_TSAUXC);
 	tsauxc &= ~IXGBE_TSAUXC_DISABLE_SYSTIME;
 	IXGBE_WRITE_REG(hw, IXGBE_TSAUXC, tsauxc);
 
-	/* Start incrementing the register used to timestamp PTP packets. */
-	IXGBE_WRITE_REG(hw, IXGBE_TIMINCA, IXGBE_TIMINCA_INIT);
+	ixgbe_start_timecounters(dev);
 
 	/* Enable L2 filtering of IEEE1588/802.1AS Ethernet frame types. */
 	IXGBE_WRITE_REG(hw, IXGBE_ETQF(IXGBE_ETQF_FILTER_1588),
@@ -5311,6 +5846,8 @@ ixgbe_timesync_enable(struct rte_eth_dev *dev)
 	tsync_ctl = IXGBE_READ_REG(hw, IXGBE_TSYNCTXCTL);
 	tsync_ctl |= IXGBE_TSYNCTXCTL_ENABLED;
 	IXGBE_WRITE_REG(hw, IXGBE_TSYNCTXCTL, tsync_ctl);
+
+	IXGBE_WRITE_FLUSH(hw);
 
 	return 0;
 }
@@ -5346,19 +5883,19 @@ ixgbe_timesync_read_rx_timestamp(struct rte_eth_dev *dev,
 				 uint32_t flags __rte_unused)
 {
 	struct ixgbe_hw *hw = IXGBE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
+	struct ixgbe_adapter *adapter =
+		(struct ixgbe_adapter *)dev->data->dev_private;
 	uint32_t tsync_rxctl;
-	uint32_t rx_stmpl;
-	uint32_t rx_stmph;
+	uint64_t rx_tstamp_cycles;
+	uint64_t ns;
 
 	tsync_rxctl = IXGBE_READ_REG(hw, IXGBE_TSYNCRXCTL);
 	if ((tsync_rxctl & IXGBE_TSYNCRXCTL_VALID) == 0)
 		return -EINVAL;
 
-	rx_stmpl = IXGBE_READ_REG(hw, IXGBE_RXSTMPL);
-	rx_stmph = IXGBE_READ_REG(hw, IXGBE_RXSTMPH);
-
-	timestamp->tv_sec = (uint64_t)(((uint64_t)rx_stmph << 32) | rx_stmpl);
-	timestamp->tv_nsec = 0;
+	rx_tstamp_cycles = ixgbe_read_rx_tstamp_cyclecounter(dev);
+	ns = rte_timecounter_update(&adapter->rx_tstamp_tc, rx_tstamp_cycles);
+	*timestamp = rte_ns_to_timespec(ns);
 
 	return  0;
 }
@@ -5368,21 +5905,21 @@ ixgbe_timesync_read_tx_timestamp(struct rte_eth_dev *dev,
 				 struct timespec *timestamp)
 {
 	struct ixgbe_hw *hw = IXGBE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
+	struct ixgbe_adapter *adapter =
+		(struct ixgbe_adapter *)dev->data->dev_private;
 	uint32_t tsync_txctl;
-	uint32_t tx_stmpl;
-	uint32_t tx_stmph;
+	uint64_t tx_tstamp_cycles;
+	uint64_t ns;
 
 	tsync_txctl = IXGBE_READ_REG(hw, IXGBE_TSYNCTXCTL);
 	if ((tsync_txctl & IXGBE_TSYNCTXCTL_VALID) == 0)
 		return -EINVAL;
 
-	tx_stmpl = IXGBE_READ_REG(hw, IXGBE_TXSTMPL);
-	tx_stmph = IXGBE_READ_REG(hw, IXGBE_TXSTMPH);
+	tx_tstamp_cycles = ixgbe_read_tx_tstamp_cyclecounter(dev);
+	ns = rte_timecounter_update(&adapter->tx_tstamp_tc, tx_tstamp_cycles);
+	*timestamp = rte_ns_to_timespec(ns);
 
-	timestamp->tv_sec = (uint64_t)(((uint64_t)tx_stmph << 32) | tx_stmpl);
-	timestamp->tv_nsec = 0;
-
-	return  0;
+	return 0;
 }
 
 static int
@@ -5484,8 +6021,8 @@ ixgbe_get_eeprom(struct rte_eth_dev *dev,
 
 	first = in_eeprom->offset >> 1;
 	length = in_eeprom->length >> 1;
-	if ((first >= hw->eeprom.word_size) ||
-	    ((first + length) >= hw->eeprom.word_size))
+	if ((first > hw->eeprom.word_size) ||
+	    ((first + length) > hw->eeprom.word_size))
 		return -EINVAL;
 
 	in_eeprom->magic = hw->vendor_id | (hw->device_id << 16);
@@ -5504,13 +6041,154 @@ ixgbe_set_eeprom(struct rte_eth_dev *dev,
 
 	first = in_eeprom->offset >> 1;
 	length = in_eeprom->length >> 1;
-	if ((first >= hw->eeprom.word_size) ||
-	    ((first + length) >= hw->eeprom.word_size))
+	if ((first > hw->eeprom.word_size) ||
+	    ((first + length) > hw->eeprom.word_size))
 		return -EINVAL;
 
 	in_eeprom->magic = hw->vendor_id | (hw->device_id << 16);
 
 	return eeprom->ops.write_buffer(hw,  first, length, data);
+}
+
+uint16_t
+ixgbe_reta_size_get(enum ixgbe_mac_type mac_type) {
+	switch (mac_type) {
+	case ixgbe_mac_X550:
+	case ixgbe_mac_X550EM_x:
+		return ETH_RSS_RETA_SIZE_512;
+	case ixgbe_mac_X550_vf:
+	case ixgbe_mac_X550EM_x_vf:
+		return ETH_RSS_RETA_SIZE_64;
+	default:
+		return ETH_RSS_RETA_SIZE_128;
+	}
+}
+
+uint32_t
+ixgbe_reta_reg_get(enum ixgbe_mac_type mac_type, uint16_t reta_idx) {
+	switch (mac_type) {
+	case ixgbe_mac_X550:
+	case ixgbe_mac_X550EM_x:
+		if (reta_idx < ETH_RSS_RETA_SIZE_128)
+			return IXGBE_RETA(reta_idx >> 2);
+		else
+			return IXGBE_ERETA((reta_idx - ETH_RSS_RETA_SIZE_128) >> 2);
+	case ixgbe_mac_X550_vf:
+	case ixgbe_mac_X550EM_x_vf:
+		return IXGBE_VFRETA(reta_idx >> 2);
+	default:
+		return IXGBE_RETA(reta_idx >> 2);
+	}
+}
+
+uint32_t
+ixgbe_mrqc_reg_get(enum ixgbe_mac_type mac_type) {
+	switch (mac_type) {
+	case ixgbe_mac_X550_vf:
+	case ixgbe_mac_X550EM_x_vf:
+		return IXGBE_VFMRQC;
+	default:
+		return IXGBE_MRQC;
+	}
+}
+
+uint32_t
+ixgbe_rssrk_reg_get(enum ixgbe_mac_type mac_type, uint8_t i) {
+	switch (mac_type) {
+	case ixgbe_mac_X550_vf:
+	case ixgbe_mac_X550EM_x_vf:
+		return IXGBE_VFRSSRK(i);
+	default:
+		return IXGBE_RSSRK(i);
+	}
+}
+
+bool
+ixgbe_rss_update_sp(enum ixgbe_mac_type mac_type) {
+	switch (mac_type) {
+	case ixgbe_mac_82599_vf:
+	case ixgbe_mac_X540_vf:
+		return 0;
+	default:
+		return 1;
+	}
+}
+
+static int
+ixgbe_dev_get_dcb_info(struct rte_eth_dev *dev,
+			struct rte_eth_dcb_info *dcb_info)
+{
+	struct ixgbe_dcb_config *dcb_config =
+			IXGBE_DEV_PRIVATE_TO_DCB_CFG(dev->data->dev_private);
+	struct ixgbe_dcb_tc_config *tc;
+	uint8_t i, j;
+
+	if (dev->data->dev_conf.rxmode.mq_mode & ETH_MQ_RX_DCB_FLAG)
+		dcb_info->nb_tcs = dcb_config->num_tcs.pg_tcs;
+	else
+		dcb_info->nb_tcs = 1;
+
+	if (dcb_config->vt_mode) { /* vt is enabled*/
+		struct rte_eth_vmdq_dcb_conf *vmdq_rx_conf =
+				&dev->data->dev_conf.rx_adv_conf.vmdq_dcb_conf;
+		for (i = 0; i < ETH_DCB_NUM_USER_PRIORITIES; i++)
+			dcb_info->prio_tc[i] = vmdq_rx_conf->dcb_tc[i];
+		for (i = 0; i < vmdq_rx_conf->nb_queue_pools; i++) {
+			for (j = 0; j < dcb_info->nb_tcs; j++) {
+				dcb_info->tc_queue.tc_rxq[i][j].base =
+						i * dcb_info->nb_tcs + j;
+				dcb_info->tc_queue.tc_rxq[i][j].nb_queue = 1;
+				dcb_info->tc_queue.tc_txq[i][j].base =
+						i * dcb_info->nb_tcs + j;
+				dcb_info->tc_queue.tc_txq[i][j].nb_queue = 1;
+			}
+		}
+	} else { /* vt is disabled*/
+		struct rte_eth_dcb_rx_conf *rx_conf =
+				&dev->data->dev_conf.rx_adv_conf.dcb_rx_conf;
+		for (i = 0; i < ETH_DCB_NUM_USER_PRIORITIES; i++)
+			dcb_info->prio_tc[i] = rx_conf->dcb_tc[i];
+		if (dcb_info->nb_tcs == ETH_4_TCS) {
+			for (i = 0; i < dcb_info->nb_tcs; i++) {
+				dcb_info->tc_queue.tc_rxq[0][i].base = i * 32;
+				dcb_info->tc_queue.tc_rxq[0][i].nb_queue = 16;
+			}
+			dcb_info->tc_queue.tc_txq[0][0].base = 0;
+			dcb_info->tc_queue.tc_txq[0][1].base = 64;
+			dcb_info->tc_queue.tc_txq[0][2].base = 96;
+			dcb_info->tc_queue.tc_txq[0][3].base = 112;
+			dcb_info->tc_queue.tc_txq[0][0].nb_queue = 64;
+			dcb_info->tc_queue.tc_txq[0][1].nb_queue = 32;
+			dcb_info->tc_queue.tc_txq[0][2].nb_queue = 16;
+			dcb_info->tc_queue.tc_txq[0][3].nb_queue = 16;
+		} else if (dcb_info->nb_tcs == ETH_8_TCS) {
+			for (i = 0; i < dcb_info->nb_tcs; i++) {
+				dcb_info->tc_queue.tc_rxq[0][i].base = i * 16;
+				dcb_info->tc_queue.tc_rxq[0][i].nb_queue = 16;
+			}
+			dcb_info->tc_queue.tc_txq[0][0].base = 0;
+			dcb_info->tc_queue.tc_txq[0][1].base = 32;
+			dcb_info->tc_queue.tc_txq[0][2].base = 64;
+			dcb_info->tc_queue.tc_txq[0][3].base = 80;
+			dcb_info->tc_queue.tc_txq[0][4].base = 96;
+			dcb_info->tc_queue.tc_txq[0][5].base = 104;
+			dcb_info->tc_queue.tc_txq[0][6].base = 112;
+			dcb_info->tc_queue.tc_txq[0][7].base = 120;
+			dcb_info->tc_queue.tc_txq[0][0].nb_queue = 32;
+			dcb_info->tc_queue.tc_txq[0][1].nb_queue = 32;
+			dcb_info->tc_queue.tc_txq[0][2].nb_queue = 16;
+			dcb_info->tc_queue.tc_txq[0][3].nb_queue = 16;
+			dcb_info->tc_queue.tc_txq[0][4].nb_queue = 8;
+			dcb_info->tc_queue.tc_txq[0][5].nb_queue = 8;
+			dcb_info->tc_queue.tc_txq[0][6].nb_queue = 8;
+			dcb_info->tc_queue.tc_txq[0][7].nb_queue = 8;
+		}
+	}
+	for (i = 0; i < dcb_info->nb_tcs; i++) {
+		tc = &dcb_config->tc_config[i];
+		dcb_info->tc_bws[i] = tc->path[IXGBE_DCB_TX_CONFIG].bwg_percent;
+	}
+	return 0;
 }
 
 static struct rte_driver rte_ixgbe_driver = {

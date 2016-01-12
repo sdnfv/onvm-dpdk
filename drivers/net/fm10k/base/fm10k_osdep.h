@@ -44,6 +44,10 @@ POSSIBILITY OF SUCH DAMAGE.
 /* TODO: this does not look like it should be used... */
 #define ERROR_REPORT2(v1, v2, v3)   do { } while (0)
 
+#ifndef BOULDER_RAPIDS_HW
+#define BOULDER_RAPIDS_HW
+#endif
+
 #define STATIC                  static
 #define DEBUGFUNC(F)            DEBUGOUT(F "\n");
 #define DEBUGOUT(S, args...)    PMD_DRV_LOG_RAW(DEBUG, S, ##args)
@@ -106,6 +110,7 @@ typedef int        bool;
 #define FM10K_LE32_TO_CPU    rte_le_to_cpu_32
 #define FM10K_CPU_TO_LE32    rte_cpu_to_le_32
 #define FM10K_CPU_TO_LE16    rte_cpu_to_le_16
+#define le16_to_cpu          rte_le_to_cpu_16
 
 #define FM10K_RMB            rte_rmb
 #define FM10K_WMB            rte_wmb
@@ -144,5 +149,10 @@ typedef int        bool;
 #ifndef fm10k_read_reg
 #define fm10k_read_reg FM10K_READ_REG
 #endif
+
+#define FM10K_TSO_MINMSS \
+	(FM10K_DMA_CTRL_MINMSS_64 >> FM10K_DMA_CTRL_MINMSS_SHIFT)
+#define FM10K_TSO_MIN_HEADERLEN			54
+#define FM10K_TSO_MAX_HEADERLEN			192
 
 #endif /* _FM10K_OSDEP_H_ */

@@ -1,7 +1,11 @@
 /*
  * Copyright (c) 2013-2015 Brocade Communications Systems, Inc.
  *
+ * Copyright (c) 2015 QLogic Corporation.
  * All rights reserved.
+ * www.qlogic.com
+ *
+ * See LICENSE.bnx2x_pmd for copyright and licensing details.
  */
 
 #include "bnx2x.h"
@@ -62,8 +66,8 @@ bnx2x_check_bull(struct bnx2x_softc *sc)
 
 /* add tlv to a buffer */
 #define BNX2X_TLV_APPEND(_tlvs, _offset, _type, _length) \
-	((struct vf_first_tlv *)((uint64_t)_tlvs + _offset))->type   = _type; \
-	((struct vf_first_tlv *)((uint64_t)_tlvs + _offset))->length = _length
+	((struct vf_first_tlv *)((unsigned long)_tlvs + _offset))->type   = _type; \
+	((struct vf_first_tlv *)((unsigned long)_tlvs + _offset))->length = _length
 
 /* Initiliaze header of the first tlv and clear mailbox*/
 static void
@@ -257,8 +261,15 @@ int bnx2x_vf_get_resources(struct bnx2x_softc *sc, uint8_t tx_count, uint8_t rx_
 
 	acq->bulletin_addr = sc->pf2vf_bulletin_mapping.paddr;
 
-	BNX2X_TLV_APPEND(acq, acq->first_tlv.length, BNX2X_VF_TLV_LIST_END,
-			sizeof(struct channel_list_end_tlv));
+	/* Request physical port identifier */
+	BNX2X_TLV_APPEND(acq, acq->first_tlv.length,
+			 BNX2X_VF_TLV_PHYS_PORT_ID,
+			 sizeof(struct channel_tlv));
+
+	BNX2X_TLV_APPEND(acq,
+			 (acq->first_tlv.length + sizeof(struct channel_tlv)),
+			 BNX2X_VF_TLV_LIST_END,
+			 sizeof(struct channel_list_end_tlv));
 
 	/* requesting the resources in loop */
 	obtain_status = bnx2x_loop_obtain_resources(sc);

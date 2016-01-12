@@ -53,12 +53,10 @@ struct rte_mbuf;
  *     accesses through relaxed memory I/O windows, so smp_mb() et al are
  *     sufficient.
  *
- * This driver is for virtio_pci on SMP and therefore can assume
- * weaker (compiler barriers)
  */
-#define virtio_mb()	rte_mb()
-#define virtio_rmb()	rte_compiler_barrier()
-#define virtio_wmb()	rte_compiler_barrier()
+#define virtio_mb()	rte_smp_mb()
+#define virtio_rmb()	rte_smp_rmb()
+#define virtio_wmb()	rte_smp_wmb()
 
 #ifdef RTE_PMD_PACKET_PREFETCH
 #define rte_packet_prefetch(p)  rte_prefetch1(p)
@@ -188,12 +186,21 @@ struct virtqueue {
 	 */
 	uint16_t vq_used_cons_idx;
 	uint16_t vq_avail_idx;
+	uint64_t mbuf_initializer; /**< value to init mbufs. */
 	phys_addr_t virtio_net_hdr_mem; /**< hdr for each xmit packet */
+
+	struct rte_mbuf **sw_ring; /**< RX software ring. */
+	/* dummy mbuf, for wraparound when processing RX ring. */
+	struct rte_mbuf fake_mbuf;
 
 	/* Statistics */
 	uint64_t	packets;
 	uint64_t	bytes;
 	uint64_t	errors;
+	uint64_t	multicast;
+	uint64_t	broadcast;
+	/* Size bins in array as RFC 2819, undersized [0], 64 [1], etc */
+	uint64_t	size_bins[8];
 
 	struct vq_desc_extra {
 		void              *cookie;

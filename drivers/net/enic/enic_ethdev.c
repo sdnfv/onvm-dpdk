@@ -31,7 +31,6 @@
  * POSSIBILITY OF SUCH DAMAGE.
  *
  */
-#ident "$Id$"
 
 #include <stdio.h>
 #include <stdint.h>
@@ -194,6 +193,7 @@ static int enicpmd_dev_tx_queue_start(struct rte_eth_dev *eth_dev,
 	ENICPMD_FUNC_TRACE();
 
 	enic_start_wq(enic, queue_idx);
+	eth_dev->data->tx_queue_state[queue_idx] = RTE_ETH_QUEUE_STATE_STARTED;
 
 	return 0;
 }
@@ -209,6 +209,8 @@ static int enicpmd_dev_tx_queue_stop(struct rte_eth_dev *eth_dev,
 	ret = enic_stop_wq(enic, queue_idx);
 	if (ret)
 		dev_err(enic, "error in stopping wq %d\n", queue_idx);
+	else
+		eth_dev->data->tx_queue_state[queue_idx] = RTE_ETH_QUEUE_STATE_STOPPED;
 
 	return ret;
 }
@@ -221,6 +223,7 @@ static int enicpmd_dev_rx_queue_start(struct rte_eth_dev *eth_dev,
 	ENICPMD_FUNC_TRACE();
 
 	enic_start_rq(enic, queue_idx);
+	eth_dev->data->rx_queue_state[queue_idx] = RTE_ETH_QUEUE_STATE_STARTED;
 
 	return 0;
 }
@@ -236,6 +239,8 @@ static int enicpmd_dev_rx_queue_stop(struct rte_eth_dev *eth_dev,
 	ret = enic_stop_rq(enic, queue_idx);
 	if (ret)
 		dev_err(enic, "error in stopping rq %d\n", queue_idx);
+	else
+		eth_dev->data->rx_queue_state[queue_idx] = RTE_ETH_QUEUE_STATE_STOPPED;
 
 	return ret;
 }
@@ -272,13 +277,14 @@ static int enicpmd_vlan_filter_set(struct rte_eth_dev *eth_dev,
 	uint16_t vlan_id, int on)
 {
 	struct enic *enic = pmd_priv(eth_dev);
+	int err;
 
 	ENICPMD_FUNC_TRACE();
 	if (on)
-		enic_add_vlan(enic, vlan_id);
+		err = enic_add_vlan(enic, vlan_id);
 	else
-		enic_del_vlan(enic, vlan_id);
-	return 0;
+		err = enic_del_vlan(enic, vlan_id);
+	return err;
 }
 
 static void enicpmd_vlan_offload_set(struct rte_eth_dev *eth_dev, int mask)
@@ -489,21 +495,26 @@ static uint16_t enicpmd_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts,
 	unsigned int seg_len;
 	unsigned int inc_len;
 	unsigned int nb_segs;
-	struct rte_mbuf *tx_pkt;
+	struct rte_mbuf *tx_pkt, *next_tx_pkt;
 	struct vnic_wq *wq = (struct vnic_wq *)tx_queue;
 	struct enic *enic = vnic_dev_priv(wq->vdev);
 	unsigned short vlan_id;
 	unsigned short ol_flags;
+	uint8_t last_seg, eop;
 
 	for (index = 0; index < nb_pkts; index++) {
 		tx_pkt = *tx_pkts++;
 		inc_len = 0;
 		nb_segs = tx_pkt->nb_segs;
 		if (nb_segs > vnic_wq_desc_avail(wq)) {
+			if (index > 0)
+				enic_post_wq_index(wq);
+
 			/* wq cleanup and try again */
 			if (!enic_cleanup_wq(enic, wq) ||
-				(nb_segs > vnic_wq_desc_avail(wq)))
+				(nb_segs > vnic_wq_desc_avail(wq))) {
 				return index;
+			}
 		}
 		pkt_len = tx_pkt->pkt_len;
 		vlan_id = tx_pkt->vlan_tci;
@@ -511,14 +522,15 @@ static uint16_t enicpmd_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts,
 		for (frags = 0; inc_len < pkt_len; frags++) {
 			if (!tx_pkt)
 				break;
+			next_tx_pkt = tx_pkt->next;
 			seg_len = tx_pkt->data_len;
 			inc_len += seg_len;
-			if (enic_send_pkt(enic, wq, tx_pkt,
-				    (unsigned short)seg_len, !frags,
-				    (pkt_len == inc_len), ol_flags, vlan_id)) {
-				break;
-			}
-			tx_pkt = tx_pkt->next;
+			eop = (pkt_len == inc_len) || (!next_tx_pkt);
+			last_seg = eop &&
+				(index == ((unsigned int)nb_pkts - 1));
+			enic_send_pkt(enic, wq, tx_pkt, (unsigned short)seg_len,
+				      !frags, eop, last_seg, ol_flags, vlan_id);
+			tx_pkt = next_tx_pkt;
 		}
 	}
 
@@ -576,7 +588,6 @@ static const struct eth_dev_ops enicpmd_eth_dev_ops = {
 	.priority_flow_ctrl_set = NULL,
 	.mac_addr_add         = enicpmd_add_mac_addr,
 	.mac_addr_remove      = enicpmd_remove_mac_addr,
-	.fdir_set_masks               = NULL,
 	.filter_ctrl          = enicpmd_dev_filter_ctrl,
 };
 
@@ -599,6 +610,7 @@ static int eth_enicpmd_dev_init(struct rte_eth_dev *eth_dev)
 	eth_dev->tx_pkt_burst = &enicpmd_xmit_pkts;
 
 	pdev = eth_dev->pci_dev;
+	rte_eth_copy_pci_info(eth_dev, pdev);
 	enic->pdev = pdev;
 	addr = &pdev->addr;
 

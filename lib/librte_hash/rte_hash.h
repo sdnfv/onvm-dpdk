@@ -41,6 +41,7 @@
  */
 
 #include <stdint.h>
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -49,12 +50,6 @@ extern "C" {
 /** Maximum size of hash table that can be created. */
 #define RTE_HASH_ENTRIES_MAX			(1 << 30)
 
-/** @deprecated Maximum bucket size that can be created. */
-#define RTE_HASH_BUCKET_ENTRIES_MAX		4
-
-/** @deprecated Maximum length of key that can be used. */
-#define RTE_HASH_KEY_LENGTH_MAX			64
-
 /** Maximum number of characters in hash name.*/
 #define RTE_HASH_NAMESIZE			32
 
@@ -62,12 +57,18 @@ extern "C" {
 #define RTE_HASH_LOOKUP_BULK_MAX		64
 #define RTE_HASH_LOOKUP_MULTI_MAX		RTE_HASH_LOOKUP_BULK_MAX
 
+/** Enable Hardware transactional memory support. */
+#define RTE_HASH_EXTRA_FLAGS_TRANS_MEM_SUPPORT	0x01
+
 /** Signature of key that is stored internally. */
 typedef uint32_t hash_sig_t;
 
 /** Type of function that can be used for calculating the hash value. */
 typedef uint32_t (*rte_hash_function)(const void *key, uint32_t key_len,
 				      uint32_t init_val);
+
+/** Type of function used to compare the hash key. */
+typedef int (*rte_hash_cmp_eq_t)(const void *key1, const void *key2, size_t key_len);
 
 /**
  * Parameters used when creating the hash table.
@@ -105,6 +106,19 @@ struct rte_hash;
  */
 struct rte_hash *
 rte_hash_create(const struct rte_hash_parameters *params);
+
+/**
+ * Set a new hash compare function other than the default one.
+ *
+ * @note Function pointer does not work with multi-process, so do not use it
+ * in multi-process mode.
+ *
+ * @param h
+ *   Hash table to reset
+ * @param func
+ *   New compare function
+ */
+void rte_hash_set_cmp_func(struct rte_hash *h, rte_hash_cmp_eq_t func);
 
 /**
  * Find an existing hash table object and return a pointer to it.

@@ -44,23 +44,19 @@
 #include <errno.h>
 #include <stdint.h>
 
-#ifdef __cplusplus
-#define __RTE_CPUFLAG_UNDERLYING_TYPE  : unsigned int
-#define __RTE_REGISTER_UNDERLYING_TYPE : unsigned int
-#else
-#define __RTE_CPUFLAG_UNDERLYING_TYPE
-#define __RTE_REGISTER_UNDERLYING_TYPE
-#endif
-
 /**
  * Enumeration of all CPU features supported
  */
-enum rte_cpu_flag_t __RTE_CPUFLAG_UNDERLYING_TYPE;
+#ifdef __DOXYGEN__
+enum rte_cpu_flag_t;
+#endif
 
 /**
  * Enumeration of CPU registers
  */
-enum cpu_register_t __RTE_REGISTER_UNDERLYING_TYPE;
+#ifdef __DOXYGEN__
+enum cpu_register_t;
+#endif
 
 typedef uint32_t cpuid_registers_t[4];
 
@@ -108,8 +104,10 @@ rte_cpu_get_features(uint32_t leaf, uint32_t subleaf, cpuid_registers_t out);
  *     0 if flag is not available
  *     -ENOENT if flag is invalid
  */
+#ifdef __DOXYGEN__
 static inline int
 rte_cpu_get_flag_enabled(enum rte_cpu_flag_t feature);
+#endif
 
 /**
  * This function checks that the currently used CPU supports the CPU features

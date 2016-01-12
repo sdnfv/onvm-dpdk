@@ -182,7 +182,7 @@ static void cmd_help_long_parsed(void *parsed_result,
 			"Display:\n"
 			"--------\n\n"
 
-			"show port (info|stats|xstats|fdir|stat_qmap) (port_id|all)\n"
+			"show port (info|stats|xstats|fdir|stat_qmap|dcb_tc) (port_id|all)\n"
 			"    Display information for port_id, or all.\n\n"
 
 			"show port X rss reta (size) (mask0,mask1,...)\n"
@@ -190,14 +190,19 @@ static void cmd_help_long_parsed(void *parsed_result,
 			" by masks on port X. size is used to indicate the"
 			" hardware supported reta size\n\n"
 
-			"show port rss-hash [key]\n"
+			"show port rss-hash ipv4|ipv4-frag|ipv4-tcp|ipv4-udp|"
+			"ipv4-sctp|ipv4-other|ipv6|ipv6-frag|ipv6-tcp|ipv6-udp|ipv6-sctp|"
+			"ipv6-other|l2-payload|ipv6-ex|ipv6-tcp-ex|ipv6-udp-ex [key]\n"
 			"    Display the RSS hash functions and RSS hash key"
 			" of port X\n\n"
 
 			"clear port (info|stats|xstats|fdir|stat_qmap) (port_id|all)\n"
 			"    Clear information for port_id, or all.\n\n"
 
-			"show config (rxtx|cores|fwd)\n"
+			"show (rxq|txq) info (port_id) (queue_id)\n"
+			"    Display information for configured RX/TX queue.\n\n"
+
+			"show config (rxtx|cores|fwd|txpkts)\n"
 			"    Display the given configuration.\n\n"
 
 			"read rxd (port_id) (queue_id) (rxd_id)\n"
@@ -244,7 +249,12 @@ static void cmd_help_long_parsed(void *parsed_result,
 
 			"set txpkts (x[,y]*)\n"
 			"    Set the length of each segment of TXONLY"
-			" packets.\n\n"
+			" and optionally CSUM packets.\n\n"
+
+			"set txsplit (off|on|rand)\n"
+			"    Set the split policy for the TX packets."
+			" Right now only applicable for CSUM and TXONLY"
+			" modes\n\n"
 
 			"set corelist (x[,y]*)\n"
 			"    Set the list of forwarding cores.\n\n"
@@ -627,43 +637,68 @@ static void cmd_help_long_parsed(void *parsed_result,
 			" priority (prio_value) queue (queue_id)\n"
 			"    Add/Del a flex filter.\n\n"
 
-			"flow_director_filter (port_id) (add|del|update)"
+			"flow_director_filter (port_id) mode IP (add|del|update)"
 			" flow (ipv4-other|ipv4-frag|ipv6-other|ipv6-frag)"
 			" src (src_ip_address) dst (dst_ip_address)"
 			" vlan (vlan_value) flexbytes (flexbytes_value)"
-			" (drop|fwd) queue (queue_id) fd_id (fd_id_value)\n"
+			" (drop|fwd) pf|vf(vf_id) queue (queue_id)"
+			" fd_id (fd_id_value)\n"
 			"    Add/Del an IP type flow director filter.\n\n"
 
-			"flow_director_filter (port_id) (add|del|update)"
+			"flow_director_filter (port_id) mode IP (add|del|update)"
 			" flow (ipv4-tcp|ipv4-udp|ipv6-tcp|ipv6-udp)"
 			" src (src_ip_address) (src_port)"
 			" dst (dst_ip_address) (dst_port)"
 			" vlan (vlan_value) flexbytes (flexbytes_value)"
-			" (drop|fwd) queue (queue_id) fd_id (fd_id_value)\n"
+			" (drop|fwd) pf|vf(vf_id) queue (queue_id)"
+			" fd_id (fd_id_value)\n"
 			"    Add/Del an UDP/TCP type flow director filter.\n\n"
 
-			"flow_director_filter (port_id) (add|del|update)"
+			"flow_director_filter (port_id) mode IP (add|del|update)"
 			" flow (ipv4-sctp|ipv6-sctp)"
 			" src (src_ip_address) (src_port)"
 			" dst (dst_ip_address) (dst_port)"
 			" tag (verification_tag) vlan (vlan_value)"
 			" flexbytes (flexbytes_value) (drop|fwd)"
-			" queue (queue_id) fd_id (fd_id_value)\n"
+			" pf|vf(vf_id) queue (queue_id) fd_id (fd_id_value)\n"
 			"    Add/Del a SCTP type flow director filter.\n\n"
 
-			"flow_director_filter (port_id) (add|del|update)"
+			"flow_director_filter (port_id) mode IP (add|del|update)"
 			" flow l2_payload ether (ethertype)"
 			" flexbytes (flexbytes_value) (drop|fwd)"
-			" queue (queue_id) fd_id (fd_id_value)\n"
+			" pf|vf(vf_id) queue (queue_id) fd_id (fd_id_value)\n"
 			"    Add/Del a l2 payload type flow director filter.\n\n"
+
+			"flow_director_filter (port_id) mode MAC-VLAN (add|del|update)"
+			" mac (mac_address) vlan (vlan_value)"
+			" flexbytes (flexbytes_value) (drop|fwd)"
+			" queue (queue_id) fd_id (fd_id_value)\n"
+			"    Add/Del a MAC-VLAN flow director filter.\n\n"
+
+			"flow_director_filter (port_id) mode Tunnel (add|del|update)"
+			" mac (mac_address) vlan (vlan_value)"
+			" tunnel (NVGRE|VxLAN) tunnel-id (tunnel_id_value)"
+			" flexbytes (flexbytes_value) (drop|fwd)"
+			" queue (queue_id) fd_id (fd_id_value)\n"
+			"    Add/Del a Tunnel flow director filter.\n\n"
 
 			"flush_flow_director (port_id)\n"
 			"    Flush all flow director entries of a device.\n\n"
 
-			"flow_director_mask (port_id) vlan (vlan_value)"
+			"flow_director_mask (port_id) mode IP vlan (vlan_value)"
 			" src_mask (ipv4_src) (ipv6_src) (src_port)"
 			" dst_mask (ipv4_dst) (ipv6_dst) (dst_port)\n"
-			"    Set flow director mask.\n\n"
+			"    Set flow director IP mask.\n\n"
+
+			"flow_director_mask (port_id) mode MAC-VLAN"
+			" vlan (vlan_value) mac (mac_value)\n"
+			"    Set flow director MAC-VLAN mask.\n\n"
+
+			"flow_director_mask (port_id) mode Tunnel"
+			" vlan (vlan_value) mac (mac_value)"
+			" tunnel-type (tunnel_type_value)"
+			" tunnel-id (tunnel_id_value)\n"
+			"    Set flow director Tunnel mask.\n\n"
 
 			"flow_director_flex_mask (port_id)"
 			" flow (none|ipv4-other|ipv4-frag|ipv4-tcp|ipv4-udp|ipv4-sctp|"
@@ -690,6 +725,28 @@ static void cmd_help_long_parsed(void *parsed_result,
 			"ipv6-frag|ipv6-tcp|ipv6-udp|ipv6-sctp|ipv6-other|l2_payload)"
 			" (enable|disable)\n"
 			"    Set the global configurations of hash filters.\n\n"
+
+			"set_hash_input_set (port_id) (ipv4|ipv4-frag|"
+			"ipv4-tcp|ipv4-udp|ipv4-sctp|ipv4-other|ipv6|"
+			"ipv6-frag|ipv6-tcp|ipv6-udp|ipv6-sctp|ipv6-other|"
+			"l2_payload) (ovlan|ivlan|src-ipv4|dst-ipv4|src-ipv6|"
+			"dst-ipv6|ipv4-tos|ipv4-proto|ipv6-tc|"
+			"ipv6-next-header|udp-src-port|udp-dst-port|"
+			"tcp-src-port|tcp-dst-port|sctp-src-port|"
+			"sctp-dst-port|sctp-veri-tag|udp-key|gre-key|fld-1st|"
+			"fld-2nd|fld-3rd|fld-4th|fld-5th|fld-6th|fld-7th|"
+			"fld-8th|none) (select|add)\n"
+			"    Set the input set for hash.\n\n"
+
+			"set_fdir_input_set (port_id) (ipv4|ipv4-frag|"
+			"ipv4-tcp|ipv4-udp|ipv4-sctp|ipv4-other|ipv6|"
+			"ipv6-frag|ipv6-tcp|ipv6-udp|ipv6-sctp|ipv6-other|"
+			"l2_payload) (src-ipv4|dst-ipv4|src-ipv6|dst-ipv6|"
+			"udp-src-port|udp-dst-port|tcp-src-port|tcp-dst-port|"
+			"sctp-src-port|sctp-dst-port|sctp-veri-tag|fld-1st|"
+			"fld-2nd|fld-3rd|fld-4th|fld-5th|fld-6th|fld-7th|"
+			"fld-8th|none) (select|add)\n"
+			"    Set the input set for FDir.\n\n"
 		);
 	}
 }
@@ -1498,6 +1555,7 @@ struct cmd_config_rss_hash_key {
 	cmdline_fixed_string_t config;
 	uint8_t port_id;
 	cmdline_fixed_string_t rss_hash_key;
+	cmdline_fixed_string_t rss_type;
 	cmdline_fixed_string_t key;
 };
 
@@ -1555,7 +1613,8 @@ cmd_config_rss_hash_key_parsed(void *parsed_result,
 			return;
 		hash_key[i] = (uint8_t) ((xdgt0 * 16) + xdgt1);
 	}
-	port_rss_hash_key_update(res->port_id, hash_key);
+	port_rss_hash_key_update(res->port_id, res->rss_type, hash_key,
+				 RSS_HASH_KEY_LENGTH);
 }
 
 cmdline_parse_token_string_t cmd_config_rss_hash_key_port =
@@ -1568,18 +1627,29 @@ cmdline_parse_token_num_t cmd_config_rss_hash_key_port_id =
 cmdline_parse_token_string_t cmd_config_rss_hash_key_rss_hash_key =
 	TOKEN_STRING_INITIALIZER(struct cmd_config_rss_hash_key,
 				 rss_hash_key, "rss-hash-key");
+cmdline_parse_token_string_t cmd_config_rss_hash_key_rss_type =
+	TOKEN_STRING_INITIALIZER(struct cmd_config_rss_hash_key, rss_type,
+				 "ipv4#ipv4-frag#ipv4-tcp#ipv4-udp#ipv4-sctp#"
+				 "ipv4-other#ipv6#ipv6-frag#ipv6-tcp#ipv6-udp#"
+				 "ipv6-sctp#ipv6-other#l2-payload#ipv6-ex#"
+				 "ipv6-tcp-ex#ipv6-udp-ex");
 cmdline_parse_token_string_t cmd_config_rss_hash_key_value =
 	TOKEN_STRING_INITIALIZER(struct cmd_config_rss_hash_key, key, NULL);
 
 cmdline_parse_inst_t cmd_config_rss_hash_key = {
 	.f = cmd_config_rss_hash_key_parsed,
 	.data = NULL,
-	.help_str = "port config X rss-hash-key 80 hexa digits",
+	.help_str =
+		"port config X rss-hash-key ipv4|ipv4-frag|ipv4-tcp|ipv4-udp|"
+		"ipv4-sctp|ipv4-other|ipv6|ipv6-frag|ipv6-tcp|ipv6-udp|"
+		"ipv6-sctp|ipv6-other|l2-payload|"
+		"ipv6-ex|ipv6-tcp-ex|ipv6-udp-ex 80 hexa digits\n",
 	.tokens = {
 		(void *)&cmd_config_rss_hash_key_port,
 		(void *)&cmd_config_rss_hash_key_config,
 		(void *)&cmd_config_rss_hash_key_port_id,
 		(void *)&cmd_config_rss_hash_key_rss_hash_key,
+		(void *)&cmd_config_rss_hash_key_rss_type,
 		(void *)&cmd_config_rss_hash_key_value,
 		NULL,
 	},
@@ -1929,6 +1999,7 @@ struct cmd_showport_rss_hash {
 	cmdline_fixed_string_t port;
 	uint8_t port_id;
 	cmdline_fixed_string_t rss_hash;
+	cmdline_fixed_string_t rss_type;
 	cmdline_fixed_string_t key; /* optional argument */
 };
 
@@ -1938,7 +2009,8 @@ static void cmd_showport_rss_hash_parsed(void *parsed_result,
 {
 	struct cmd_showport_rss_hash *res = parsed_result;
 
-	port_rss_hash_conf_show(res->port_id, show_rss_key != NULL);
+	port_rss_hash_conf_show(res->port_id, res->rss_type,
+				show_rss_key != NULL);
 }
 
 cmdline_parse_token_string_t cmd_showport_rss_hash_show =
@@ -1950,18 +2022,29 @@ cmdline_parse_token_num_t cmd_showport_rss_hash_port_id =
 cmdline_parse_token_string_t cmd_showport_rss_hash_rss_hash =
 	TOKEN_STRING_INITIALIZER(struct cmd_showport_rss_hash, rss_hash,
 				 "rss-hash");
+cmdline_parse_token_string_t cmd_showport_rss_hash_rss_hash_info =
+	TOKEN_STRING_INITIALIZER(struct cmd_showport_rss_hash, rss_type,
+				 "ipv4#ipv4-frag#ipv4-tcp#ipv4-udp#ipv4-sctp#"
+				 "ipv4-other#ipv6#ipv6-frag#ipv6-tcp#ipv6-udp#"
+				 "ipv6-sctp#ipv6-other#l2-payload#ipv6-ex#"
+				 "ipv6-tcp-ex#ipv6-udp-ex");
 cmdline_parse_token_string_t cmd_showport_rss_hash_rss_key =
 	TOKEN_STRING_INITIALIZER(struct cmd_showport_rss_hash, key, "key");
 
 cmdline_parse_inst_t cmd_showport_rss_hash = {
 	.f = cmd_showport_rss_hash_parsed,
 	.data = NULL,
-	.help_str = "show port X rss-hash (X = port number)\n",
+	.help_str =
+		"show port X rss-hash ipv4|ipv4-frag|ipv4-tcp|ipv4-udp|"
+		"ipv4-sctp|ipv4-other|ipv6|ipv6-frag|ipv6-tcp|ipv6-udp|"
+		"ipv6-sctp|ipv6-other|l2-payload|"
+		"ipv6-ex|ipv6-tcp-ex|ipv6-udp-ex (X = port number)\n",
 	.tokens = {
 		(void *)&cmd_showport_rss_hash_show,
 		(void *)&cmd_showport_rss_hash_port,
 		(void *)&cmd_showport_rss_hash_port_id,
 		(void *)&cmd_showport_rss_hash_rss_hash,
+		(void *)&cmd_showport_rss_hash_rss_hash_info,
 		NULL,
 	},
 };
@@ -1969,12 +2052,17 @@ cmdline_parse_inst_t cmd_showport_rss_hash = {
 cmdline_parse_inst_t cmd_showport_rss_hash_key = {
 	.f = cmd_showport_rss_hash_parsed,
 	.data = (void *)1,
-	.help_str = "show port X rss-hash key (X = port number)\n",
+	.help_str =
+		"show port X rss-hash ipv4|ipv4-frag|ipv4-tcp|ipv4-udp|"
+		"ipv4-sctp|ipv4-other|ipv6|ipv6-frag|ipv6-tcp|ipv6-udp|"
+		"ipv6-sctp|ipv6-other|l2-payload|"
+		"ipv6-ex|ipv6-tcp-ex|ipv6-udp-ex key (X = port number)\n",
 	.tokens = {
 		(void *)&cmd_showport_rss_hash_show,
 		(void *)&cmd_showport_rss_hash_port,
 		(void *)&cmd_showport_rss_hash_port_id,
 		(void *)&cmd_showport_rss_hash_rss_hash,
+		(void *)&cmd_showport_rss_hash_rss_hash_info,
 		(void *)&cmd_showport_rss_hash_rss_key,
 		NULL,
 	},
@@ -1999,37 +2087,46 @@ cmd_config_dcb_parsed(void *parsed_result,
                         __attribute__((unused)) void *data)
 {
 	struct cmd_config_dcb *res = parsed_result;
-	struct dcb_config dcb_conf;
 	portid_t port_id = res->port_id;
 	struct rte_port *port;
+	uint8_t pfc_en;
+	int ret;
 
 	port = &ports[port_id];
 	/** Check if the port is not started **/
 	if (port->port_status != RTE_PORT_STOPPED) {
-		printf("Please stop port %d first\n",port_id);
+		printf("Please stop port %d first\n", port_id);
 		return;
 	}
 
-	dcb_conf.num_tcs = (enum rte_eth_nb_tcs) res->num_tcs;
-	if ((dcb_conf.num_tcs != ETH_4_TCS) && (dcb_conf.num_tcs != ETH_8_TCS)){
-		printf("The invalid number of traffic class,only 4 or 8 allowed\n");
+	if ((res->num_tcs != ETH_4_TCS) && (res->num_tcs != ETH_8_TCS)) {
+		printf("The invalid number of traffic class,"
+			" only 4 or 8 allowed.\n");
 		return;
 	}
+
+	if (nb_fwd_lcores < res->num_tcs) {
+		printf("nb_cores shouldn't be less than number of TCs.\n");
+		return;
+	}
+	if (!strncmp(res->pfc_en, "on", 2))
+		pfc_en = 1;
+	else
+		pfc_en = 0;
 
 	/* DCB in VT mode */
-	if (!strncmp(res->vt_en, "on",2))
-		dcb_conf.dcb_mode = DCB_VT_ENABLED;
+	if (!strncmp(res->vt_en, "on", 2))
+		ret = init_port_dcb_config(port_id, DCB_VT_ENABLED,
+				(enum rte_eth_nb_tcs)res->num_tcs,
+				pfc_en);
 	else
-		dcb_conf.dcb_mode = DCB_ENABLED;
+		ret = init_port_dcb_config(port_id, DCB_ENABLED,
+				(enum rte_eth_nb_tcs)res->num_tcs,
+				pfc_en);
 
-	if (!strncmp(res->pfc_en, "on",2)) {
-		dcb_conf.pfc_en = 1;
-	}
-	else
-		dcb_conf.pfc_en = 0;
 
-	if (init_port_dcb_config(port_id,&dcb_conf) != 0) {
-		printf("Cannot initialize network ports\n");
+	if (ret != 0) {
+		printf("Cannot initialize network ports.\n");
 		return;
 	}
 
@@ -2551,6 +2648,47 @@ cmdline_parse_inst_t cmd_set_txpkts = {
 		(void *)&cmd_set_txpkts_keyword,
 		(void *)&cmd_set_txpkts_name,
 		(void *)&cmd_set_txpkts_lengths,
+		NULL,
+	},
+};
+
+/* *** SET COPY AND SPLIT POLICY ON TX PACKETS *** */
+
+struct cmd_set_txsplit_result {
+	cmdline_fixed_string_t cmd_keyword;
+	cmdline_fixed_string_t txsplit;
+	cmdline_fixed_string_t mode;
+};
+
+static void
+cmd_set_txsplit_parsed(void *parsed_result,
+		      __attribute__((unused)) struct cmdline *cl,
+		      __attribute__((unused)) void *data)
+{
+	struct cmd_set_txsplit_result *res;
+
+	res = parsed_result;
+	set_tx_pkt_split(res->mode);
+}
+
+cmdline_parse_token_string_t cmd_set_txsplit_keyword =
+	TOKEN_STRING_INITIALIZER(struct cmd_set_txsplit_result,
+				 cmd_keyword, "set");
+cmdline_parse_token_string_t cmd_set_txsplit_name =
+	TOKEN_STRING_INITIALIZER(struct cmd_set_txsplit_result,
+				 txsplit, "txsplit");
+cmdline_parse_token_string_t cmd_set_txsplit_mode =
+	TOKEN_STRING_INITIALIZER(struct cmd_set_txsplit_result,
+				 mode, NULL);
+
+cmdline_parse_inst_t cmd_set_txsplit = {
+	.f = cmd_set_txsplit_parsed,
+	.data = NULL,
+	.help_str = "set txsplit on|off|rand",
+	.tokens = {
+		(void *)&cmd_set_txsplit_keyword,
+		(void *)&cmd_set_txsplit_name,
+		(void *)&cmd_set_txsplit_mode,
 		NULL,
 	},
 };
@@ -5167,6 +5305,8 @@ static void cmd_showcfg_parsed(void *parsed_result,
 		fwd_lcores_config_display();
 	else if (!strcmp(res->what, "fwd"))
 		fwd_config_display();
+	else if (!strcmp(res->what, "txpkts"))
+		show_tx_pkt_segments();
 }
 
 cmdline_parse_token_string_t cmd_showcfg_show =
@@ -5175,12 +5315,12 @@ cmdline_parse_token_string_t cmd_showcfg_port =
 	TOKEN_STRING_INITIALIZER(struct cmd_showcfg_result, cfg, "config");
 cmdline_parse_token_string_t cmd_showcfg_what =
 	TOKEN_STRING_INITIALIZER(struct cmd_showcfg_result, what,
-				 "rxtx#cores#fwd");
+				 "rxtx#cores#fwd#txpkts");
 
 cmdline_parse_inst_t cmd_showcfg = {
 	.f = cmd_showcfg_parsed,
 	.data = NULL,
-	.help_str = "show config rxtx|cores|fwd",
+	.help_str = "show config rxtx|cores|fwd|txpkts",
 	.tokens = {
 		(void *)&cmd_showcfg_show,
 		(void *)&cmd_showcfg_port,
@@ -5226,6 +5366,9 @@ static void cmd_showportall_parsed(void *parsed_result,
 	else if (!strcmp(res->what, "stat_qmap"))
 		FOREACH_PORT(i, ports)
 			nic_stats_mapping_display(i);
+	else if (!strcmp(res->what, "dcb_tc"))
+		FOREACH_PORT(i, ports)
+			port_dcb_info_display(i);
 }
 
 cmdline_parse_token_string_t cmd_showportall_show =
@@ -5235,13 +5378,13 @@ cmdline_parse_token_string_t cmd_showportall_port =
 	TOKEN_STRING_INITIALIZER(struct cmd_showportall_result, port, "port");
 cmdline_parse_token_string_t cmd_showportall_what =
 	TOKEN_STRING_INITIALIZER(struct cmd_showportall_result, what,
-				 "info#stats#xstats#fdir#stat_qmap");
+				 "info#stats#xstats#fdir#stat_qmap#dcb_tc");
 cmdline_parse_token_string_t cmd_showportall_all =
 	TOKEN_STRING_INITIALIZER(struct cmd_showportall_result, all, "all");
 cmdline_parse_inst_t cmd_showportall = {
 	.f = cmd_showportall_parsed,
 	.data = NULL,
-	.help_str = "show|clear port info|stats|xstats|fdir|stat_qmap all",
+	.help_str = "show|clear port info|stats|xstats|fdir|stat_qmap|dcb_tc all",
 	.tokens = {
 		(void *)&cmd_showportall_show,
 		(void *)&cmd_showportall_port,
@@ -5279,6 +5422,8 @@ static void cmd_showport_parsed(void *parsed_result,
 		 fdir_get_infos(res->portnum);
 	else if (!strcmp(res->what, "stat_qmap"))
 		nic_stats_mapping_display(res->portnum);
+	else if (!strcmp(res->what, "dcb_tc"))
+		port_dcb_info_display(res->portnum);
 }
 
 cmdline_parse_token_string_t cmd_showport_show =
@@ -5288,19 +5433,66 @@ cmdline_parse_token_string_t cmd_showport_port =
 	TOKEN_STRING_INITIALIZER(struct cmd_showport_result, port, "port");
 cmdline_parse_token_string_t cmd_showport_what =
 	TOKEN_STRING_INITIALIZER(struct cmd_showport_result, what,
-				 "info#stats#xstats#fdir#stat_qmap");
+				 "info#stats#xstats#fdir#stat_qmap#dcb_tc");
 cmdline_parse_token_num_t cmd_showport_portnum =
 	TOKEN_NUM_INITIALIZER(struct cmd_showport_result, portnum, UINT8);
 
 cmdline_parse_inst_t cmd_showport = {
 	.f = cmd_showport_parsed,
 	.data = NULL,
-	.help_str = "show|clear port info|stats|xstats|fdir|stat_qmap X (X = port number)",
+	.help_str = "show|clear port info|stats|xstats|fdir|stat_qmap|dcb_tc X (X = port number)",
 	.tokens = {
 		(void *)&cmd_showport_show,
 		(void *)&cmd_showport_port,
 		(void *)&cmd_showport_what,
 		(void *)&cmd_showport_portnum,
+		NULL,
+	},
+};
+
+/* *** SHOW QUEUE INFO *** */
+struct cmd_showqueue_result {
+	cmdline_fixed_string_t show;
+	cmdline_fixed_string_t type;
+	cmdline_fixed_string_t what;
+	uint8_t portnum;
+	uint16_t queuenum;
+};
+
+static void
+cmd_showqueue_parsed(void *parsed_result,
+	__attribute__((unused)) struct cmdline *cl,
+	__attribute__((unused)) void *data)
+{
+	struct cmd_showqueue_result *res = parsed_result;
+
+	if (!strcmp(res->type, "rxq"))
+		rx_queue_infos_display(res->portnum, res->queuenum);
+	else if (!strcmp(res->type, "txq"))
+		tx_queue_infos_display(res->portnum, res->queuenum);
+}
+
+cmdline_parse_token_string_t cmd_showqueue_show =
+	TOKEN_STRING_INITIALIZER(struct cmd_showqueue_result, show, "show");
+cmdline_parse_token_string_t cmd_showqueue_type =
+	TOKEN_STRING_INITIALIZER(struct cmd_showqueue_result, type, "rxq#txq");
+cmdline_parse_token_string_t cmd_showqueue_what =
+	TOKEN_STRING_INITIALIZER(struct cmd_showqueue_result, what, "info");
+cmdline_parse_token_num_t cmd_showqueue_portnum =
+	TOKEN_NUM_INITIALIZER(struct cmd_showqueue_result, portnum, UINT8);
+cmdline_parse_token_num_t cmd_showqueue_queuenum =
+	TOKEN_NUM_INITIALIZER(struct cmd_showqueue_result, queuenum, UINT16);
+
+cmdline_parse_inst_t cmd_showqueue = {
+	.f = cmd_showqueue_parsed,
+	.data = NULL,
+	.help_str = "show rxq|txq info <port number> <queue_number>",
+	.tokens = {
+		(void *)&cmd_showqueue_show,
+		(void *)&cmd_showqueue_type,
+		(void *)&cmd_showqueue_what,
+		(void *)&cmd_showqueue_portnum,
+		(void *)&cmd_showqueue_queuenum,
 		NULL,
 	},
 };
@@ -6623,6 +6815,57 @@ cmdline_parse_inst_t cmd_tunnel_udp_config = {
 	},
 };
 
+/* *** GLOBAL CONFIG *** */
+struct cmd_global_config_result {
+	cmdline_fixed_string_t cmd;
+	uint8_t port_id;
+	cmdline_fixed_string_t cfg_type;
+	uint8_t len;
+};
+
+static void
+cmd_global_config_parsed(void *parsed_result,
+			 __attribute__((unused)) struct cmdline *cl,
+			 __attribute__((unused)) void *data)
+{
+	struct cmd_global_config_result *res = parsed_result;
+	struct rte_eth_global_cfg conf;
+	int ret;
+
+	memset(&conf, 0, sizeof(conf));
+	conf.cfg_type = RTE_ETH_GLOBAL_CFG_TYPE_GRE_KEY_LEN;
+	conf.cfg.gre_key_len = res->len;
+	ret = rte_eth_dev_filter_ctrl(res->port_id, RTE_ETH_FILTER_NONE,
+				      RTE_ETH_FILTER_SET, &conf);
+	if (ret != 0)
+		printf("Global config error\n");
+}
+
+cmdline_parse_token_string_t cmd_global_config_cmd =
+	TOKEN_STRING_INITIALIZER(struct cmd_global_config_result, cmd,
+		"global_config");
+cmdline_parse_token_num_t cmd_global_config_port_id =
+	TOKEN_NUM_INITIALIZER(struct cmd_global_config_result, port_id, UINT8);
+cmdline_parse_token_string_t cmd_global_config_type =
+	TOKEN_STRING_INITIALIZER(struct cmd_global_config_result,
+		cfg_type, "gre-key-len");
+cmdline_parse_token_num_t cmd_global_config_gre_key_len =
+	TOKEN_NUM_INITIALIZER(struct cmd_global_config_result,
+		len, UINT8);
+
+cmdline_parse_inst_t cmd_global_config = {
+	.f = cmd_global_config_parsed,
+	.data = (void *)NULL,
+	.help_str = "global_config <port_id> gre-key-len <number>",
+	.tokens = {
+		(void *)&cmd_global_config_cmd,
+		(void *)&cmd_global_config_port_id,
+		(void *)&cmd_global_config_type,
+		(void *)&cmd_global_config_gre_key_len,
+		NULL,
+	},
+};
+
 /* *** CONFIGURE VM MIRROR VLAN/POOL RULE *** */
 struct cmd_set_mirror_mask_result {
 	cmdline_fixed_string_t set;
@@ -7725,6 +7968,8 @@ cmdline_parse_inst_t cmd_ethertype_filter = {
 struct cmd_flow_director_result {
 	cmdline_fixed_string_t flow_director_filter;
 	uint8_t port_id;
+	cmdline_fixed_string_t mode;
+	cmdline_fixed_string_t mode_value;
 	cmdline_fixed_string_t ops;
 	cmdline_fixed_string_t flow;
 	cmdline_fixed_string_t flow_type;
@@ -7742,11 +7987,18 @@ struct cmd_flow_director_result {
 	uint16_t vlan_value;
 	cmdline_fixed_string_t flexbytes;
 	cmdline_fixed_string_t flexbytes_value;
+	cmdline_fixed_string_t pf_vf;
 	cmdline_fixed_string_t drop;
 	cmdline_fixed_string_t queue;
 	uint16_t  queue_id;
 	cmdline_fixed_string_t fd_id;
 	uint32_t  fd_id_value;
+	cmdline_fixed_string_t mac;
+	struct ether_addr mac_addr;
+	cmdline_fixed_string_t tunnel;
+	cmdline_fixed_string_t tunnel_type;
+	cmdline_fixed_string_t tunnel_id;
+	uint32_t tunnel_id_value;
 };
 
 static inline int
@@ -7818,6 +8070,26 @@ str2flowtype(char *string)
 	return RTE_ETH_FLOW_UNKNOWN;
 }
 
+static enum rte_eth_fdir_tunnel_type
+str2fdir_tunneltype(char *string)
+{
+	uint8_t i = 0;
+
+	static const struct {
+		char str[32];
+		enum rte_eth_fdir_tunnel_type type;
+	} tunneltype_str[] = {
+		{"NVGRE", RTE_FDIR_TUNNEL_TYPE_NVGRE},
+		{"VxLAN", RTE_FDIR_TUNNEL_TYPE_VXLAN},
+	};
+
+	for (i = 0; i < RTE_DIM(tunneltype_str); i++) {
+		if (!strcmp(tunneltype_str[i].str, string))
+			return tunneltype_str[i].type;
+	}
+	return RTE_FDIR_TUNNEL_TYPE_UNKNOWN;
+}
+
 #define IPV4_ADDR_TO_UINT(ip_addr, ip) \
 do { \
 	if ((ip_addr).family == AF_INET) \
@@ -7848,6 +8120,8 @@ cmd_flow_director_filter_parsed(void *parsed_result,
 	struct cmd_flow_director_result *res = parsed_result;
 	struct rte_eth_fdir_filter entry;
 	uint8_t flexbytes[RTE_ETH_FDIR_MAX_FLEXLEN];
+	char *end;
+	unsigned long vf_id;
 	int ret = 0;
 
 	ret = rte_eth_dev_filter_supported(res->port_id, RTE_ETH_FILTER_FDIR);
@@ -7858,6 +8132,25 @@ cmd_flow_director_filter_parsed(void *parsed_result,
 	}
 	memset(flexbytes, 0, sizeof(flexbytes));
 	memset(&entry, 0, sizeof(struct rte_eth_fdir_filter));
+
+	if (fdir_conf.mode ==  RTE_FDIR_MODE_PERFECT_MAC_VLAN) {
+		if (strcmp(res->mode_value, "MAC-VLAN")) {
+			printf("Please set mode to MAC-VLAN.\n");
+			return;
+		}
+	} else if (fdir_conf.mode ==  RTE_FDIR_MODE_PERFECT_TUNNEL) {
+		if (strcmp(res->mode_value, "Tunnel")) {
+			printf("Please set mode to Tunnel.\n");
+			return;
+		}
+	} else {
+		if (strcmp(res->mode_value, "IP")) {
+			printf("Please set mode to IP.\n");
+			return;
+		}
+		entry.input.flow_type = str2flowtype(res->flow_type);
+	}
+
 	ret = parse_flexbytes(res->flexbytes_value,
 					flexbytes,
 					RTE_ETH_FDIR_MAX_FLEXLEN);
@@ -7866,7 +8159,6 @@ cmd_flow_director_filter_parsed(void *parsed_result,
 		return;
 	}
 
-	entry.input.flow_type = str2flowtype(res->flow_type);
 	switch (entry.input.flow_type) {
 	case RTE_ETH_FLOW_FRAG_IPV4:
 	case RTE_ETH_FLOW_NONFRAG_IPV4_OTHER:
@@ -7888,12 +8180,10 @@ cmd_flow_director_filter_parsed(void *parsed_result,
 		IPV4_ADDR_TO_UINT(res->ip_src,
 			entry.input.flow.sctp4_flow.ip.src_ip);
 		/* need convert to big endian. */
-#ifdef RTE_NEXT_ABI
 		entry.input.flow.sctp4_flow.dst_port =
 				rte_cpu_to_be_16(res->port_dst);
 		entry.input.flow.sctp4_flow.src_port =
 				rte_cpu_to_be_16(res->port_src);
-#endif
 		entry.input.flow.sctp4_flow.verify_tag =
 				rte_cpu_to_be_32(res->verify_tag_value);
 		break;
@@ -7917,12 +8207,10 @@ cmd_flow_director_filter_parsed(void *parsed_result,
 		IPV6_ADDR_TO_ARRAY(res->ip_src,
 			entry.input.flow.sctp6_flow.ip.src_ip);
 		/* need convert to big endian. */
-#ifdef RTE_NEXT_ABI
 		entry.input.flow.sctp6_flow.dst_port =
 				rte_cpu_to_be_16(res->port_dst);
 		entry.input.flow.sctp6_flow.src_port =
 				rte_cpu_to_be_16(res->port_src);
-#endif
 		entry.input.flow.sctp6_flow.verify_tag =
 				rte_cpu_to_be_32(res->verify_tag_value);
 		break;
@@ -7931,9 +8219,24 @@ cmd_flow_director_filter_parsed(void *parsed_result,
 			rte_cpu_to_be_16(res->ether_type);
 		break;
 	default:
-		printf("invalid parameter.\n");
-		return;
+		break;
 	}
+
+	if (fdir_conf.mode ==  RTE_FDIR_MODE_PERFECT_MAC_VLAN)
+		(void)rte_memcpy(&entry.input.flow.mac_vlan_flow.mac_addr,
+				 &res->mac_addr,
+				 sizeof(struct ether_addr));
+
+	if (fdir_conf.mode ==  RTE_FDIR_MODE_PERFECT_TUNNEL) {
+		(void)rte_memcpy(&entry.input.flow.tunnel_flow.mac_addr,
+				 &res->mac_addr,
+				 sizeof(struct ether_addr));
+		entry.input.flow.tunnel_flow.tunnel_type =
+			str2fdir_tunneltype(res->tunnel_type);
+		entry.input.flow.tunnel_flow.tunnel_id =
+			rte_cpu_to_be_32(res->tunnel_id_value);
+	}
+
 	(void)rte_memcpy(entry.input.flow_ext.flexbytes,
 		   flexbytes,
 		   RTE_ETH_FDIR_MAX_FLEXLEN);
@@ -7945,6 +8248,27 @@ cmd_flow_director_filter_parsed(void *parsed_result,
 		entry.action.behavior = RTE_ETH_FDIR_REJECT;
 	else
 		entry.action.behavior = RTE_ETH_FDIR_ACCEPT;
+
+	if (!strcmp(res->pf_vf, "pf"))
+		entry.input.flow_ext.is_vf = 0;
+	else if (!strncmp(res->pf_vf, "vf", 2)) {
+		struct rte_eth_dev_info dev_info;
+
+		memset(&dev_info, 0, sizeof(dev_info));
+		rte_eth_dev_info_get(res->port_id, &dev_info);
+		errno = 0;
+		vf_id = strtoul(res->pf_vf + 2, &end, 10);
+		if (errno != 0 || *end != '\0' || vf_id >= dev_info.max_vfs) {
+			printf("invalid parameter %s.\n", res->pf_vf);
+			return;
+		}
+		entry.input.flow_ext.is_vf = 1;
+		entry.input.flow_ext.dst_id = (uint16_t)vf_id;
+	} else {
+		printf("invalid parameter %s.\n", res->pf_vf);
+		return;
+	}
+
 	/* set to report FD ID by default */
 	entry.action.report_status = RTE_ETH_FDIR_REPORT_ID;
 	entry.action.rx_queue = res->queue_id;
@@ -8024,6 +8348,9 @@ cmdline_parse_token_string_t cmd_flow_director_flexbytes_value =
 cmdline_parse_token_string_t cmd_flow_director_drop =
 	TOKEN_STRING_INITIALIZER(struct cmd_flow_director_result,
 				 drop, "drop#fwd");
+cmdline_parse_token_string_t cmd_flow_director_pf_vf =
+	TOKEN_STRING_INITIALIZER(struct cmd_flow_director_result,
+			      pf_vf, NULL);
 cmdline_parse_token_string_t cmd_flow_director_queue =
 	TOKEN_STRING_INITIALIZER(struct cmd_flow_director_result,
 				 queue, "queue");
@@ -8037,6 +8364,37 @@ cmdline_parse_token_num_t cmd_flow_director_fd_id_value =
 	TOKEN_NUM_INITIALIZER(struct cmd_flow_director_result,
 			      fd_id_value, UINT32);
 
+cmdline_parse_token_string_t cmd_flow_director_mode =
+	TOKEN_STRING_INITIALIZER(struct cmd_flow_director_result,
+				 mode, "mode");
+cmdline_parse_token_string_t cmd_flow_director_mode_ip =
+	TOKEN_STRING_INITIALIZER(struct cmd_flow_director_result,
+				 mode_value, "IP");
+cmdline_parse_token_string_t cmd_flow_director_mode_mac_vlan =
+	TOKEN_STRING_INITIALIZER(struct cmd_flow_director_result,
+				 mode_value, "MAC-VLAN");
+cmdline_parse_token_string_t cmd_flow_director_mode_tunnel =
+	TOKEN_STRING_INITIALIZER(struct cmd_flow_director_result,
+				 mode_value, "Tunnel");
+cmdline_parse_token_string_t cmd_flow_director_mac =
+	TOKEN_STRING_INITIALIZER(struct cmd_flow_director_result,
+				 mac, "mac");
+cmdline_parse_token_etheraddr_t cmd_flow_director_mac_addr =
+	TOKEN_ETHERADDR_INITIALIZER(struct cmd_flow_director_result,
+				    mac_addr);
+cmdline_parse_token_string_t cmd_flow_director_tunnel =
+	TOKEN_STRING_INITIALIZER(struct cmd_flow_director_result,
+				 tunnel, "tunnel");
+cmdline_parse_token_string_t cmd_flow_director_tunnel_type =
+	TOKEN_STRING_INITIALIZER(struct cmd_flow_director_result,
+				 tunnel_type, "NVGRE#VxLAN");
+cmdline_parse_token_string_t cmd_flow_director_tunnel_id =
+	TOKEN_STRING_INITIALIZER(struct cmd_flow_director_result,
+				 tunnel_id, "tunnel-id");
+cmdline_parse_token_num_t cmd_flow_director_tunnel_id_value =
+	TOKEN_NUM_INITIALIZER(struct cmd_flow_director_result,
+			      tunnel_id_value, UINT32);
+
 cmdline_parse_inst_t cmd_add_del_ip_flow_director = {
 	.f = cmd_flow_director_filter_parsed,
 	.data = NULL,
@@ -8044,6 +8402,8 @@ cmdline_parse_inst_t cmd_add_del_ip_flow_director = {
 	.tokens = {
 		(void *)&cmd_flow_director_filter,
 		(void *)&cmd_flow_director_port_id,
+		(void *)&cmd_flow_director_mode,
+		(void *)&cmd_flow_director_mode_ip,
 		(void *)&cmd_flow_director_ops,
 		(void *)&cmd_flow_director_flow,
 		(void *)&cmd_flow_director_flow_type,
@@ -8056,6 +8416,7 @@ cmdline_parse_inst_t cmd_add_del_ip_flow_director = {
 		(void *)&cmd_flow_director_flexbytes,
 		(void *)&cmd_flow_director_flexbytes_value,
 		(void *)&cmd_flow_director_drop,
+		(void *)&cmd_flow_director_pf_vf,
 		(void *)&cmd_flow_director_queue,
 		(void *)&cmd_flow_director_queue_id,
 		(void *)&cmd_flow_director_fd_id,
@@ -8071,6 +8432,8 @@ cmdline_parse_inst_t cmd_add_del_udp_flow_director = {
 	.tokens = {
 		(void *)&cmd_flow_director_filter,
 		(void *)&cmd_flow_director_port_id,
+		(void *)&cmd_flow_director_mode,
+		(void *)&cmd_flow_director_mode_ip,
 		(void *)&cmd_flow_director_ops,
 		(void *)&cmd_flow_director_flow,
 		(void *)&cmd_flow_director_flow_type,
@@ -8085,6 +8448,7 @@ cmdline_parse_inst_t cmd_add_del_udp_flow_director = {
 		(void *)&cmd_flow_director_flexbytes,
 		(void *)&cmd_flow_director_flexbytes_value,
 		(void *)&cmd_flow_director_drop,
+		(void *)&cmd_flow_director_pf_vf,
 		(void *)&cmd_flow_director_queue,
 		(void *)&cmd_flow_director_queue_id,
 		(void *)&cmd_flow_director_fd_id,
@@ -8100,6 +8464,8 @@ cmdline_parse_inst_t cmd_add_del_sctp_flow_director = {
 	.tokens = {
 		(void *)&cmd_flow_director_filter,
 		(void *)&cmd_flow_director_port_id,
+		(void *)&cmd_flow_director_mode,
+		(void *)&cmd_flow_director_mode_ip,
 		(void *)&cmd_flow_director_ops,
 		(void *)&cmd_flow_director_flow,
 		(void *)&cmd_flow_director_flow_type,
@@ -8116,6 +8482,7 @@ cmdline_parse_inst_t cmd_add_del_sctp_flow_director = {
 		(void *)&cmd_flow_director_flexbytes,
 		(void *)&cmd_flow_director_flexbytes_value,
 		(void *)&cmd_flow_director_drop,
+		(void *)&cmd_flow_director_pf_vf,
 		(void *)&cmd_flow_director_queue,
 		(void *)&cmd_flow_director_queue_id,
 		(void *)&cmd_flow_director_fd_id,
@@ -8131,11 +8498,68 @@ cmdline_parse_inst_t cmd_add_del_l2_flow_director = {
 	.tokens = {
 		(void *)&cmd_flow_director_filter,
 		(void *)&cmd_flow_director_port_id,
+		(void *)&cmd_flow_director_mode,
+		(void *)&cmd_flow_director_mode_ip,
 		(void *)&cmd_flow_director_ops,
 		(void *)&cmd_flow_director_flow,
 		(void *)&cmd_flow_director_flow_type,
 		(void *)&cmd_flow_director_ether,
 		(void *)&cmd_flow_director_ether_type,
+		(void *)&cmd_flow_director_flexbytes,
+		(void *)&cmd_flow_director_flexbytes_value,
+		(void *)&cmd_flow_director_drop,
+		(void *)&cmd_flow_director_pf_vf,
+		(void *)&cmd_flow_director_queue,
+		(void *)&cmd_flow_director_queue_id,
+		(void *)&cmd_flow_director_fd_id,
+		(void *)&cmd_flow_director_fd_id_value,
+		NULL,
+	},
+};
+
+cmdline_parse_inst_t cmd_add_del_mac_vlan_flow_director = {
+	.f = cmd_flow_director_filter_parsed,
+	.data = NULL,
+	.help_str = "add or delete a MAC VLAN flow director entry on NIC",
+	.tokens = {
+		(void *)&cmd_flow_director_filter,
+		(void *)&cmd_flow_director_port_id,
+		(void *)&cmd_flow_director_mode,
+		(void *)&cmd_flow_director_mode_mac_vlan,
+		(void *)&cmd_flow_director_ops,
+		(void *)&cmd_flow_director_mac,
+		(void *)&cmd_flow_director_mac_addr,
+		(void *)&cmd_flow_director_vlan,
+		(void *)&cmd_flow_director_vlan_value,
+		(void *)&cmd_flow_director_flexbytes,
+		(void *)&cmd_flow_director_flexbytes_value,
+		(void *)&cmd_flow_director_drop,
+		(void *)&cmd_flow_director_queue,
+		(void *)&cmd_flow_director_queue_id,
+		(void *)&cmd_flow_director_fd_id,
+		(void *)&cmd_flow_director_fd_id_value,
+		NULL,
+	},
+};
+
+cmdline_parse_inst_t cmd_add_del_tunnel_flow_director = {
+	.f = cmd_flow_director_filter_parsed,
+	.data = NULL,
+	.help_str = "add or delete a tunnel flow director entry on NIC",
+	.tokens = {
+		(void *)&cmd_flow_director_filter,
+		(void *)&cmd_flow_director_port_id,
+		(void *)&cmd_flow_director_mode,
+		(void *)&cmd_flow_director_mode_tunnel,
+		(void *)&cmd_flow_director_ops,
+		(void *)&cmd_flow_director_mac,
+		(void *)&cmd_flow_director_mac_addr,
+		(void *)&cmd_flow_director_vlan,
+		(void *)&cmd_flow_director_vlan_value,
+		(void *)&cmd_flow_director_tunnel,
+		(void *)&cmd_flow_director_tunnel_type,
+		(void *)&cmd_flow_director_tunnel_id,
+		(void *)&cmd_flow_director_tunnel_id_value,
 		(void *)&cmd_flow_director_flexbytes,
 		(void *)&cmd_flow_director_flexbytes_value,
 		(void *)&cmd_flow_director_drop,
@@ -8196,8 +8620,10 @@ cmdline_parse_inst_t cmd_flush_flow_director = {
 struct cmd_flow_director_mask_result {
 	cmdline_fixed_string_t flow_director_mask;
 	uint8_t port_id;
+	cmdline_fixed_string_t mode;
+	cmdline_fixed_string_t mode_value;
 	cmdline_fixed_string_t vlan;
-	uint16_t vlan_value;
+	uint16_t vlan_mask;
 	cmdline_fixed_string_t src_mask;
 	cmdline_ipaddr_t ipv4_src;
 	cmdline_ipaddr_t ipv6_src;
@@ -8206,6 +8632,12 @@ struct cmd_flow_director_mask_result {
 	cmdline_ipaddr_t ipv4_dst;
 	cmdline_ipaddr_t ipv6_dst;
 	uint16_t port_dst;
+	cmdline_fixed_string_t mac;
+	uint8_t mac_addr_byte_mask;
+	cmdline_fixed_string_t tunnel_id;
+	uint32_t tunnel_id_mask;
+	cmdline_fixed_string_t tunnel_type;
+	uint8_t tunnel_type_mask;
 };
 
 static void
@@ -8228,15 +8660,41 @@ cmd_flow_director_mask_parsed(void *parsed_result,
 		printf("Please stop port %d first\n", res->port_id);
 		return;
 	}
+
 	mask = &port->dev_conf.fdir_conf.mask;
 
-	mask->vlan_tci_mask = res->vlan_value;
-	IPV4_ADDR_TO_UINT(res->ipv4_src, mask->ipv4_mask.src_ip);
-	IPV4_ADDR_TO_UINT(res->ipv4_dst, mask->ipv4_mask.dst_ip);
-	IPV6_ADDR_TO_ARRAY(res->ipv6_src, mask->ipv6_mask.src_ip);
-	IPV6_ADDR_TO_ARRAY(res->ipv6_dst, mask->ipv6_mask.dst_ip);
-	mask->src_port_mask = res->port_src;
-	mask->dst_port_mask = res->port_dst;
+	if (fdir_conf.mode ==  RTE_FDIR_MODE_PERFECT_MAC_VLAN) {
+		if (strcmp(res->mode_value, "MAC-VLAN")) {
+			printf("Please set mode to MAC-VLAN.\n");
+			return;
+		}
+
+		mask->vlan_tci_mask = res->vlan_mask;
+		mask->mac_addr_byte_mask = res->mac_addr_byte_mask;
+	} else if (fdir_conf.mode ==  RTE_FDIR_MODE_PERFECT_TUNNEL) {
+		if (strcmp(res->mode_value, "Tunnel")) {
+			printf("Please set mode to Tunnel.\n");
+			return;
+		}
+
+		mask->vlan_tci_mask = res->vlan_mask;
+		mask->mac_addr_byte_mask = res->mac_addr_byte_mask;
+		mask->tunnel_id_mask = res->tunnel_id_mask;
+		mask->tunnel_type_mask = res->tunnel_type_mask;
+	} else {
+		if (strcmp(res->mode_value, "IP")) {
+			printf("Please set mode to IP.\n");
+			return;
+		}
+
+		mask->vlan_tci_mask = res->vlan_mask;
+		IPV4_ADDR_TO_UINT(res->ipv4_src, mask->ipv4_mask.src_ip);
+		IPV4_ADDR_TO_UINT(res->ipv4_dst, mask->ipv4_mask.dst_ip);
+		IPV6_ADDR_TO_ARRAY(res->ipv6_src, mask->ipv6_mask.src_ip);
+		IPV6_ADDR_TO_ARRAY(res->ipv6_dst, mask->ipv6_mask.dst_ip);
+		mask->src_port_mask = res->port_src;
+		mask->dst_port_mask = res->port_dst;
+	}
 
 	cmd_reconfig_device_queue(res->port_id, 1, 1);
 }
@@ -8252,7 +8710,7 @@ cmdline_parse_token_string_t cmd_flow_director_mask_vlan =
 				 vlan, "vlan");
 cmdline_parse_token_num_t cmd_flow_director_mask_vlan_value =
 	TOKEN_NUM_INITIALIZER(struct cmd_flow_director_mask_result,
-			      vlan_value, UINT16);
+			      vlan_mask, UINT16);
 cmdline_parse_token_string_t cmd_flow_director_mask_src =
 	TOKEN_STRING_INITIALIZER(struct cmd_flow_director_mask_result,
 				 src_mask, "src_mask");
@@ -8277,13 +8735,47 @@ cmdline_parse_token_ipaddr_t cmd_flow_director_mask_ipv6_dst =
 cmdline_parse_token_num_t cmd_flow_director_mask_port_dst =
 	TOKEN_NUM_INITIALIZER(struct cmd_flow_director_mask_result,
 			      port_dst, UINT16);
-cmdline_parse_inst_t cmd_set_flow_director_mask = {
+
+cmdline_parse_token_string_t cmd_flow_director_mask_mode =
+	TOKEN_STRING_INITIALIZER(struct cmd_flow_director_mask_result,
+				 mode, "mode");
+cmdline_parse_token_string_t cmd_flow_director_mask_mode_ip =
+	TOKEN_STRING_INITIALIZER(struct cmd_flow_director_mask_result,
+				 mode_value, "IP");
+cmdline_parse_token_string_t cmd_flow_director_mask_mode_mac_vlan =
+	TOKEN_STRING_INITIALIZER(struct cmd_flow_director_mask_result,
+				 mode_value, "MAC-VLAN");
+cmdline_parse_token_string_t cmd_flow_director_mask_mode_tunnel =
+	TOKEN_STRING_INITIALIZER(struct cmd_flow_director_mask_result,
+				 mode_value, "Tunnel");
+cmdline_parse_token_string_t cmd_flow_director_mask_mac =
+	TOKEN_STRING_INITIALIZER(struct cmd_flow_director_mask_result,
+				 mac, "mac");
+cmdline_parse_token_num_t cmd_flow_director_mask_mac_value =
+	TOKEN_NUM_INITIALIZER(struct cmd_flow_director_mask_result,
+			      mac_addr_byte_mask, UINT8);
+cmdline_parse_token_string_t cmd_flow_director_mask_tunnel_type =
+	TOKEN_STRING_INITIALIZER(struct cmd_flow_director_mask_result,
+				 tunnel_type, "tunnel-type");
+cmdline_parse_token_num_t cmd_flow_director_mask_tunnel_type_value =
+	TOKEN_NUM_INITIALIZER(struct cmd_flow_director_mask_result,
+			      tunnel_type_mask, UINT8);
+cmdline_parse_token_string_t cmd_flow_director_mask_tunnel_id =
+	TOKEN_STRING_INITIALIZER(struct cmd_flow_director_mask_result,
+				 tunnel_id, "tunnel-id");
+cmdline_parse_token_num_t cmd_flow_director_mask_tunnel_id_value =
+	TOKEN_NUM_INITIALIZER(struct cmd_flow_director_mask_result,
+			      tunnel_id_mask, UINT32);
+
+cmdline_parse_inst_t cmd_set_flow_director_ip_mask = {
 	.f = cmd_flow_director_mask_parsed,
 	.data = NULL,
-	.help_str = "set flow director's mask on NIC",
+	.help_str = "set IP mode flow director's mask on NIC",
 	.tokens = {
 		(void *)&cmd_flow_director_mask,
 		(void *)&cmd_flow_director_mask_port_id,
+		(void *)&cmd_flow_director_mask_mode,
+		(void *)&cmd_flow_director_mask_mode_ip,
 		(void *)&cmd_flow_director_mask_vlan,
 		(void *)&cmd_flow_director_mask_vlan_value,
 		(void *)&cmd_flow_director_mask_src,
@@ -8294,6 +8786,44 @@ cmdline_parse_inst_t cmd_set_flow_director_mask = {
 		(void *)&cmd_flow_director_mask_ipv4_dst,
 		(void *)&cmd_flow_director_mask_ipv6_dst,
 		(void *)&cmd_flow_director_mask_port_dst,
+		NULL,
+	},
+};
+
+cmdline_parse_inst_t cmd_set_flow_director_mac_vlan_mask = {
+	.f = cmd_flow_director_mask_parsed,
+	.data = NULL,
+	.help_str = "set MAC VLAN mode flow director's mask on NIC",
+	.tokens = {
+		(void *)&cmd_flow_director_mask,
+		(void *)&cmd_flow_director_mask_port_id,
+		(void *)&cmd_flow_director_mask_mode,
+		(void *)&cmd_flow_director_mask_mode_mac_vlan,
+		(void *)&cmd_flow_director_mask_vlan,
+		(void *)&cmd_flow_director_mask_vlan_value,
+		(void *)&cmd_flow_director_mask_mac,
+		(void *)&cmd_flow_director_mask_mac_value,
+		NULL,
+	},
+};
+
+cmdline_parse_inst_t cmd_set_flow_director_tunnel_mask = {
+	.f = cmd_flow_director_mask_parsed,
+	.data = NULL,
+	.help_str = "set tunnel mode flow director's mask on NIC",
+	.tokens = {
+		(void *)&cmd_flow_director_mask,
+		(void *)&cmd_flow_director_mask_port_id,
+		(void *)&cmd_flow_director_mask_mode,
+		(void *)&cmd_flow_director_mask_mode_tunnel,
+		(void *)&cmd_flow_director_mask_vlan,
+		(void *)&cmd_flow_director_mask_vlan_value,
+		(void *)&cmd_flow_director_mask_mac,
+		(void *)&cmd_flow_director_mask_mac_value,
+		(void *)&cmd_flow_director_mask_tunnel_type,
+		(void *)&cmd_flow_director_mask_tunnel_type_value,
+		(void *)&cmd_flow_director_mask_tunnel_id,
+		(void *)&cmd_flow_director_mask_tunnel_id_value,
 		NULL,
 	},
 };
@@ -8855,6 +9385,200 @@ cmdline_parse_inst_t cmd_set_hash_global_config = {
 	},
 };
 
+/* Set hash input set */
+struct cmd_set_hash_input_set_result {
+	cmdline_fixed_string_t set_hash_input_set;
+	uint8_t port_id;
+	cmdline_fixed_string_t flow_type;
+	cmdline_fixed_string_t inset_field;
+	cmdline_fixed_string_t select;
+};
+
+static enum rte_eth_input_set_field
+str2inset(char *string)
+{
+	uint16_t i;
+
+	static const struct {
+		char str[32];
+		enum rte_eth_input_set_field inset;
+	} inset_table[] = {
+		{"ovlan", RTE_ETH_INPUT_SET_L2_OUTER_VLAN},
+		{"ivlan", RTE_ETH_INPUT_SET_L2_INNER_VLAN},
+		{"src-ipv4", RTE_ETH_INPUT_SET_L3_SRC_IP4},
+		{"dst-ipv4", RTE_ETH_INPUT_SET_L3_DST_IP4},
+		{"ipv4-tos", RTE_ETH_INPUT_SET_L3_IP4_TOS},
+		{"ipv4-proto", RTE_ETH_INPUT_SET_L3_IP4_PROTO},
+		{"src-ipv6", RTE_ETH_INPUT_SET_L3_SRC_IP6},
+		{"dst-ipv6", RTE_ETH_INPUT_SET_L3_DST_IP6},
+		{"ipv6-tc", RTE_ETH_INPUT_SET_L3_IP6_TC},
+		{"ipv6-next-header", RTE_ETH_INPUT_SET_L3_IP6_NEXT_HEADER},
+		{"udp-src-port", RTE_ETH_INPUT_SET_L4_UDP_SRC_PORT},
+		{"udp-dst-port", RTE_ETH_INPUT_SET_L4_UDP_DST_PORT},
+		{"tcp-src-port", RTE_ETH_INPUT_SET_L4_TCP_SRC_PORT},
+		{"tcp-dst-port", RTE_ETH_INPUT_SET_L4_TCP_DST_PORT},
+		{"sctp-src-port", RTE_ETH_INPUT_SET_L4_SCTP_SRC_PORT},
+		{"sctp-dst-port", RTE_ETH_INPUT_SET_L4_SCTP_DST_PORT},
+		{"sctp-veri-tag", RTE_ETH_INPUT_SET_L4_SCTP_VERIFICATION_TAG},
+		{"udp-key", RTE_ETH_INPUT_SET_TUNNEL_L4_UDP_KEY},
+		{"gre-key", RTE_ETH_INPUT_SET_TUNNEL_GRE_KEY},
+		{"fld-1st", RTE_ETH_INPUT_SET_FLEX_PAYLOAD_1ST_WORD},
+		{"fld-2nd", RTE_ETH_INPUT_SET_FLEX_PAYLOAD_2ND_WORD},
+		{"fld-3rd", RTE_ETH_INPUT_SET_FLEX_PAYLOAD_3RD_WORD},
+		{"fld-4th", RTE_ETH_INPUT_SET_FLEX_PAYLOAD_4TH_WORD},
+		{"fld-5th", RTE_ETH_INPUT_SET_FLEX_PAYLOAD_5TH_WORD},
+		{"fld-6th", RTE_ETH_INPUT_SET_FLEX_PAYLOAD_6TH_WORD},
+		{"fld-7th", RTE_ETH_INPUT_SET_FLEX_PAYLOAD_7TH_WORD},
+		{"fld-8th", RTE_ETH_INPUT_SET_FLEX_PAYLOAD_8TH_WORD},
+		{"none", RTE_ETH_INPUT_SET_NONE},
+	};
+
+	for (i = 0; i < RTE_DIM(inset_table); i++) {
+		if (!strcmp(string, inset_table[i].str))
+			return inset_table[i].inset;
+	}
+
+	return RTE_ETH_INPUT_SET_UNKNOWN;
+}
+
+static void
+cmd_set_hash_input_set_parsed(void *parsed_result,
+			      __rte_unused struct cmdline *cl,
+			      __rte_unused void *data)
+{
+	struct cmd_set_hash_input_set_result *res = parsed_result;
+	struct rte_eth_hash_filter_info info;
+
+	memset(&info, 0, sizeof(info));
+	info.info_type = RTE_ETH_HASH_FILTER_INPUT_SET_SELECT;
+	info.info.input_set_conf.flow_type = str2flowtype(res->flow_type);
+	info.info.input_set_conf.field[0] = str2inset(res->inset_field);
+	info.info.input_set_conf.inset_size = 1;
+	if (!strcmp(res->select, "select"))
+		info.info.input_set_conf.op = RTE_ETH_INPUT_SET_SELECT;
+	else if (!strcmp(res->select, "add"))
+		info.info.input_set_conf.op = RTE_ETH_INPUT_SET_ADD;
+	rte_eth_dev_filter_ctrl(res->port_id, RTE_ETH_FILTER_HASH,
+				RTE_ETH_FILTER_SET, &info);
+}
+
+cmdline_parse_token_string_t cmd_set_hash_input_set_cmd =
+	TOKEN_STRING_INITIALIZER(struct cmd_set_hash_input_set_result,
+		set_hash_input_set, "set_hash_input_set");
+cmdline_parse_token_num_t cmd_set_hash_input_set_port_id =
+	TOKEN_NUM_INITIALIZER(struct cmd_set_hash_input_set_result,
+		port_id, UINT8);
+cmdline_parse_token_string_t cmd_set_hash_input_set_flow_type =
+	TOKEN_STRING_INITIALIZER(struct cmd_set_hash_input_set_result,
+		flow_type,
+		"ipv4#ipv4-frag#ipv4-tcp#ipv4-udp#ipv4-sctp#ipv4-other#ipv6#"
+		"ipv6-frag#ipv6-tcp#ipv6-udp#ipv6-sctp#ipv6-other#l2_payload");
+cmdline_parse_token_string_t cmd_set_hash_input_set_field =
+	TOKEN_STRING_INITIALIZER(struct cmd_set_hash_input_set_result,
+		inset_field,
+		"ovlan#ivlan#src-ipv4#dst-ipv4#src-ipv6#dst-ipv6#"
+		"ipv4-tos#ipv4-proto#ipv6-tc#ipv6-next-header#udp-src-port#"
+		"udp-dst-port#tcp-src-port#tcp-dst-port#sctp-src-port#"
+		"sctp-dst-port#sctp-veri-tag#udp-key#gre-key#fld-1st#"
+		"fld-2nd#fld-3rd#fld-4th#fld-5th#fld-6th#fld-7th#"
+		"fld-8th#none");
+cmdline_parse_token_string_t cmd_set_hash_input_set_select =
+	TOKEN_STRING_INITIALIZER(struct cmd_set_hash_input_set_result,
+		select, "select#add");
+
+cmdline_parse_inst_t cmd_set_hash_input_set = {
+	.f = cmd_set_hash_input_set_parsed,
+	.data = NULL,
+	.help_str = "set_hash_input_set <port_id> "
+	"ipv4|ipv4-frag|ipv4-tcp|ipv4-udp|ipv4-sctp|ipv4-other|ipv6|ipv6-frag|"
+	"ipv6-tcp|ipv6-udp|ipv6-sctp|ipv6-other|l2_payload "
+	"ovlan|ivlan|src-ipv4|dst-ipv4|src-ipv6|dst-ipv6|ipv4-tos|ipv4-proto|"
+	"ipv6-tc|ipv6-next-header|udp-src-port|udp-dst-port|tcp-src-port|"
+	"tcp-dst-port|sctp-src-port|sctp-dst-port|sctp-veri-tag|udp-key|"
+	"gre-key|fld-1st|fld-2nd|fld-3rd|fld-4th|fld-5th|fld-6th|"
+	"fld-7th|fld-8th|none select|add",
+	.tokens = {
+		(void *)&cmd_set_hash_input_set_cmd,
+		(void *)&cmd_set_hash_input_set_port_id,
+		(void *)&cmd_set_hash_input_set_flow_type,
+		(void *)&cmd_set_hash_input_set_field,
+		(void *)&cmd_set_hash_input_set_select,
+		NULL,
+	},
+};
+
+/* Set flow director input set */
+struct cmd_set_fdir_input_set_result {
+	cmdline_fixed_string_t set_fdir_input_set;
+	uint8_t port_id;
+	cmdline_fixed_string_t flow_type;
+	cmdline_fixed_string_t inset_field;
+	cmdline_fixed_string_t select;
+};
+
+static void
+cmd_set_fdir_input_set_parsed(void *parsed_result,
+	__rte_unused struct cmdline *cl,
+	__rte_unused void *data)
+{
+	struct cmd_set_fdir_input_set_result *res = parsed_result;
+	struct rte_eth_fdir_filter_info info;
+
+	memset(&info, 0, sizeof(info));
+	info.info_type = RTE_ETH_FDIR_FILTER_INPUT_SET_SELECT;
+	info.info.input_set_conf.flow_type = str2flowtype(res->flow_type);
+	info.info.input_set_conf.field[0] = str2inset(res->inset_field);
+	info.info.input_set_conf.inset_size = 1;
+	if (!strcmp(res->select, "select"))
+		info.info.input_set_conf.op = RTE_ETH_INPUT_SET_SELECT;
+	else if (!strcmp(res->select, "add"))
+		info.info.input_set_conf.op = RTE_ETH_INPUT_SET_ADD;
+	rte_eth_dev_filter_ctrl(res->port_id, RTE_ETH_FILTER_FDIR,
+		RTE_ETH_FILTER_SET, &info);
+}
+
+cmdline_parse_token_string_t cmd_set_fdir_input_set_cmd =
+	TOKEN_STRING_INITIALIZER(struct cmd_set_fdir_input_set_result,
+	set_fdir_input_set, "set_fdir_input_set");
+cmdline_parse_token_num_t cmd_set_fdir_input_set_port_id =
+	TOKEN_NUM_INITIALIZER(struct cmd_set_fdir_input_set_result,
+	port_id, UINT8);
+cmdline_parse_token_string_t cmd_set_fdir_input_set_flow_type =
+	TOKEN_STRING_INITIALIZER(struct cmd_set_fdir_input_set_result,
+	flow_type,
+	"ipv4#ipv4-frag#ipv4-tcp#ipv4-udp#ipv4-sctp#ipv4-other#ipv6#"
+	"ipv6-frag#ipv6-tcp#ipv6-udp#ipv6-sctp#ipv6-other#l2_payload");
+cmdline_parse_token_string_t cmd_set_fdir_input_set_field =
+	TOKEN_STRING_INITIALIZER(struct cmd_set_fdir_input_set_result,
+	inset_field,
+	"src-ipv4#dst-ipv4#src-ipv6#dst-ipv6#udp-src-port#udp-dst-port#"
+	"tcp-src-port#tcp-dst-port#sctp-src-port#sctp-dst-port#"
+	"sctp-veri-tag#fld-1st#fld-2nd#fld-3rd#fld-4th#fld-5th#fld-6th#"
+	"fld-7th#fld-8th#none");
+cmdline_parse_token_string_t cmd_set_fdir_input_set_select =
+	TOKEN_STRING_INITIALIZER(struct cmd_set_fdir_input_set_result,
+	select, "select#add");
+
+cmdline_parse_inst_t cmd_set_fdir_input_set = {
+	.f = cmd_set_fdir_input_set_parsed,
+	.data = NULL,
+	.help_str = "set_fdir_input_set <port_id> "
+	"ipv4|ipv4-frag|ipv4-tcp|ipv4-udp|ipv4-sctp|ipv4-other|ipv6|ipv6-frag|"
+	"ipv6-tcp|ipv6-udp|ipv6-sctp|ipv6-other|l2_payload "
+	"src-ipv4|dst-ipv4|src-ipv6|dst-ipv6|udp-src-port|udp-dst-port|"
+	"tcp-src-port|tcp-dst-port|sctp-src-port|sctp-dst-port|sctp-veri-tag|"
+	"fld-1st|fld-2nd|fld-3rd|fld-4th|fld-5th|fld-6th|"
+	"fld-7th|fld-8th|none select|add",
+	.tokens = {
+		(void *)&cmd_set_fdir_input_set_cmd,
+		(void *)&cmd_set_fdir_input_set_port_id,
+		(void *)&cmd_set_fdir_input_set_flow_type,
+		(void *)&cmd_set_fdir_input_set_field,
+		(void *)&cmd_set_fdir_input_set_select,
+		NULL,
+	},
+};
+
 /* *** ADD/REMOVE A MULTICAST MAC ADDRESS TO/FROM A PORT *** */
 struct cmd_mcast_addr_result {
 	cmdline_fixed_string_t mcast_addr_cmd;
@@ -8914,6 +9638,7 @@ cmdline_parse_ctx_t main_ctx[] = {
 	(cmdline_parse_inst_t *)&cmd_help_long,
 	(cmdline_parse_inst_t *)&cmd_quit,
 	(cmdline_parse_inst_t *)&cmd_showport,
+	(cmdline_parse_inst_t *)&cmd_showqueue,
 	(cmdline_parse_inst_t *)&cmd_showportall,
 	(cmdline_parse_inst_t *)&cmd_showcfg,
 	(cmdline_parse_inst_t *)&cmd_start,
@@ -8923,6 +9648,7 @@ cmdline_parse_ctx_t main_ctx[] = {
 	(cmdline_parse_inst_t *)&cmd_reset,
 	(cmdline_parse_inst_t *)&cmd_set_numbers,
 	(cmdline_parse_inst_t *)&cmd_set_txpkts,
+	(cmdline_parse_inst_t *)&cmd_set_txsplit,
 	(cmdline_parse_inst_t *)&cmd_set_fwd_list,
 	(cmdline_parse_inst_t *)&cmd_set_fwd_mask,
 	(cmdline_parse_inst_t *)&cmd_set_fwd_mode,
@@ -9012,6 +9738,7 @@ cmdline_parse_ctx_t main_ctx[] = {
 	(cmdline_parse_inst_t *)&cmd_vf_rate_limit,
 	(cmdline_parse_inst_t *)&cmd_tunnel_filter,
 	(cmdline_parse_inst_t *)&cmd_tunnel_udp_config,
+	(cmdline_parse_inst_t *)&cmd_global_config,
 	(cmdline_parse_inst_t *)&cmd_set_mirror_mask,
 	(cmdline_parse_inst_t *)&cmd_set_mirror_link,
 	(cmdline_parse_inst_t *)&cmd_reset_mirror_rule,
@@ -9029,14 +9756,20 @@ cmdline_parse_ctx_t main_ctx[] = {
 	(cmdline_parse_inst_t *)&cmd_add_del_udp_flow_director,
 	(cmdline_parse_inst_t *)&cmd_add_del_sctp_flow_director,
 	(cmdline_parse_inst_t *)&cmd_add_del_l2_flow_director,
+	(cmdline_parse_inst_t *)&cmd_add_del_mac_vlan_flow_director,
+	(cmdline_parse_inst_t *)&cmd_add_del_tunnel_flow_director,
 	(cmdline_parse_inst_t *)&cmd_flush_flow_director,
-	(cmdline_parse_inst_t *)&cmd_set_flow_director_mask,
+	(cmdline_parse_inst_t *)&cmd_set_flow_director_ip_mask,
+	(cmdline_parse_inst_t *)&cmd_set_flow_director_mac_vlan_mask,
+	(cmdline_parse_inst_t *)&cmd_set_flow_director_tunnel_mask,
 	(cmdline_parse_inst_t *)&cmd_set_flow_director_flex_mask,
 	(cmdline_parse_inst_t *)&cmd_set_flow_director_flex_payload,
 	(cmdline_parse_inst_t *)&cmd_get_sym_hash_ena_per_port,
 	(cmdline_parse_inst_t *)&cmd_set_sym_hash_ena_per_port,
 	(cmdline_parse_inst_t *)&cmd_get_hash_global_config,
 	(cmdline_parse_inst_t *)&cmd_set_hash_global_config,
+	(cmdline_parse_inst_t *)&cmd_set_hash_input_set,
+	(cmdline_parse_inst_t *)&cmd_set_fdir_input_set,
 	(cmdline_parse_inst_t *)&cmd_mcast_addr,
 	NULL,
 };

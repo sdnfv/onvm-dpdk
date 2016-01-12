@@ -123,9 +123,21 @@
 #define FM10K_VFTA_BIT(vlan_id)    (1 << ((vlan_id) & 0x1F))
 #define FM10K_VFTA_IDX(vlan_id)    ((vlan_id) >> 5)
 
+#define RTE_FM10K_RXQ_REARM_THRESH      32
+#define RTE_FM10K_VPMD_TX_BURST         32
+#define RTE_FM10K_MAX_RX_BURST          RTE_FM10K_RXQ_REARM_THRESH
+#define RTE_FM10K_TX_MAX_FREE_BUF_SZ    64
+#define RTE_FM10K_DESCS_PER_LOOP    4
+
+#define FM10K_SIMPLE_TX_FLAG ((uint32_t)ETH_TXQ_FLAGS_NOMULTSEGS | \
+				ETH_TXQ_FLAGS_NOOFFLOADS)
+
 struct fm10k_macvlan_filter_info {
 	uint16_t vlan_num;       /* Total VLAN number */
 	uint16_t mac_num;        /* Total mac number */
+	uint16_t nb_queue_pools; /* Active queue pools number */
+	/* VMDQ ID for each MAC address */
+	uint8_t  mac_vmdq_id[FM10K_MAX_MACADDR_NUM];
 	uint32_t vfta[FM10K_VFTA_SIZE];        /* VLAN bitmap */
 };
 
@@ -135,6 +147,8 @@ struct fm10k_dev_info {
 	/* Protect the mailbox to avoid race condition */
 	rte_spinlock_t    mbx_lock;
 	struct fm10k_macvlan_filter_info    macvlan;
+	/* Flag to indicate if RX vector conditions satisfied */
+	bool rx_vec_allowed;
 };
 
 /*
@@ -165,19 +179,28 @@ struct fm10k_rx_queue {
 	struct rte_mempool *mp;
 	struct rte_mbuf **sw_ring;
 	volatile union fm10k_rx_desc *hw_ring;
-	struct rte_mbuf *pkt_first_seg; /**< First segment of current packet. */
-	struct rte_mbuf *pkt_last_seg;  /**< Last segment of current packet. */
+	struct rte_mbuf *pkt_first_seg; /* First segment of current packet. */
+	struct rte_mbuf *pkt_last_seg;  /* Last segment of current packet. */
 	uint64_t hw_ring_phys_addr;
+	uint64_t mbuf_initializer; /* value to init mbufs */
+	/* need to alloc dummy mbuf, for wraparound when scanning hw ring */
+	struct rte_mbuf fake_mbuf;
 	uint16_t next_dd;
 	uint16_t next_alloc;
 	uint16_t next_trigger;
 	uint16_t alloc_thresh;
 	volatile uint32_t *tail_ptr;
 	uint16_t nb_desc;
+	/* Number of faked desc added at the tail for Vector RX function */
+	uint16_t nb_fake_desc;
 	uint16_t queue_id;
+	/* Below 2 fields only valid in case vPMD is applied. */
+	uint16_t rxrearm_nb;     /* number of remaining to be re-armed */
+	uint16_t rxrearm_start;  /* the idx we start the re-arming from */
+	uint16_t rx_using_sse; /* indicates that vector RX is in use */
 	uint8_t port_id;
 	uint8_t drop_en;
-	uint8_t rx_deferred_start; /**< don't start this queue in dev start. */
+	uint8_t rx_deferred_start; /* don't start this queue in dev start. */
 };
 
 /*
@@ -191,22 +214,33 @@ struct fifo {
 	uint16_t *endp;
 };
 
+struct fm10k_txq_ops;
+
 struct fm10k_tx_queue {
 	struct rte_mbuf **sw_ring;
 	struct fm10k_tx_desc *hw_ring;
 	uint64_t hw_ring_phys_addr;
 	struct fifo rs_tracker;
+	const struct fm10k_txq_ops *ops; /* txq ops */
 	uint16_t last_free;
 	uint16_t next_free;
 	uint16_t nb_free;
 	uint16_t nb_used;
 	uint16_t free_thresh;
 	uint16_t rs_thresh;
+	/* Below 2 fields only valid in case vPMD is applied. */
+	uint16_t next_rs; /* Next pos to set RS flag */
+	uint16_t next_dd; /* Next pos to check DD flag */
 	volatile uint32_t *tail_ptr;
+	uint32_t txq_flags; /* Holds flags for this TXq */
 	uint16_t nb_desc;
 	uint8_t port_id;
-	uint8_t tx_deferred_start; /** < don't start this queue in dev start. */
+	uint8_t tx_deferred_start; /** don't start this queue in dev start. */
 	uint16_t queue_id;
+};
+
+struct fm10k_txq_ops {
+	void (*reset)(struct fm10k_tx_queue *txq);
 };
 
 #define MBUF_DMA_ADDR(mb) \
@@ -313,4 +347,16 @@ uint16_t fm10k_recv_scattered_pkts(void *rx_queue,
 
 uint16_t fm10k_xmit_pkts(void *tx_queue, struct rte_mbuf **tx_pkts,
 	uint16_t nb_pkts);
+
+int fm10k_rxq_vec_setup(struct fm10k_rx_queue *rxq);
+int fm10k_rx_vec_condition_check(struct rte_eth_dev *);
+void fm10k_rx_queue_release_mbufs_vec(struct fm10k_rx_queue *rxq);
+uint16_t fm10k_recv_pkts_vec(void *, struct rte_mbuf **, uint16_t);
+uint16_t fm10k_recv_scattered_pkts_vec(void *, struct rte_mbuf **,
+					uint16_t);
+uint16_t fm10k_xmit_pkts_vec(void *tx_queue, struct rte_mbuf **tx_pkts,
+		uint16_t nb_pkts);
+void fm10k_txq_vec_setup(struct fm10k_tx_queue *txq);
+int fm10k_tx_vec_condition_check(struct fm10k_tx_queue *txq);
+
 #endif

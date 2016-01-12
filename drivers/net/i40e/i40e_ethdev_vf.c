@@ -67,12 +67,15 @@
 #include "i40e_rxtx.h"
 #include "i40e_ethdev.h"
 #include "i40e_pf.h"
-#define I40EVF_VSI_DEFAULT_MSIX_INTR 1
+#define I40EVF_VSI_DEFAULT_MSIX_INTR     1
+#define I40EVF_VSI_DEFAULT_MSIX_INTR_LNX 0
 
 /* busy wait delay in msec */
 #define I40EVF_BUSY_WAIT_DELAY 10
 #define I40EVF_BUSY_WAIT_COUNT 50
 #define MAX_RESET_WAIT_CNT     20
+/*ITR index for NOITR*/
+#define I40E_QINT_RQCTL_MSIX_INDX_NOITR     3
 
 struct i40evf_arq_msg_info {
 	enum i40e_virtchnl_ops ops;
@@ -112,6 +115,9 @@ static int i40evf_dev_link_update(struct rte_eth_dev *dev,
 				  __rte_unused int wait_to_complete);
 static void i40evf_dev_stats_get(struct rte_eth_dev *dev,
 				struct rte_eth_stats *stats);
+static int i40evf_dev_xstats_get(struct rte_eth_dev *dev,
+				 struct rte_eth_xstats *xstats, unsigned n);
+static void i40evf_dev_xstats_reset(struct rte_eth_dev *dev);
 static int i40evf_vlan_filter_set(struct rte_eth_dev *dev,
 				  uint16_t vlan_id, int on);
 static void i40evf_vlan_offload_set(struct rte_eth_dev *dev, int mask);
@@ -144,9 +150,37 @@ static int i40evf_dev_rss_hash_update(struct rte_eth_dev *dev,
 				      struct rte_eth_rss_conf *rss_conf);
 static int i40evf_dev_rss_hash_conf_get(struct rte_eth_dev *dev,
 					struct rte_eth_rss_conf *rss_conf);
+static int
+i40evf_dev_rx_queue_intr_enable(struct rte_eth_dev *dev, uint16_t queue_id);
+static int
+i40evf_dev_rx_queue_intr_disable(struct rte_eth_dev *dev, uint16_t queue_id);
 
 /* Default hash key buffer for RSS */
 static uint32_t rss_key_default[I40E_VFQF_HKEY_MAX_INDEX + 1];
+
+struct rte_i40evf_xstats_name_off {
+	char name[RTE_ETH_XSTATS_NAME_SIZE];
+	unsigned offset;
+};
+
+static const struct rte_i40evf_xstats_name_off rte_i40evf_stats_strings[] = {
+	{"rx_bytes", offsetof(struct i40e_eth_stats, rx_bytes)},
+	{"rx_unicast_packets", offsetof(struct i40e_eth_stats, rx_unicast)},
+	{"rx_multicast_packets", offsetof(struct i40e_eth_stats, rx_multicast)},
+	{"rx_broadcast_packets", offsetof(struct i40e_eth_stats, rx_broadcast)},
+	{"rx_dropped_packets", offsetof(struct i40e_eth_stats, rx_discards)},
+	{"rx_unknown_protocol_packets", offsetof(struct i40e_eth_stats,
+		rx_unknown_protocol)},
+	{"tx_bytes", offsetof(struct i40e_eth_stats, tx_bytes)},
+	{"tx_unicast_packets", offsetof(struct i40e_eth_stats, tx_bytes)},
+	{"tx_multicast_packets", offsetof(struct i40e_eth_stats, tx_bytes)},
+	{"tx_broadcast_packets", offsetof(struct i40e_eth_stats, tx_bytes)},
+	{"tx_dropped_packets", offsetof(struct i40e_eth_stats, tx_bytes)},
+	{"tx_error_packets", offsetof(struct i40e_eth_stats, tx_bytes)},
+};
+
+#define I40EVF_NB_XSTATS (sizeof(rte_i40evf_stats_strings) / \
+		sizeof(rte_i40evf_stats_strings[0]))
 
 static const struct eth_dev_ops i40evf_eth_dev_ops = {
 	.dev_configure        = i40evf_dev_configure,
@@ -158,6 +192,8 @@ static const struct eth_dev_ops i40evf_eth_dev_ops = {
 	.allmulticast_disable = i40evf_dev_allmulticast_disable,
 	.link_update          = i40evf_dev_link_update,
 	.stats_get            = i40evf_dev_stats_get,
+	.xstats_get           = i40evf_dev_xstats_get,
+	.xstats_reset         = i40evf_dev_xstats_reset,
 	.dev_close            = i40evf_dev_close,
 	.dev_infos_get        = i40evf_dev_info_get,
 	.vlan_filter_set      = i40evf_vlan_filter_set,
@@ -169,6 +205,9 @@ static const struct eth_dev_ops i40evf_eth_dev_ops = {
 	.tx_queue_stop        = i40evf_dev_tx_queue_stop,
 	.rx_queue_setup       = i40e_dev_rx_queue_setup,
 	.rx_queue_release     = i40e_dev_rx_queue_release,
+	.rx_queue_intr_enable = i40evf_dev_rx_queue_intr_enable,
+	.rx_queue_intr_disable = i40evf_dev_rx_queue_intr_disable,
+	.rx_descriptor_done   = i40e_dev_rx_descriptor_done,
 	.tx_queue_setup       = i40e_dev_tx_queue_setup,
 	.tx_queue_release     = i40e_dev_tx_queue_release,
 	.reta_update          = i40evf_dev_rss_reta_update,
@@ -412,7 +451,7 @@ i40evf_check_api_version(struct rte_eth_dev *dev)
 	if (vf->version_major == I40E_DPDK_VERSION_MAJOR)
 		PMD_DRV_LOG(INFO, "Peer is DPDK PF host");
 	else if ((vf->version_major == I40E_VIRTCHNL_VERSION_MAJOR) &&
-		(vf->version_minor == I40E_VIRTCHNL_VERSION_MINOR))
+		(vf->version_minor <= I40E_VIRTCHNL_VERSION_MINOR))
 		PMD_DRV_LOG(INFO, "Peer is Linux PF host");
 	else {
 		PMD_INIT_LOG(ERR, "PF/VF API version mismatch:(%u.%u)-(%u.%u)",
@@ -432,14 +471,23 @@ i40evf_get_vf_resource(struct rte_eth_dev *dev)
 	struct i40e_vf *vf = I40EVF_DEV_PRIVATE_TO_VF(dev->data->dev_private);
 	int err;
 	struct vf_cmd_info args;
-	uint32_t len;
+	uint32_t caps, len;
 
 	args.ops = I40E_VIRTCHNL_OP_GET_VF_RESOURCES;
-	args.in_args = NULL;
-	args.in_args_size = 0;
 	args.out_buffer = cmd_result_buffer;
 	args.out_size = I40E_AQ_BUF_SZ;
-
+	if (PF_IS_V11(vf)) {
+		caps = I40E_VIRTCHNL_VF_OFFLOAD_L2 |
+		       I40E_VIRTCHNL_VF_OFFLOAD_RSS_AQ |
+		       I40E_VIRTCHNL_VF_OFFLOAD_RSS_REG |
+		       I40E_VIRTCHNL_VF_OFFLOAD_VLAN |
+		       I40E_VIRTCHNL_VF_OFFLOAD_RX_POLLING;
+		args.in_args = (uint8_t *)&caps;
+		args.in_args_size = sizeof(caps);
+	} else {
+		args.in_args = NULL;
+		args.in_args_size = 0;
+	}
 	err = i40evf_execute_vf_cmd(dev, &args);
 
 	if (err) {
@@ -700,19 +748,33 @@ i40evf_config_irq_map(struct rte_eth_dev *dev)
 	uint8_t cmd_buffer[sizeof(struct i40e_virtchnl_irq_map_info) + \
 		sizeof(struct i40e_virtchnl_vector_map)];
 	struct i40e_virtchnl_irq_map_info *map_info;
+	struct rte_intr_handle *intr_handle = &dev->pci_dev->intr_handle;
+	uint32_t vector_id;
 	int i, err;
+
+	if (rte_intr_allow_others(intr_handle)) {
+		if (vf->version_major == I40E_DPDK_VERSION_MAJOR)
+			vector_id = I40EVF_VSI_DEFAULT_MSIX_INTR;
+		else
+			vector_id = I40EVF_VSI_DEFAULT_MSIX_INTR_LNX;
+	} else {
+		vector_id = I40E_MISC_VEC_ID;
+	}
+
 	map_info = (struct i40e_virtchnl_irq_map_info *)cmd_buffer;
 	map_info->num_vectors = 1;
-	map_info->vecmap[0].rxitr_idx = RTE_LIBRTE_I40E_ITR_INTERVAL / 2;
-	map_info->vecmap[0].txitr_idx = RTE_LIBRTE_I40E_ITR_INTERVAL / 2;
+	map_info->vecmap[0].rxitr_idx = I40E_QINT_RQCTL_MSIX_INDX_NOITR;
 	map_info->vecmap[0].vsi_id = vf->vsi_res->vsi_id;
 	/* Alway use default dynamic MSIX interrupt */
-	map_info->vecmap[0].vector_id = I40EVF_VSI_DEFAULT_MSIX_INTR;
+	map_info->vecmap[0].vector_id = vector_id;
 	/* Don't map any tx queue */
 	map_info->vecmap[0].txq_map = 0;
 	map_info->vecmap[0].rxq_map = 0;
-	for (i = 0; i < dev->data->nb_rx_queues; i++)
+	for (i = 0; i < dev->data->nb_rx_queues; i++) {
 		map_info->vecmap[0].rxq_map |= 1 << i;
+		if (rte_intr_dp_is_en(intr_handle))
+			intr_handle->intr_vec[i] = vector_id;
+	}
 
 	args.ops = I40E_VIRTCHNL_OP_CONFIG_IRQ_MAP;
 	args.in_args = (u8 *)cmd_buffer;
@@ -888,11 +950,10 @@ i40evf_del_mac_addr(struct rte_eth_dev *dev, struct ether_addr *addr)
 }
 
 static int
-i40evf_get_statics(struct rte_eth_dev *dev, struct rte_eth_stats *stats)
+i40evf_update_stats(struct rte_eth_dev *dev, struct i40e_eth_stats **pstats)
 {
 	struct i40e_vf *vf = I40EVF_DEV_PRIVATE_TO_VF(dev->data->dev_private);
 	struct i40e_virtchnl_queue_select q_stats;
-	struct i40e_eth_stats *pstats;
 	int err;
 	struct vf_cmd_info args;
 
@@ -907,9 +968,23 @@ i40evf_get_statics(struct rte_eth_dev *dev, struct rte_eth_stats *stats)
 	err = i40evf_execute_vf_cmd(dev, &args);
 	if (err) {
 		PMD_DRV_LOG(ERR, "fail to execute command OP_GET_STATS");
+		*pstats = NULL;
 		return err;
 	}
-	pstats = (struct i40e_eth_stats *)args.out_buffer;
+	*pstats = (struct i40e_eth_stats *)args.out_buffer;
+	return 0;
+}
+
+static int
+i40evf_get_statics(struct rte_eth_dev *dev, struct rte_eth_stats *stats)
+{
+	int ret;
+	struct i40e_eth_stats *pstats = NULL;
+
+	ret = i40evf_update_stats(dev, &pstats);
+	if (ret != 0)
+		return 0;
+
 	stats->ipackets = pstats->rx_unicast + pstats->rx_multicast +
 						pstats->rx_broadcast;
 	stats->opackets = pstats->tx_broadcast + pstats->tx_multicast +
@@ -920,6 +995,47 @@ i40evf_get_statics(struct rte_eth_dev *dev, struct rte_eth_stats *stats)
 	stats->obytes = pstats->tx_bytes;
 
 	return 0;
+}
+
+static void
+i40evf_dev_xstats_reset(struct rte_eth_dev *dev)
+{
+	struct i40e_vf *vf = I40EVF_DEV_PRIVATE_TO_VF(dev->data->dev_private);
+	struct i40e_eth_stats *pstats = NULL;
+
+	/* read stat values to clear hardware registers */
+	i40evf_update_stats(dev, &pstats);
+
+	/* set stats offset base on current values */
+	vf->vsi.eth_stats_offset = vf->vsi.eth_stats;
+}
+
+static int i40evf_dev_xstats_get(struct rte_eth_dev *dev,
+				 struct rte_eth_xstats *xstats, unsigned n)
+{
+	int ret;
+	unsigned i;
+	struct i40e_eth_stats *pstats = NULL;
+
+	if (n < I40EVF_NB_XSTATS)
+		return I40EVF_NB_XSTATS;
+
+	ret = i40evf_update_stats(dev, &pstats);
+	if (ret != 0)
+		return 0;
+
+	if (!xstats)
+		return 0;
+
+	/* loop over xstats array and values from pstats */
+	for (i = 0; i < I40EVF_NB_XSTATS; i++) {
+		snprintf(xstats[i].name, sizeof(xstats[i].name),
+			 "%s", rte_i40evf_stats_strings[i].name);
+		xstats[i].value = *(uint64_t *)(((char *)pstats) +
+			rte_i40evf_stats_strings[i].offset);
+	}
+
+	return I40EVF_NB_XSTATS;
 }
 
 static int
@@ -1126,9 +1242,12 @@ i40evf_init_vf(struct rte_eth_dev *dev)
 		goto err_alloc;
 	}
 
+	if (hw->mac.type == I40E_MAC_X722_VF)
+		vf->flags = I40E_FLAG_RSS_AQ_CAPABLE;
 	vf->vsi.vsi_id = vf->vsi_res->vsi_id;
 	vf->vsi.type = vf->vsi_res->vsi_type;
 	vf->vsi.nb_qps = vf->vsi_res->num_queue_pairs;
+	vf->vsi.adapter = I40E_DEV_PRIVATE_TO_ADAPTER(dev->data->dev_private);
 
 	/* check mac addr, if it's not valid, genrate one */
 	if (I40E_SUCCESS != i40e_validate_mac_addr(\
@@ -1182,10 +1301,12 @@ i40evf_dev_init(struct rte_eth_dev *eth_dev)
 	 * has already done this work.
 	 */
 	if (rte_eal_process_type() != RTE_PROC_PRIMARY){
-		if (eth_dev->data->scattered_rx)
-			eth_dev->rx_pkt_burst = i40e_recv_scattered_pkts;
+		i40e_set_rx_function(eth_dev);
+		i40e_set_tx_function(eth_dev);
 		return 0;
 	}
+
+	rte_eth_copy_pci_info(eth_dev, eth_dev->pci_dev);
 
 	hw->vendor_id = eth_dev->pci_dev->id.vendor_id;
 	hw->device_id = eth_dev->pci_dev->id.device_id;
@@ -1277,6 +1398,17 @@ PMD_REGISTER_DRIVER(rte_i40evf_driver);
 static int
 i40evf_dev_configure(struct rte_eth_dev *dev)
 {
+	struct i40e_adapter *ad =
+		I40E_DEV_PRIVATE_TO_ADAPTER(dev->data->dev_private);
+
+	/* Initialize to TRUE. If any of Rx queues doesn't meet the bulk
+	 * allocation or vector Rx preconditions we will reset it.
+	 */
+	ad->rx_bulk_alloc_allowed = true;
+	ad->rx_vec_allowed = true;
+	ad->tx_simple_allowed = true;
+	ad->tx_vec_allowed = true;
+
 	return i40evf_init_vlan(dev);
 }
 
@@ -1373,6 +1505,8 @@ i40evf_dev_rx_queue_start(struct rte_eth_dev *dev, uint16_t rx_queue_id)
 		if (err)
 			PMD_DRV_LOG(ERR, "Failed to switch RX queue %u on",
 				    rx_queue_id);
+		else
+			dev->data->rx_queue_state[rx_queue_id] = RTE_ETH_QUEUE_STATE_STARTED;
 	}
 
 	return err;
@@ -1397,6 +1531,7 @@ i40evf_dev_rx_queue_stop(struct rte_eth_dev *dev, uint16_t rx_queue_id)
 
 		i40e_rx_queue_release_mbufs(rxq);
 		i40e_reset_rx_queue(rxq);
+		dev->data->rx_queue_state[rx_queue_id] = RTE_ETH_QUEUE_STATE_STOPPED;
 	}
 
 	return 0;
@@ -1417,6 +1552,8 @@ i40evf_dev_tx_queue_start(struct rte_eth_dev *dev, uint16_t tx_queue_id)
 		if (err)
 			PMD_DRV_LOG(ERR, "Failed to switch TX queue %u on",
 				    tx_queue_id);
+		else
+			dev->data->tx_queue_state[tx_queue_id] = RTE_ETH_QUEUE_STATE_STARTED;
 	}
 
 	return err;
@@ -1441,6 +1578,7 @@ i40evf_dev_tx_queue_stop(struct rte_eth_dev *dev, uint16_t tx_queue_id)
 
 		i40e_tx_queue_release_mbufs(txq);
 		i40e_reset_tx_queue(txq);
+		dev->data->tx_queue_state[tx_queue_id] = RTE_ETH_QUEUE_STATE_STOPPED;
 	}
 
 	return 0;
@@ -1508,7 +1646,6 @@ i40evf_rxq_init(struct rte_eth_dev *dev, struct i40e_rx_queue *rxq)
 	if (dev_data->dev_conf.rxmode.enable_scatter ||
 	    (rxq->max_pkt_len + 2 * I40E_VLAN_TAG_SIZE) > buf_size) {
 		dev_data->scattered_rx = 1;
-		dev->rx_pkt_burst = i40e_recv_scattered_pkts;
 	}
 
 	return 0;
@@ -1519,6 +1656,7 @@ i40evf_rx_init(struct rte_eth_dev *dev)
 {
 	struct i40e_vf *vf = I40EVF_DEV_PRIVATE_TO_VF(dev->data->dev_private);
 	uint16_t i;
+	int ret = I40E_SUCCESS;
 	struct i40e_rx_queue **rxq =
 		(struct i40e_rx_queue **)dev->data->rx_queues;
 
@@ -1526,11 +1664,14 @@ i40evf_rx_init(struct rte_eth_dev *dev)
 	for (i = 0; i < dev->data->nb_rx_queues; i++) {
 		if (!rxq[i] || !rxq[i]->q_set)
 			continue;
-		if (i40evf_rxq_init(dev, rxq[i]) < 0)
-			return -EFAULT;
+		ret = i40evf_rxq_init(dev, rxq[i]);
+		if (ret != I40E_SUCCESS)
+			break;
 	}
+	if (ret == I40E_SUCCESS)
+		i40e_set_rx_function(dev);
 
-	return 0;
+	return ret;
 }
 
 static void
@@ -1543,21 +1684,118 @@ i40evf_tx_init(struct rte_eth_dev *dev)
 
 	for (i = 0; i < dev->data->nb_tx_queues; i++)
 		txq[i]->qtx_tail = hw->hw_addr + I40E_QTX_TAIL1(i);
+
+	i40e_set_tx_function(dev);
 }
 
 static inline void
-i40evf_enable_queues_intr(struct i40e_hw *hw)
+i40evf_enable_queues_intr(struct rte_eth_dev *dev)
 {
-	I40E_WRITE_REG(hw, I40E_VFINT_DYN_CTLN1(I40EVF_VSI_DEFAULT_MSIX_INTR - 1),
+	struct i40e_vf *vf = I40EVF_DEV_PRIVATE_TO_VF(dev->data->dev_private);
+	struct i40e_hw *hw = I40E_DEV_PRIVATE_TO_HW(dev->data->dev_private);
+	struct rte_intr_handle *intr_handle = &dev->pci_dev->intr_handle;
+
+	if (!rte_intr_allow_others(intr_handle)) {
+		I40E_WRITE_REG(hw,
+			       I40E_VFINT_DYN_CTL01,
+			       I40E_VFINT_DYN_CTL01_INTENA_MASK |
+			       I40E_VFINT_DYN_CTL01_CLEARPBA_MASK);
+		I40EVF_WRITE_FLUSH(hw);
+		return;
+	}
+
+	if (vf->version_major == I40E_DPDK_VERSION_MAJOR)
+		/* To support DPDK PF host */
+		I40E_WRITE_REG(hw,
+			I40E_VFINT_DYN_CTLN1(I40EVF_VSI_DEFAULT_MSIX_INTR - 1),
 			I40E_VFINT_DYN_CTLN1_INTENA_MASK |
 			I40E_VFINT_DYN_CTLN_CLEARPBA_MASK);
+	else
+		/* To support Linux PF host */
+		I40E_WRITE_REG(hw, I40E_VFINT_DYN_CTL01,
+				I40E_VFINT_DYN_CTL01_INTENA_MASK |
+				I40E_VFINT_DYN_CTL01_CLEARPBA_MASK);
+
+	I40EVF_WRITE_FLUSH(hw);
 }
 
 static inline void
-i40evf_disable_queues_intr(struct i40e_hw *hw)
+i40evf_disable_queues_intr(struct rte_eth_dev *dev)
 {
-	I40E_WRITE_REG(hw, I40E_VFINT_DYN_CTLN1(I40EVF_VSI_DEFAULT_MSIX_INTR - 1),
-			0);
+	struct i40e_vf *vf = I40EVF_DEV_PRIVATE_TO_VF(dev->data->dev_private);
+	struct i40e_hw *hw = I40E_DEV_PRIVATE_TO_HW(dev->data->dev_private);
+	struct rte_intr_handle *intr_handle = &dev->pci_dev->intr_handle;
+
+	if (!rte_intr_allow_others(intr_handle)) {
+		I40E_WRITE_REG(hw, I40E_VFINT_DYN_CTL01, 0);
+		I40EVF_WRITE_FLUSH(hw);
+		return;
+	}
+
+	if (vf->version_major == I40E_DPDK_VERSION_MAJOR)
+		I40E_WRITE_REG(hw,
+			       I40E_VFINT_DYN_CTLN1(I40EVF_VSI_DEFAULT_MSIX_INTR
+						    - 1),
+			       0);
+	else
+		I40E_WRITE_REG(hw, I40E_VFINT_DYN_CTL01, 0);
+
+	I40EVF_WRITE_FLUSH(hw);
+}
+
+static int
+i40evf_dev_rx_queue_intr_enable(struct rte_eth_dev *dev, uint16_t queue_id)
+{
+	struct rte_intr_handle *intr_handle = &dev->pci_dev->intr_handle;
+	struct i40e_hw *hw = I40E_DEV_PRIVATE_TO_HW(dev->data->dev_private);
+	uint16_t interval =
+		i40e_calc_itr_interval(RTE_LIBRTE_I40E_ITR_INTERVAL);
+	uint16_t msix_intr;
+
+	msix_intr = intr_handle->intr_vec[queue_id];
+	if (msix_intr == I40E_MISC_VEC_ID)
+		I40E_WRITE_REG(hw, I40E_VFINT_DYN_CTL01,
+			       I40E_VFINT_DYN_CTL01_INTENA_MASK |
+			       I40E_VFINT_DYN_CTL01_CLEARPBA_MASK |
+			       (0 << I40E_VFINT_DYN_CTL01_ITR_INDX_SHIFT) |
+			       (interval <<
+				I40E_VFINT_DYN_CTL01_INTERVAL_SHIFT));
+	else
+		I40E_WRITE_REG(hw,
+			       I40E_VFINT_DYN_CTLN1(msix_intr -
+						    I40E_RX_VEC_START),
+			       I40E_VFINT_DYN_CTLN1_INTENA_MASK |
+			       I40E_VFINT_DYN_CTLN1_CLEARPBA_MASK |
+			       (0 << I40E_VFINT_DYN_CTLN1_ITR_INDX_SHIFT) |
+			       (interval <<
+				I40E_VFINT_DYN_CTLN1_INTERVAL_SHIFT));
+
+	I40EVF_WRITE_FLUSH(hw);
+
+	rte_intr_enable(&dev->pci_dev->intr_handle);
+
+	return 0;
+}
+
+static int
+i40evf_dev_rx_queue_intr_disable(struct rte_eth_dev *dev, uint16_t queue_id)
+{
+	struct rte_intr_handle *intr_handle = &dev->pci_dev->intr_handle;
+	struct i40e_hw *hw = I40E_DEV_PRIVATE_TO_HW(dev->data->dev_private);
+	uint16_t msix_intr;
+
+	msix_intr = intr_handle->intr_vec[queue_id];
+	if (msix_intr == I40E_MISC_VEC_ID)
+		I40E_WRITE_REG(hw, I40E_VFINT_DYN_CTL01, 0);
+	else
+		I40E_WRITE_REG(hw,
+			       I40E_VFINT_DYN_CTLN1(msix_intr -
+						    I40E_RX_VEC_START),
+			       0);
+
+	I40EVF_WRITE_FLUSH(hw);
+
+	return 0;
 }
 
 static int
@@ -1565,7 +1803,9 @@ i40evf_dev_start(struct rte_eth_dev *dev)
 {
 	struct i40e_vf *vf = I40EVF_DEV_PRIVATE_TO_VF(dev->data->dev_private);
 	struct i40e_hw *hw = I40E_DEV_PRIVATE_TO_HW(dev->data->dev_private);
+	struct rte_intr_handle *intr_handle = &dev->pci_dev->intr_handle;
 	struct ether_addr mac_addr;
+	uint32_t intr_vector = 0;
 
 	PMD_INIT_FUNC_TRACE();
 
@@ -1574,6 +1814,24 @@ i40evf_dev_start(struct rte_eth_dev *dev)
 	vf->max_pkt_len = dev->data->dev_conf.rxmode.max_rx_pkt_len;
 	vf->num_queue_pairs = RTE_MAX(dev->data->nb_rx_queues,
 					dev->data->nb_tx_queues);
+
+	/* check and configure queue intr-vector mapping */
+	if (dev->data->dev_conf.intr_conf.rxq != 0) {
+		intr_vector = dev->data->nb_rx_queues;
+		if (rte_intr_efd_enable(intr_handle, intr_vector))
+			return -1;
+	}
+
+	if (rte_intr_dp_is_en(intr_handle) && !intr_handle->intr_vec) {
+		intr_handle->intr_vec =
+			rte_zmalloc("intr_vec",
+				    dev->data->nb_rx_queues * sizeof(int), 0);
+		if (!intr_handle->intr_vec) {
+			PMD_INIT_LOG(ERR, "Failed to allocate %d rx_queues"
+				     " intr_vec\n", dev->data->nb_rx_queues);
+			return -ENOMEM;
+		}
+	}
 
 	if (i40evf_rx_init(dev) != 0){
 		PMD_DRV_LOG(ERR, "failed to do RX init");
@@ -1604,7 +1862,11 @@ i40evf_dev_start(struct rte_eth_dev *dev)
 		goto err_mac;
 	}
 
-	i40evf_enable_queues_intr(hw);
+	/* vf don't allow intr except for rxq intr */
+	if (dev->data->dev_conf.intr_conf.rxq != 0)
+		rte_intr_enable(intr_handle);
+
+	i40evf_enable_queues_intr(dev);
 	return 0;
 
 err_mac:
@@ -1617,12 +1879,26 @@ static void
 i40evf_dev_stop(struct rte_eth_dev *dev)
 {
 	struct i40e_hw *hw = I40E_DEV_PRIVATE_TO_HW(dev->data->dev_private);
+	struct rte_intr_handle *intr_handle = &dev->pci_dev->intr_handle;
+	struct ether_addr mac_addr;
 
 	PMD_INIT_FUNC_TRACE();
 
-	i40evf_disable_queues_intr(hw);
 	i40evf_stop_queues(dev);
+	i40evf_disable_queues_intr(dev);
 	i40e_dev_clear_queues(dev);
+
+	/* Clean datapath event and queue/vec mapping */
+	rte_intr_efd_disable(intr_handle);
+	if (intr_handle->intr_vec) {
+		rte_free(intr_handle->intr_vec);
+		intr_handle->intr_vec = NULL;
+	}
+	/* Set mac addr */
+	(void)rte_memcpy(mac_addr.addr_bytes, hw->mac.addr,
+				sizeof(mac_addr.addr_bytes));
+	/* Delete mac addr of this vf */
+	i40evf_del_mac_addr(dev, &mac_addr);
 }
 
 static int
@@ -1756,6 +2032,18 @@ i40evf_dev_info_get(struct rte_eth_dev *dev, struct rte_eth_dev_info *dev_info)
 		.txq_flags = ETH_TXQ_FLAGS_NOMULTSEGS |
 				ETH_TXQ_FLAGS_NOOFFLOADS,
 	};
+
+	dev_info->rx_desc_lim = (struct rte_eth_desc_lim) {
+		.nb_max = I40E_MAX_RING_DESC,
+		.nb_min = I40E_MIN_RING_DESC,
+		.nb_align = I40E_ALIGN_RING_DESC,
+	};
+
+	dev_info->tx_desc_lim = (struct rte_eth_desc_lim) {
+		.nb_max = I40E_MAX_RING_DESC,
+		.nb_min = I40E_MIN_RING_DESC,
+		.nb_align = I40E_ALIGN_RING_DESC,
+	};
 }
 
 static void
@@ -1778,15 +2066,71 @@ i40evf_dev_close(struct rte_eth_dev *dev)
 }
 
 static int
+i40evf_get_rss_lut(struct i40e_vsi *vsi, uint8_t *lut, uint16_t lut_size)
+{
+	struct i40e_vf *vf = I40E_VSI_TO_VF(vsi);
+	struct i40e_hw *hw = I40E_VSI_TO_HW(vsi);
+	int ret;
+
+	if (!lut)
+		return -EINVAL;
+
+	if (vf->flags & I40E_FLAG_RSS_AQ_CAPABLE) {
+		ret = i40e_aq_get_rss_lut(hw, vsi->vsi_id, FALSE,
+					  lut, lut_size);
+		if (ret) {
+			PMD_DRV_LOG(ERR, "Failed to get RSS lookup table");
+			return ret;
+		}
+	} else {
+		uint32_t *lut_dw = (uint32_t *)lut;
+		uint16_t i, lut_size_dw = lut_size / 4;
+
+		for (i = 0; i < lut_size_dw; i++)
+			lut_dw[i] = I40E_READ_REG(hw, I40E_VFQF_HLUT(i));
+	}
+
+	return 0;
+}
+
+static int
+i40evf_set_rss_lut(struct i40e_vsi *vsi, uint8_t *lut, uint16_t lut_size)
+{
+	struct i40e_vf *vf = I40E_VSI_TO_VF(vsi);
+	struct i40e_hw *hw = I40E_VSI_TO_HW(vsi);
+	int ret;
+
+	if (!vsi || !lut)
+		return -EINVAL;
+
+	if (vf->flags & I40E_FLAG_RSS_AQ_CAPABLE) {
+		ret = i40e_aq_set_rss_lut(hw, vsi->vsi_id, FALSE,
+					  lut, lut_size);
+		if (ret) {
+			PMD_DRV_LOG(ERR, "Failed to set RSS lookup table");
+			return ret;
+		}
+	} else {
+		uint32_t *lut_dw = (uint32_t *)lut;
+		uint16_t i, lut_size_dw = lut_size / 4;
+
+		for (i = 0; i < lut_size_dw; i++)
+			I40E_WRITE_REG(hw, I40E_VFQF_HLUT(i), lut_dw[i]);
+		I40EVF_WRITE_FLUSH(hw);
+	}
+
+	return 0;
+}
+
+static int
 i40evf_dev_rss_reta_update(struct rte_eth_dev *dev,
 			   struct rte_eth_rss_reta_entry64 *reta_conf,
 			   uint16_t reta_size)
 {
-	struct i40e_hw *hw = I40E_DEV_PRIVATE_TO_HW(dev->data->dev_private);
-	uint32_t lut, l;
-	uint16_t i, j;
-	uint16_t idx, shift;
-	uint8_t mask;
+	struct i40e_vf *vf = I40EVF_DEV_PRIVATE_TO_VF(dev->data->dev_private);
+	uint8_t *lut;
+	uint16_t i, idx, shift;
+	int ret;
 
 	if (reta_size != ETH_RSS_RETA_SIZE_64) {
 		PMD_DRV_LOG(ERR, "The size of hash lookup table configured "
@@ -1795,29 +2139,26 @@ i40evf_dev_rss_reta_update(struct rte_eth_dev *dev,
 		return -EINVAL;
 	}
 
-	for (i = 0; i < reta_size; i += I40E_4_BIT_WIDTH) {
+	lut = rte_zmalloc("i40e_rss_lut", reta_size, 0);
+	if (!lut) {
+		PMD_DRV_LOG(ERR, "No memory can be allocated");
+		return -ENOMEM;
+	}
+	ret = i40evf_get_rss_lut(&vf->vsi, lut, reta_size);
+	if (ret)
+		goto out;
+	for (i = 0; i < reta_size; i++) {
 		idx = i / RTE_RETA_GROUP_SIZE;
 		shift = i % RTE_RETA_GROUP_SIZE;
-		mask = (uint8_t)((reta_conf[idx].mask >> shift) &
-						I40E_4_BIT_MASK);
-		if (!mask)
-			continue;
-		if (mask == I40E_4_BIT_MASK)
-			l = 0;
-		else
-			l = I40E_READ_REG(hw, I40E_VFQF_HLUT(i >> 2));
-
-		for (j = 0, lut = 0; j < I40E_4_BIT_WIDTH; j++) {
-			if (mask & (0x1 << j))
-				lut |= reta_conf[idx].reta[shift + j] <<
-							(CHAR_BIT * j);
-			else
-				lut |= l & (I40E_8_BIT_MASK << (CHAR_BIT * j));
-		}
-		I40E_WRITE_REG(hw, I40E_VFQF_HLUT(i >> 2), lut);
+		if (reta_conf[idx].mask & (1ULL << shift))
+			lut[i] = reta_conf[idx].reta[shift];
 	}
+	ret = i40evf_set_rss_lut(&vf->vsi, lut, reta_size);
 
-	return 0;
+out:
+	rte_free(lut);
+
+	return ret;
 }
 
 static int
@@ -1825,11 +2166,10 @@ i40evf_dev_rss_reta_query(struct rte_eth_dev *dev,
 			  struct rte_eth_rss_reta_entry64 *reta_conf,
 			  uint16_t reta_size)
 {
-	struct i40e_hw *hw = I40E_DEV_PRIVATE_TO_HW(dev->data->dev_private);
-	uint32_t lut;
-	uint16_t i, j;
-	uint16_t idx, shift;
-	uint8_t mask;
+	struct i40e_vf *vf = I40EVF_DEV_PRIVATE_TO_VF(dev->data->dev_private);
+	uint16_t i, idx, shift;
+	uint8_t *lut;
+	int ret;
 
 	if (reta_size != ETH_RSS_RETA_SIZE_64) {
 		PMD_DRV_LOG(ERR, "The size of hash lookup table configured "
@@ -1838,42 +2178,104 @@ i40evf_dev_rss_reta_query(struct rte_eth_dev *dev,
 		return -EINVAL;
 	}
 
-	for (i = 0; i < reta_size; i += I40E_4_BIT_WIDTH) {
+	lut = rte_zmalloc("i40e_rss_lut", reta_size, 0);
+	if (!lut) {
+		PMD_DRV_LOG(ERR, "No memory can be allocated");
+		return -ENOMEM;
+	}
+
+	ret = i40evf_get_rss_lut(&vf->vsi, lut, reta_size);
+	if (ret)
+		goto out;
+	for (i = 0; i < reta_size; i++) {
 		idx = i / RTE_RETA_GROUP_SIZE;
 		shift = i % RTE_RETA_GROUP_SIZE;
-		mask = (uint8_t)((reta_conf[idx].mask >> shift) &
-						I40E_4_BIT_MASK);
-		if (!mask)
-			continue;
-
-		lut = I40E_READ_REG(hw, I40E_VFQF_HLUT(i >> 2));
-		for (j = 0; j < I40E_4_BIT_WIDTH; j++) {
-			if (mask & (0x1 << j))
-				reta_conf[idx].reta[shift + j] =
-					((lut >> (CHAR_BIT * j)) &
-						I40E_8_BIT_MASK);
-		}
+		if (reta_conf[idx].mask & (1ULL << shift))
+			reta_conf[idx].reta[shift] = lut[i];
 	}
+
+out:
+	rte_free(lut);
+
+	return ret;
+}
+
+static int
+i40evf_set_rss_key(struct i40e_vsi *vsi, uint8_t *key, uint8_t key_len)
+{
+	struct i40e_vf *vf = I40E_VSI_TO_VF(vsi);
+	struct i40e_hw *hw = I40E_VSI_TO_HW(vsi);
+	int ret = 0;
+
+	if (!key || key_len == 0) {
+		PMD_DRV_LOG(DEBUG, "No key to be configured");
+		return 0;
+	} else if (key_len != (I40E_VFQF_HKEY_MAX_INDEX + 1) *
+		sizeof(uint32_t)) {
+		PMD_DRV_LOG(ERR, "Invalid key length %u", key_len);
+		return -EINVAL;
+	}
+
+	if (vf->flags & I40E_FLAG_RSS_AQ_CAPABLE) {
+		struct i40e_aqc_get_set_rss_key_data *key_dw =
+			(struct i40e_aqc_get_set_rss_key_data *)key;
+
+		ret = i40e_aq_set_rss_key(hw, vsi->vsi_id, key_dw);
+		if (ret)
+			PMD_INIT_LOG(ERR, "Failed to configure RSS key "
+				     "via AQ");
+	} else {
+		uint32_t *hash_key = (uint32_t *)key;
+		uint16_t i;
+
+		for (i = 0; i <= I40E_VFQF_HKEY_MAX_INDEX; i++)
+			I40E_WRITE_REG(hw, I40E_VFQF_HKEY(i), hash_key[i]);
+		I40EVF_WRITE_FLUSH(hw);
+	}
+
+	return ret;
+}
+
+static int
+i40evf_get_rss_key(struct i40e_vsi *vsi, uint8_t *key, uint8_t *key_len)
+{
+	struct i40e_vf *vf = I40E_VSI_TO_VF(vsi);
+	struct i40e_hw *hw = I40E_VSI_TO_HW(vsi);
+	int ret;
+
+	if (!key || !key_len)
+		return -EINVAL;
+
+	if (vf->flags & I40E_FLAG_RSS_AQ_CAPABLE) {
+		ret = i40e_aq_get_rss_key(hw, vsi->vsi_id,
+			(struct i40e_aqc_get_set_rss_key_data *)key);
+		if (ret) {
+			PMD_INIT_LOG(ERR, "Failed to get RSS key via AQ");
+			return ret;
+		}
+	} else {
+		uint32_t *key_dw = (uint32_t *)key;
+		uint16_t i;
+
+		for (i = 0; i <= I40E_VFQF_HKEY_MAX_INDEX; i++)
+			key_dw[i] = I40E_READ_REG(hw, I40E_VFQF_HKEY(i));
+	}
+	*key_len = (I40E_VFQF_HKEY_MAX_INDEX + 1) * sizeof(uint32_t);
 
 	return 0;
 }
 
 static int
-i40evf_hw_rss_hash_set(struct i40e_hw *hw, struct rte_eth_rss_conf *rss_conf)
+i40evf_hw_rss_hash_set(struct i40e_vf *vf, struct rte_eth_rss_conf *rss_conf)
 {
-	uint32_t *hash_key;
-	uint8_t hash_key_len;
+	struct i40e_hw *hw = I40E_VF_TO_HW(vf);
 	uint64_t rss_hf, hena;
+	int ret;
 
-	hash_key = (uint32_t *)(rss_conf->rss_key);
-	hash_key_len = rss_conf->rss_key_len;
-	if (hash_key != NULL && hash_key_len >=
-		(I40E_VFQF_HKEY_MAX_INDEX + 1) * sizeof(uint32_t)) {
-		uint16_t i;
-
-		for (i = 0; i <= I40E_VFQF_HKEY_MAX_INDEX; i++)
-			I40E_WRITE_REG(hw, I40E_VFQF_HKEY(i), hash_key[i]);
-	}
+	ret = i40evf_set_rss_key(&vf->vsi, rss_conf->rss_key,
+				 rss_conf->rss_key_len);
+	if (ret)
+		return ret;
 
 	rss_hf = rss_conf->rss_hf;
 	hena = (uint64_t)I40E_READ_REG(hw, I40E_VFQF_HENA(0));
@@ -1915,7 +2317,7 @@ i40evf_config_rss(struct i40e_vf *vf)
 		return 0;
 	}
 
-	num = i40e_align_floor(vf->dev_data->nb_rx_queues);
+	num = RTE_MIN(vf->dev_data->nb_rx_queues, I40E_MAX_QP_NUM_PER_VF);
 	/* Fill out the look up table */
 	for (i = 0, j = 0; i < nb_q; i++, j++) {
 		if (j >= num)
@@ -1932,21 +2334,24 @@ i40evf_config_rss(struct i40e_vf *vf)
 		return 0;
 	}
 
-	if (rss_conf.rss_key == NULL || rss_conf.rss_key_len < nb_q) {
+	if (rss_conf.rss_key == NULL || rss_conf.rss_key_len <
+		(I40E_VFQF_HKEY_MAX_INDEX + 1) * sizeof(uint32_t)) {
 		/* Calculate the default hash key */
 		for (i = 0; i <= I40E_VFQF_HKEY_MAX_INDEX; i++)
 			rss_key_default[i] = (uint32_t)rte_rand();
 		rss_conf.rss_key = (uint8_t *)rss_key_default;
-		rss_conf.rss_key_len = nb_q;
+		rss_conf.rss_key_len = (I40E_VFQF_HKEY_MAX_INDEX + 1) *
+			sizeof(uint32_t);
 	}
 
-	return i40evf_hw_rss_hash_set(hw, &rss_conf);
+	return i40evf_hw_rss_hash_set(vf, &rss_conf);
 }
 
 static int
 i40evf_dev_rss_hash_update(struct rte_eth_dev *dev,
 			   struct rte_eth_rss_conf *rss_conf)
 {
+	struct i40e_vf *vf = I40EVF_DEV_PRIVATE_TO_VF(dev->data->dev_private);
 	struct i40e_hw *hw = I40E_DEV_PRIVATE_TO_HW(dev->data->dev_private);
 	uint64_t rss_hf = rss_conf->rss_hf & I40E_RSS_OFFLOAD_ALL;
 	uint64_t hena;
@@ -1963,23 +2368,20 @@ i40evf_dev_rss_hash_update(struct rte_eth_dev *dev,
 	if (rss_hf == 0) /* Disable RSS */
 		return -EINVAL;
 
-	return i40evf_hw_rss_hash_set(hw, rss_conf);
+	return i40evf_hw_rss_hash_set(vf, rss_conf);
 }
 
 static int
 i40evf_dev_rss_hash_conf_get(struct rte_eth_dev *dev,
 			     struct rte_eth_rss_conf *rss_conf)
 {
+	struct i40e_vf *vf = I40EVF_DEV_PRIVATE_TO_VF(dev->data->dev_private);
 	struct i40e_hw *hw = I40E_DEV_PRIVATE_TO_HW(dev->data->dev_private);
-	uint32_t *hash_key = (uint32_t *)(rss_conf->rss_key);
 	uint64_t hena;
-	uint16_t i;
 
-	if (hash_key) {
-		for (i = 0; i <= I40E_VFQF_HKEY_MAX_INDEX; i++)
-			hash_key[i] = I40E_READ_REG(hw, I40E_VFQF_HKEY(i));
-		rss_conf->rss_key_len = i * sizeof(uint32_t);
-	}
+	i40evf_get_rss_key(&vf->vsi, rss_conf->rss_key,
+			   &rss_conf->rss_key_len);
+
 	hena = (uint64_t)I40E_READ_REG(hw, I40E_VFQF_HENA(0));
 	hena |= ((uint64_t)I40E_READ_REG(hw, I40E_VFQF_HENA(1))) << 32;
 	rss_conf->rss_hf = i40e_parse_hena(hena);

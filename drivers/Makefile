@@ -32,5 +32,6 @@
 include $(RTE_SDK)/mk/rte.vars.mk
 
 DIRS-y += net
+DIRS-y += crypto
 
 include $(RTE_SDK)/mk/rte.subdir.mk

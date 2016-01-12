@@ -57,7 +57,8 @@ enum fm10k_pf_tlv_msg_id_v1 {
 	FM10K_PF_MSG_ID_SET_FLOW_STATE		= 0x505,
 	FM10K_PF_MSG_ID_GET_1588_INFO		= 0x506,
 	FM10K_PF_MSG_ID_1588_TIMESTAMP		= 0x701,
-	FM10K_PF_MSG_ID_TX_TIMESTAMP_MODE	= 0x702,
+	FM10K_PF_MSG_ID_1588_CLOCK_OWNER	= 0x702,
+	FM10K_PF_MSG_ID_MASTER_CLK_OFFSET	= 0x703,
 };
 
 enum fm10k_pf_tlv_attr_id_v1 {
@@ -76,8 +77,8 @@ enum fm10k_pf_tlv_attr_id_v1 {
 	FM10K_PF_ATTR_ID_PORT			= 0x0C,
 	FM10K_PF_ATTR_ID_UPDATE_PVID		= 0x0D,
 	FM10K_PF_ATTR_ID_1588_TIMESTAMP		= 0x10,
-	FM10K_PF_ATTR_ID_TIMESTAMP_MODE_REQ	= 0x11,
-	FM10K_PF_ATTR_ID_TIMESTAMP_MODE_RESP	= 0x12,
+	FM10K_PF_ATTR_ID_1588_CLOCK_OWNER	= 0x12,
+	FM10K_PF_ATTR_ID_MASTER_CLK_OFFSET	= 0x14,
 };
 
 #define FM10K_MSG_LPORT_MAP_GLORT_SHIFT	0
@@ -89,6 +90,16 @@ enum fm10k_pf_tlv_attr_id_v1 {
 #define FM10K_MSG_UPDATE_PVID_GLORT_SIZE	16
 #define FM10K_MSG_UPDATE_PVID_PVID_SHIFT	16
 #define FM10K_MSG_UPDATE_PVID_PVID_SIZE		16
+
+/* The following data structures are overlayed specifically to TLV mailbox
+ * messages, and must not have gaps between their values. They must line up
+ * correctly to the TLV definition.
+ */
+#ifdef C99
+#pragma pack(push, 1)
+#else
+#pragma pack(1)
+#endif /* C99 */
 
 struct fm10k_mac_update {
 	__le32	mac_lower;
@@ -118,6 +129,17 @@ struct fm10k_swapi_1588_timestamp {
 	__le16 sglort;
 };
 
+struct fm10k_swapi_1588_clock_owner {
+	__le16 glort;
+	__le16 enabled;
+};
+
+#ifdef C99
+#pragma pack(pop)
+#else
+#pragma pack()
+#endif /* C99 */
+
 #define FM10K_PF_MSG_LPORT_CREATE_HANDLER(func) \
 	FM10K_MSG_HANDLER(FM10K_PF_MSG_ID_LPORT_CREATE, NULL, func)
 #define FM10K_PF_MSG_LPORT_DELETE_HANDLER(func) \
@@ -143,6 +165,18 @@ extern const struct fm10k_tlv_attr fm10k_1588_timestamp_msg_attr[];
 #define FM10K_PF_MSG_1588_TIMESTAMP_HANDLER(func) \
 	FM10K_MSG_HANDLER(FM10K_PF_MSG_ID_1588_TIMESTAMP, \
 			  fm10k_1588_timestamp_msg_attr, func)
+
+s32 fm10k_msg_1588_clock_owner_pf(struct fm10k_hw *, u32 **,
+				  struct fm10k_mbx_info *);
+extern const struct fm10k_tlv_attr fm10k_1588_clock_owner_attr[];
+#define FM10K_PF_MSG_1588_CLOCK_OWNER_HANDLER(func) \
+	FM10K_MSG_HANDLER(FM10K_PF_MSG_ID_1588_CLOCK_OWNER, \
+			  fm10k_1588_clock_owner_attr, func)
+
+extern const struct fm10k_tlv_attr fm10k_master_clk_offset_attr[];
+#define FM10K_PF_MSG_MASTER_CLK_OFFSET_HANDLER(func) \
+	FM10K_MSG_HANDLER(FM10K_PF_MSG_ID_MASTER_CLK_OFFSET, \
+			  fm10k_master_clk_offset_attr, func)
 
 s32 fm10k_iov_msg_msix_pf(struct fm10k_hw *, u32 **, struct fm10k_mbx_info *);
 s32 fm10k_iov_msg_mac_vlan_pf(struct fm10k_hw *, u32 **,

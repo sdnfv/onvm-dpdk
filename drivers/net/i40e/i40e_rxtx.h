@@ -44,12 +44,32 @@
 #define I40E_TX_FLAG_INSERT_VLAN  ((uint32_t)(1 << 1))
 #define I40E_TX_FLAG_TSYN         ((uint32_t)(1 << 2))
 
-#ifdef RTE_LIBRTE_I40E_RX_ALLOW_BULK_ALLOC
 #define RTE_PMD_I40E_RX_MAX_BURST 32
-#endif
+#define RTE_PMD_I40E_TX_MAX_BURST 32
+
+#define RTE_I40E_VPMD_RX_BURST        32
+#define RTE_I40E_VPMD_TX_BURST        32
+#define RTE_I40E_RXQ_REARM_THRESH      32
+#define RTE_I40E_MAX_RX_BURST          RTE_I40E_RXQ_REARM_THRESH
+#define RTE_I40E_TX_MAX_FREE_BUF_SZ    64
+#define RTE_I40E_DESCS_PER_LOOP    4
 
 #define I40E_RXBUF_SZ_1024 1024
 #define I40E_RXBUF_SZ_2048 2048
+
+/* In none-PXE mode QLEN must be whole number of 32 descriptors. */
+#define	I40E_ALIGN_RING_DESC	32
+
+#define	I40E_MIN_RING_DESC	64
+#define	I40E_MAX_RING_DESC	4096
+
+#undef container_of
+#define container_of(ptr, type, member) ({ \
+		typeof(((type *)0)->member)(*__mptr) = (ptr); \
+		(type *)((char *)__mptr - offsetof(type, member)); })
+
+#define I40E_TD_CMD (I40E_TX_DESC_CMD_ICRC |\
+		     I40E_TX_DESC_CMD_EOP)
 
 enum i40e_header_split_mode {
 	i40e_header_split_none = 0,
@@ -100,6 +120,11 @@ struct i40e_rx_queue {
 	struct rte_mbuf fake_mbuf; /**< dummy mbuf */
 	struct rte_mbuf *rx_stage[RTE_PMD_I40E_RX_MAX_BURST * 2];
 #endif
+
+	uint16_t rxrearm_nb;	/**< number of remaining to be re-armed */
+	uint16_t rxrearm_start;	/**< the idx we start the re-arming from */
+	uint64_t mbuf_initializer; /**< value to init mbufs */
+
 	uint8_t port_id; /**< device port ID */
 	uint8_t crc_len; /**< 0 if CRC stripped, 4 otherwise */
 	uint16_t queue_id; /**< RX queue index */
@@ -113,6 +138,8 @@ struct i40e_rx_queue {
 	uint8_t hs_mode; /* Header Split mode */
 	bool q_set; /**< indicate if rx queue has been configured */
 	bool rx_deferred_start; /**< don't start this queue in dev start */
+	uint16_t rx_using_sse; /**<flag indicate the usage of vPMD for rx */
+	uint8_t dcb_tc;         /**< Traffic class of rx queue */
 };
 
 struct i40e_tx_entry {
@@ -153,6 +180,7 @@ struct i40e_tx_queue {
 	uint16_t tx_next_rs;
 	bool q_set; /**< indicate if tx queue has been configured */
 	bool tx_deferred_start; /**< don't start this queue in dev start */
+	uint8_t dcb_tc;         /**< Traffic class of tx queue */
 };
 
 /** Offload features */
@@ -209,5 +237,21 @@ void i40e_rx_queue_release_mbufs(struct i40e_rx_queue *rxq);
 uint32_t i40e_dev_rx_queue_count(struct rte_eth_dev *dev,
 				 uint16_t rx_queue_id);
 int i40e_dev_rx_descriptor_done(void *rx_queue, uint16_t offset);
+
+uint16_t i40e_recv_pkts_vec(void *rx_queue, struct rte_mbuf **rx_pkts,
+			    uint16_t nb_pkts);
+uint16_t i40e_recv_scattered_pkts_vec(void *rx_queue,
+				      struct rte_mbuf **rx_pkts,
+				      uint16_t nb_pkts);
+int i40e_rx_vec_dev_conf_condition_check(struct rte_eth_dev *dev);
+int i40e_rxq_vec_setup(struct i40e_rx_queue *rxq);
+int i40e_txq_vec_setup(struct i40e_tx_queue *txq);
+void i40e_rx_queue_release_mbufs_vec(struct i40e_rx_queue *rxq);
+uint16_t i40e_xmit_pkts_vec(void *tx_queue, struct rte_mbuf **tx_pkts,
+			    uint16_t nb_pkts);
+void i40e_set_rx_function(struct rte_eth_dev *dev);
+void i40e_set_tx_function_flag(struct rte_eth_dev *dev,
+			       struct i40e_tx_queue *txq);
+void i40e_set_tx_function(struct rte_eth_dev *dev);
 
 #endif /* _I40E_RXTX_H_ */

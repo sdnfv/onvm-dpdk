@@ -1,4 +1,4 @@
-.. doc_guidelines:
+.. _doc_guidelines:
 
 DPDK Documentation Guidelines
 =============================
@@ -63,9 +63,20 @@ added to by the developer.
   any known issues.
   The Releases Notes also contain notifications of features that will change ABI compatibility in the next major release.
 
-  Developers should update the Release Notes to add a short description of new or updated features.
-  Developers should also update the Release Notes to add ABI announcements if necessary,
-  (see :doc:`/contributing/versioning` for details).
+  Developers should include updates to the Release Notes with patch sets that relate to any of the following sections:
+
+  * New Features
+  * Resolved Issues (see below)
+  * Known Issues
+  * API Changes
+  * ABI Changes
+  * Shared Library Versions
+
+  Resolved Issues should only include issues from previous releases that have been resolved in the current release.
+  Issues that are introduced and then fixed within a release cycle do not have to be included here.
+
+  Refer to the Release Notes from the previous DPDK release for the correct format of each section.
+
 
 * **API documentation**
 
@@ -131,7 +142,7 @@ The following dependencies must be installed to build the documentation:
 
 * Sphinx (also called python-sphinx).
 
-* TexLive (at least TexLive-core, extra Latex support and extra fonts).
+* TexLive (at least TexLive-core and the extra Latex support).
 
 * Inkscape.
 
@@ -147,18 +158,17 @@ It can be installed as follows:
    sudo yum     -y install doxygen
 
 `Sphinx`_ is a Python documentation tool for converting RST files to Html or to PDF (via LaTeX).
-It can be installed as follows:
+For full support with figure and table captioning the latest version of Sphinx can be installed as follows:
 
 .. code-block:: console
 
    # Ubuntu/Debian.
-   sudo apt-get -y install python-sphinx
+   sudo apt-get -y install python-pip
+   sudo pip install --upgrade sphinx
 
    # Red Hat/Fedora.
-   sudo yum     -y install python-sphinx
-
-   # Or, on any system with Python installed.
-   sudo easy_install -U sphinx
+   sudo yum     -y install python-pip
+   sudo pip install --upgrade sphinx
 
 For further information on getting started with Sphinx see the `Sphinx Tutorial <http://sphinx-doc.org/tutorial.html>`_.
 
@@ -185,13 +195,10 @@ The main required packages can be installed as follows:
 .. code-block:: console
 
    # Ubuntu/Debian.
-   sudo apt-get -y install texlive-latex-extra texlive-fonts-extra \
-                           texlive-fonts-recommended
-
+   sudo apt-get -y install texlive-latex-extra
 
    # Red Hat/Fedora, selective install.
-   sudo yum     -y install texlive-collection-latexextra \
-                           texlive-collection-fontsextra
+   sudo yum     -y install texlive-collection-latexextra
 
 
 Build commands
@@ -466,7 +473,7 @@ Images
 * The DPDK documentation contains some legacy images in PNG format.
   These will be converted to SVG in time.
 
-* `Inkscape <inkscape.org>`_ is the recommended graphics editor for creating the images.
+* `Inkscape <http://inkscape.org>`_ is the recommended graphics editor for creating the images.
   Use some of the older images in ``doc/guides/prog_guide/img/`` as a template, for example ``mbuf1.svg``
   or ``ring-enqueue.svg``.
 

@@ -31,20 +31,21 @@
 Network Interface Controller Drivers
 ====================================
 
-|today|
-
-
-**Contents**
-
 .. toctree::
     :maxdepth: 3
     :numbered:
 
+    bnx2x
     cxgbe
     e1000em
+    enic
+    fm10k
     ixgbe
     intel_vf
     mlx4
+    mlx5
+    nfp
+    szedata2
     virtio
     vmxnet3
     pcap_ring

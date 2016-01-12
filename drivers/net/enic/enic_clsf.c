@@ -31,7 +31,6 @@
  * POSSIBILITY OF SUCH DAMAGE.
  *
  */
-#ident "$Id$"
 
 #include <libgen.h>
 
@@ -61,7 +60,6 @@
 #define DEFAULT_HASH_FUNC       rte_jhash
 #endif
 
-#define SOCKET_0                0
 #define ENICPMD_CLSF_HASH_ENTRIES       ENICPMD_FDIR_MAX
 
 void enic_fdir_stats_get(struct enic *enic, struct rte_eth_fdir_stats *stats)
@@ -214,7 +212,7 @@ int enic_fdir_add_fltr(struct enic *enic, struct rte_eth_fdir_filter *params)
 		enic->fdir.stats.add++;
 	}
 
-	pos = rte_hash_add_key(enic->fdir.hash, (void *)key);
+	pos = rte_hash_add_key(enic->fdir.hash, params);
 	enic->fdir.nodes[pos] = key;
 	return 0;
 }
@@ -244,10 +242,10 @@ int enic_clsf_init(struct enic *enic)
 	struct rte_hash_parameters hash_params = {
 		.name = "enicpmd_clsf_hash",
 		.entries = ENICPMD_CLSF_HASH_ENTRIES,
-		.key_len = RTE_HASH_KEY_LENGTH_MAX,
+		.key_len = sizeof(struct rte_eth_fdir_filter),
 		.hash_func = DEFAULT_HASH_FUNC,
 		.hash_func_init_val = 0,
-		.socket_id = SOCKET_0,
+		.socket_id = SOCKET_ID_ANY,
 	};
 
 	enic->fdir.hash = rte_hash_create(&hash_params);

@@ -34,6 +34,27 @@
 #ifndef _IXGBE_RXTX_H_
 #define _IXGBE_RXTX_H_
 
+/*
+ * Rings setup and release.
+ *
+ * TDBA/RDBA should be aligned on 16 byte boundary. But TDLEN/RDLEN should be
+ * multiple of 128 bytes. So we align TDBA/RDBA on 128 byte boundary. This will
+ * also optimize cache line size effect. H/W supports up to cache line size 128.
+ */
+#define	IXGBE_ALIGN	128
+
+#define IXGBE_RXD_ALIGN	(IXGBE_ALIGN / sizeof(union ixgbe_adv_rx_desc))
+#define IXGBE_TXD_ALIGN	(IXGBE_ALIGN / sizeof(union ixgbe_adv_tx_desc))
+
+/*
+ * Maximum number of Ring Descriptors.
+ *
+ * Since RDLEN/TDLEN should be multiple of 128 bytes, the number of ring
+ * descriptors should meet the following condition:
+ *      (num_ring_desc * sizeof(rx/tx descriptor)) % 128 == 0
+ */
+#define	IXGBE_MIN_RING_DESC	32
+#define	IXGBE_MAX_RING_DESC	4096
 
 #define RTE_PMD_IXGBE_TX_MAX_BURST 32
 #define RTE_PMD_IXGBE_RX_MAX_BURST 32
@@ -47,9 +68,8 @@
 	(uint64_t) ((mb)->buf_physaddr + RTE_PKTMBUF_HEADROOM)
 
 #ifdef RTE_IXGBE_INC_VECTOR
-#define RTE_IXGBE_VPMD_RX_BURST         32
-#define RTE_IXGBE_VPMD_TX_BURST         32
-#define RTE_IXGBE_RXQ_REARM_THRESH      RTE_IXGBE_VPMD_RX_BURST
+#define RTE_IXGBE_RXQ_REARM_THRESH      32
+#define RTE_IXGBE_MAX_RX_BURST          RTE_IXGBE_RXQ_REARM_THRESH
 #define RTE_IXGBE_TX_MAX_FREE_BUF_SZ    64
 #endif
 

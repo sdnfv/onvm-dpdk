@@ -1,7 +1,7 @@
 /*-
  *   BSD LICENSE
  *
- *   Copyright(c) 2010-2014 Intel Corporation. All rights reserved.
+ *   Copyright(c) 2010-2015 Intel Corporation. All rights reserved.
  *   All rights reserved.
  *
  *   Redistribution and use in source and binary forms, with or without
@@ -579,6 +579,7 @@ virtio_dev_rx(struct virtio_net *dev, struct rte_mbuf **pkts, uint32_t count)
 	uint16_t res_base_idx, res_end_idx;
 	uint16_t free_entries;
 	uint8_t success = 0;
+	void *userdata;
 
 	LOG_DEBUG(VHOST_DATA, "(%"PRIu64") virtio_dev_rx()\n", dev->device_fh);
 	vq = dev->virtqueue_rx;
@@ -656,13 +657,14 @@ virtio_dev_rx(struct virtio_net *dev, struct rte_mbuf **pkts, uint32_t count)
 		vq->used->ring[res_cur_idx & (vq->size - 1)].len = packet_len;
 
 		/* Copy mbuf data to buffer */
-		rte_memcpy((void *)(uintptr_t)buff_addr, (const void*)buff->data, rte_pktmbuf_data_len(buff));
+		userdata = rte_pktmbuf_mtod(buff, void *);
+		rte_memcpy((void *)(uintptr_t)buff_addr, userdata, rte_pktmbuf_data_len(buff));
 
 		res_cur_idx++;
 		packet_success++;
 
 		/* mergeable is disabled then a header is required per buffer. */
-		rte_memcpy((void *)(uintptr_t)buff_hdr_addr, (const void*)&virtio_hdr, vq->vhost_hlen);
+		rte_memcpy((void *)(uintptr_t)buff_hdr_addr, (const void *)&virtio_hdr, vq->vhost_hlen);
 		if (res_cur_idx < res_end_idx) {
 			/* Prefetch descriptor index. */
 			rte_prefetch0(&vq->desc[head[packet_success]]);
@@ -1432,6 +1434,7 @@ main(int argc, char *argv[])
 	int ret;
 	uint8_t portid;
 	static pthread_t tid;
+	char thread_name[RTE_MAX_THREAD_NAME_LEN];
 
 	/* init EAL */
 	ret = rte_eal_init(argc, argv);
@@ -1501,8 +1504,19 @@ main(int argc, char *argv[])
 	memset(&dev_statistics, 0, sizeof(dev_statistics));
 
 	/* Enable stats if the user option is set. */
-	if (enable_stats)
-		pthread_create(&tid, NULL, (void*)print_stats, NULL );
+	if (enable_stats) {
+		ret = pthread_create(&tid, NULL, (void *)print_stats, NULL);
+		if (ret != 0)
+			rte_exit(EXIT_FAILURE,
+				"Cannot create print-stats thread\n");
+
+		/* Set thread_name for aid in debugging. */
+		snprintf(thread_name, RTE_MAX_THREAD_NAME_LEN, "print-xen-stats");
+		ret = rte_thread_setname(tid, thread_name);
+		if (ret != 0)
+			RTE_LOG(ERR, VHOST_CONFIG,
+				"Cannot set print-stats name\n");
+	}
 
 	/* Launch all data cores. */
 	RTE_LCORE_FOREACH_SLAVE(lcore_id) {

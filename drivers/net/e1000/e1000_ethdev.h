@@ -33,6 +33,7 @@
 
 #ifndef _E1000_ETHDEV_H_
 #define _E1000_ETHDEV_H_
+#include <rte_time.h>
 
 /* need update link, bit flag */
 #define E1000_FLAG_NEED_LINK_UPDATE (uint32_t)(1 << 0)
@@ -107,6 +108,33 @@
 	ETH_RSS_IPV6_EX | \
 	ETH_RSS_IPV6_TCP_EX | \
 	ETH_RSS_IPV6_UDP_EX)
+
+/*
+ * Maximum number of Ring Descriptors.
+ *
+ * Since RDLEN/TDLEN should be multiple of 128 bytes, the number of ring
+ * desscriptors should meet the following condition:
+ * (num_ring_desc * sizeof(struct e1000_rx/tx_desc)) % 128 == 0
+ */
+#define	E1000_MIN_RING_DESC	32
+#define	E1000_MAX_RING_DESC	4096
+
+/*
+ * TDBA/RDBA should be aligned on 16 byte boundary. But TDLEN/RDLEN should be
+ * multiple of 128 bytes. So we align TDBA/RDBA on 128 byte boundary.
+ * This will also optimize cache line size effect.
+ * H/W supports up to cache line size 128.
+ */
+#define	E1000_ALIGN	128
+
+#define	IGB_RXD_ALIGN	(E1000_ALIGN / sizeof(union e1000_adv_rx_desc))
+#define	IGB_TXD_ALIGN	(E1000_ALIGN / sizeof(union e1000_adv_tx_desc))
+
+#define	EM_RXD_ALIGN	(E1000_ALIGN / sizeof(struct e1000_rx_desc))
+#define	EM_TXD_ALIGN	(E1000_ALIGN / sizeof(struct e1000_data_desc))
+
+#define E1000_MISC_VEC_ID               RTE_INTR_VEC_ZERO_OFFSET
+#define E1000_RX_VEC_START              RTE_INTR_VEC_RXTX_OFFSET
 
 /* structure for interrupt relative data */
 struct e1000_interrupt {
@@ -230,6 +258,9 @@ struct e1000_adapter {
 	struct e1000_vf_info    *vfdata;
 	struct e1000_filter_info filter;
 	bool stopped;
+	struct rte_timecounter  systime_tc;
+	struct rte_timecounter  rx_tstamp_tc;
+	struct rte_timecounter  tx_tstamp_tc;
 };
 
 #define E1000_DEV_PRIVATE(adapter) \
@@ -307,6 +338,12 @@ void igb_pf_mbx_process(struct rte_eth_dev *eth_dev);
 
 int igb_pf_host_configure(struct rte_eth_dev *eth_dev);
 
+void igb_rxq_info_get(struct rte_eth_dev *dev, uint16_t queue_id,
+	struct rte_eth_rxq_info *qinfo);
+
+void igb_txq_info_get(struct rte_eth_dev *dev, uint16_t queue_id,
+	struct rte_eth_txq_info *qinfo);
+
 /*
  * RX/TX EM function prototypes
  */
@@ -342,6 +379,12 @@ uint16_t eth_em_recv_pkts(void *rx_queue, struct rte_mbuf **rx_pkts,
 
 uint16_t eth_em_recv_scattered_pkts(void *rx_queue, struct rte_mbuf **rx_pkts,
 		uint16_t nb_pkts);
+
+void em_rxq_info_get(struct rte_eth_dev *dev, uint16_t queue_id,
+	struct rte_eth_rxq_info *qinfo);
+
+void em_txq_info_get(struct rte_eth_dev *dev, uint16_t queue_id,
+	struct rte_eth_txq_info *qinfo);
 
 void igb_pf_host_uninit(struct rte_eth_dev *dev);
 

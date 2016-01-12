@@ -5,30 +5,11 @@
  * David Christensen <davidch@broadcom.com>
  * Gary Zambrano     <zambrano@broadcom.com>
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
+ * Copyright (c) 2014-2015 QLogic Corporation.
+ * All rights reserved.
+ * www.qlogic.com
  *
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- * 3. Neither the name of Broadcom Corporation nor the name of its contributors
- *    may be used to endorse or promote products derived from this software
- *    without specific prior written consent.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS'
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS
- * BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
- * THE POSSIBILITY OF SUCH DAMAGE.
+ * See LICENSE.bnx2x_pmd for copyright and licensing details.
  */
 
 #ifndef ECORE_HSI_H
@@ -2529,7 +2510,7 @@ struct shmem2_region {
 	#define SHMEM_EEE_SUPPORTED_SHIFT	   16
 	#define SHMEM_EEE_ADV_STATUS_MASK	   0x00f00000
 		#define SHMEM_EEE_100M_ADV	   (1<<0)
-		#define SHMEM_EEE_1G_ADV	   (1<<1)
+		#define SHMEM_EEE_1G_ADV	   (1U<<1)
 		#define SHMEM_EEE_10G_ADV	   (1<<2)
 	#define SHMEM_EEE_ADV_STATUS_SHIFT	   20
 	#define	SHMEM_EEE_LP_ADV_STATUS_MASK	   0x0f000000
@@ -4029,7 +4010,7 @@ struct double_regpair
 
 
 /*
- * Ethernet address typesm used in ethernet tx BDs
+ * Ethernet address types used in ethernet tx BDs
  */
 enum eth_addr_type
 {
@@ -4037,7 +4018,8 @@ enum eth_addr_type
 	UNICAST_ADDRESS,
 	MULTICAST_ADDRESS,
 	BROADCAST_ADDRESS,
-	MAX_ETH_ADDR_TYPE};
+	MAX_ETH_ADDR_TYPE
+};
 
 
 /*

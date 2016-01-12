@@ -1,7 +1,7 @@
 /*-
  *   BSD LICENSE
  *
- *   Copyright(c) 2010-2014 Intel Corporation. All rights reserved.
+ *   Copyright(c) 2010-2015 Intel Corporation. All rights reserved.
  *   All rights reserved.
  *
  *   Redistribution and use in source and binary forms, with or without
@@ -67,13 +67,16 @@
 /* virtio_idx is increased after new device is created.*/
 static int virtio_idx = 0;
 
-static const char *drivername = "xen dummy virtio PMD";
+static const char *drivername = "xen virtio PMD";
 
 static struct rte_eth_link pmd_link = {
 		.link_speed = 10000,
 		.link_duplex = ETH_LINK_FULL_DUPLEX,
 		.link_status = 0
 };
+
+static void
+eth_xenvirt_free_queues(struct rte_eth_dev *dev);
 
 static inline struct rte_mbuf *
 rte_rxmbuf_alloc(struct rte_mempool *mp)
@@ -99,7 +102,7 @@ eth_xenvirt_rx(void *q, struct rte_mbuf **rx_pkts, uint16_t nb_pkts)
 
 	nb_used = VIRTQUEUE_NUSED(rxvq);
 
-	rte_compiler_barrier(); /* rmb */
+	rte_smp_rmb();
 	num = (uint16_t)(likely(nb_used <= nb_pkts) ? nb_used : nb_pkts);
 	num = (uint16_t)(likely(num <= VIRTIO_MBUF_BURST_SZ) ? num : VIRTIO_MBUF_BURST_SZ);
 	if (unlikely(num == 0)) return 0;
@@ -150,7 +153,7 @@ eth_xenvirt_tx(void *tx_queue, struct rte_mbuf **tx_pkts, uint16_t nb_pkts)
 	PMD_TX_LOG(DEBUG, "%d packets to xmit", nb_pkts);
 	nb_used = VIRTQUEUE_NUSED(txvq);
 
-	rte_compiler_barrier();   /* rmb */
+	rte_smp_rmb();
 
 	num = (uint16_t)(likely(nb_used <= VIRTIO_MBUF_BURST_SZ) ? nb_used : VIRTIO_MBUF_BURST_SZ);
 	num = virtqueue_dequeue_burst(txvq, snd_pkts, len, num);
@@ -326,7 +329,7 @@ eth_dev_stop(struct rte_eth_dev *dev)
 static void
 eth_dev_close(struct rte_eth_dev *dev)
 {
-	RTE_SET_USED(dev);
+	eth_xenvirt_free_queues(dev);
 }
 
 static void
@@ -362,8 +365,9 @@ eth_stats_reset(struct rte_eth_dev *dev)
 }
 
 static void
-eth_queue_release(void *q __rte_unused)
+eth_queue_release(void *q)
 {
+	rte_free(q);
 }
 
 static int
@@ -524,7 +528,23 @@ eth_tx_queue_setup(struct rte_eth_dev *dev, uint16_t tx_queue_id,
 	return 0;
 }
 
+static void
+eth_xenvirt_free_queues(struct rte_eth_dev *dev)
+{
+	int i;
 
+	for (i = 0; i < dev->data->nb_rx_queues; i++) {
+		eth_queue_release(dev->data->rx_queues[i]);
+		dev->data->rx_queues[i] = NULL;
+	}
+	dev->data->nb_rx_queues = 0;
+
+	for (i = 0; i < dev->data->nb_tx_queues; i++) {
+		eth_queue_release(dev->data->tx_queues[i]);
+		dev->data->tx_queues[i] = NULL;
+	}
+	dev->data->nb_tx_queues = 0;
+}
 
 static const struct eth_dev_ops ops = {
 	.dev_start = eth_dev_start,
@@ -617,11 +637,11 @@ eth_dev_xenvirt_create(const char *name, const char *params,
                 enum dev_action action)
 {
 	struct rte_eth_dev_data *data = NULL;
-	struct rte_pci_device *pci_dev = NULL;
 	struct pmd_internals *internals = NULL;
 	struct rte_eth_dev *eth_dev = NULL;
 	struct xenvirt_dict dict;
-	bzero(&dict, sizeof(struct xenvirt_dict));
+
+	memset(&dict, 0, sizeof(struct xenvirt_dict));
 
 	RTE_LOG(INFO, PMD, "Creating virtio rings backed ethdev on numa socket %u\n",
 			numa_node);
@@ -639,10 +659,6 @@ eth_dev_xenvirt_create(const char *name, const char *params,
 	if (data == NULL)
 		goto err;
 
-	pci_dev = rte_zmalloc_socket(name, sizeof(*pci_dev), 0, numa_node);
-	if (pci_dev == NULL)
-		goto err;
-
 	internals = rte_zmalloc_socket(name, sizeof(*internals), 0, numa_node);
 	if (internals == NULL)
 		goto err;
@@ -651,8 +667,6 @@ eth_dev_xenvirt_create(const char *name, const char *params,
 	eth_dev = rte_eth_dev_allocate(name, RTE_ETH_DEV_VIRTUAL);
 	if (eth_dev == NULL)
 		goto err;
-
-	pci_dev->numa_node = numa_node;
 
 	data->dev_private = internals;
 	data->port_id = eth_dev->data->port_id;
@@ -668,7 +682,12 @@ eth_dev_xenvirt_create(const char *name, const char *params,
 
 	eth_dev->data = data;
 	eth_dev->dev_ops = &ops;
-	eth_dev->pci_dev = pci_dev;
+
+	eth_dev->data->dev_flags = RTE_PCI_DRV_DETACHABLE;
+	eth_dev->data->kdrv = RTE_KDRV_NONE;
+	eth_dev->data->drv_name = drivername;
+	eth_dev->driver = NULL;
+	eth_dev->data->numa_node = numa_node;
 
 	eth_dev->rx_pkt_burst = eth_xenvirt_rx;
 	eth_dev->tx_pkt_burst = eth_xenvirt_tx;
@@ -680,12 +699,43 @@ eth_dev_xenvirt_create(const char *name, const char *params,
 
 err:
 	rte_free(data);
-	rte_free(pci_dev);
 	rte_free(internals);
 
 	return -1;
 }
 
+
+static int
+eth_dev_xenvirt_free(const char *name, const unsigned numa_node)
+{
+	struct rte_eth_dev *eth_dev = NULL;
+
+	RTE_LOG(DEBUG, PMD,
+		"Free virtio rings backed ethdev on numa socket %u\n",
+		numa_node);
+
+	/* find an ethdev entry */
+	eth_dev = rte_eth_dev_allocated(name);
+	if (eth_dev == NULL)
+		return -1;
+
+	if (eth_dev->data->dev_started == 1) {
+		eth_dev_stop(eth_dev);
+		eth_dev_close(eth_dev);
+	}
+
+	eth_dev->rx_pkt_burst = NULL;
+	eth_dev->tx_pkt_burst = NULL;
+	eth_dev->dev_ops = NULL;
+
+	rte_free(eth_dev->data);
+	rte_free(eth_dev->data->dev_private);
+	rte_free(eth_dev->data->mac_addrs);
+
+	virtio_idx--;
+
+	return 0;
+}
 
 /*TODO: Support multiple process model */
 static int
@@ -705,10 +755,25 @@ rte_pmd_xenvirt_devinit(const char *name, const char *params)
 	return 0;
 }
 
+static int
+rte_pmd_xenvirt_devuninit(const char *name)
+{
+	eth_dev_xenvirt_free(name, rte_socket_id());
+
+	if (virtio_idx == 0) {
+		if (xenstore_uninit() != 0)
+			RTE_LOG(ERR, PMD, "%s: xenstore uninit failed\n", __func__);
+
+		gntalloc_close();
+	}
+	return 0;
+}
+
 static struct rte_driver pmd_xenvirt_drv = {
 	.name = "eth_xenvirt",
 	.type = PMD_VDEV,
 	.init = rte_pmd_xenvirt_devinit,
+	.uninit = rte_pmd_xenvirt_devuninit,
 };
 
 PMD_REGISTER_DRIVER(pmd_xenvirt_drv);

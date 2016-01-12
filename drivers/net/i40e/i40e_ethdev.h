@@ -35,6 +35,7 @@
 #define _I40E_ETHDEV_H_
 
 #include <rte_eth_ctrl.h>
+#include <rte_time.h>
 
 #define I40E_VLAN_TAG_SIZE        4
 
@@ -91,6 +92,11 @@
 #define I40E_48_BIT_WIDTH (CHAR_BIT * 6)
 #define I40E_48_BIT_MASK  RTE_LEN2MASK(I40E_48_BIT_WIDTH, uint64_t)
 
+/* Linux PF host with virtchnl version 1.1 */
+#define PF_IS_V11(vf) \
+	(((vf)->version_major == I40E_VIRTCHNL_VERSION_MAJOR) && \
+	((vf)->version_minor == 1))
+
 /* index flex payload per layer */
 enum i40e_flxpld_layer_idx {
 	I40E_FLXPLD_L2_IDX    = 0,
@@ -102,6 +108,7 @@ enum i40e_flxpld_layer_idx {
 #define I40E_FDIR_BITMASK_NUM_WORD  2  /* max number of bitmask words */
 #define I40E_FDIR_MAX_FLEXWORD_NUM  8  /* max number of flexpayload words */
 #define I40E_FDIR_MAX_FLEX_LEN      16 /* len in bytes of flex payload */
+#define I40E_INSET_MASK_NUM_REG     2  /* number of input set mask registers */
 
 /* i40e flags */
 #define I40E_FLAG_RSS                   (1ULL << 0)
@@ -112,6 +119,7 @@ enum i40e_flxpld_layer_idx {
 #define I40E_FLAG_HEADER_SPLIT_ENABLED  (1ULL << 5)
 #define I40E_FLAG_FDIR                  (1ULL << 6)
 #define I40E_FLAG_VXLAN                 (1ULL << 7)
+#define I40E_FLAG_RSS_AQ_CAPABLE        (1ULL << 8)
 #define I40E_FLAG_ALL (I40E_FLAG_RSS | \
 		       I40E_FLAG_DCB | \
 		       I40E_FLAG_VMDQ | \
@@ -119,7 +127,8 @@ enum i40e_flxpld_layer_idx {
 		       I40E_FLAG_HEADER_SPLIT_DISABLED | \
 		       I40E_FLAG_HEADER_SPLIT_ENABLED | \
 		       I40E_FLAG_FDIR | \
-		       I40E_FLAG_VXLAN)
+		       I40E_FLAG_VXLAN | \
+		       I40E_FLAG_RSS_AQ_CAPABLE)
 
 #define I40E_RSS_OFFLOAD_ALL ( \
 	ETH_RSS_FRAG_IPV4 | \
@@ -150,6 +159,14 @@ enum i40e_flxpld_layer_idx {
 	(1ULL << I40E_FILTER_PCTYPE_FCOE_RX) | \
 	(1ULL << I40E_FILTER_PCTYPE_FCOE_OTHER) | \
 	(1ULL << I40E_FILTER_PCTYPE_L2_PAYLOAD))
+
+#define I40E_MISC_VEC_ID                RTE_INTR_VEC_ZERO_OFFSET
+#define I40E_RX_VEC_START               RTE_INTR_VEC_RXTX_OFFSET
+
+/* Default queue interrupt throttling time in microseconds */
+#define I40E_ITR_INDEX_DEFAULT          0
+#define I40E_QUEUE_ITR_INTERVAL_DEFAULT 32 /* 32 us */
+#define I40E_QUEUE_ITR_INTERVAL_MAX     8160 /* 8160 us */
 
 struct i40e_adapter;
 
@@ -199,6 +216,19 @@ struct i40e_macvlan_filter {
 	uint16_t vlan_id;
 };
 
+/* Bandwidth limit information */
+struct i40e_bw_info {
+	uint16_t bw_limit;      /* BW Limit (0 = disabled) */
+	uint8_t  bw_max;        /* Max BW limit if enabled */
+
+	/* Relative VSI credits within same TC with respect to other VSIs */
+	uint8_t  bw_ets_share_credits[I40E_MAX_TRAFFIC_CLASS];
+	/* Bandwidth limit per TC */
+	uint8_t  bw_ets_credits[I40E_MAX_TRAFFIC_CLASS];
+	/* Max bandwidth limit per TC */
+	uint8_t  bw_ets_max[I40E_MAX_TRAFFIC_CLASS];
+};
+
 /*
  * Structure that defines a VSI, associated with a adapter.
  */
@@ -235,6 +265,7 @@ struct i40e_vsi {
 	uint16_t seid;           /* The seid of VSI itself */
 	uint16_t uplink_seid;    /* The uplink seid of this VSI */
 	uint16_t nb_qps;         /* Number of queue pairs VSI can occupy */
+	uint16_t nb_used_qps;    /* Number of queue pairs VSI uses */
 	uint16_t max_macaddrs;   /* Maximum number of MAC addresses */
 	uint16_t base_queue;     /* The first queue index of this VSI */
 	/*
@@ -243,7 +274,9 @@ struct i40e_vsi {
 	 */
 	uint16_t vsi_id;
 	uint16_t msix_intr; /* The MSIX interrupt binds to VSI */
+	uint16_t nb_msix;   /* The max number of msix vector */
 	uint8_t enabled_tc; /* The traffic class enabled */
+	struct i40e_bw_info bw_info; /* VSI bandwidth information */
 };
 
 struct pool_entry {
@@ -279,6 +312,17 @@ struct i40e_pf_vf {
 	uint16_t vf_idx; /* VF index in pf->vfs */
 	uint16_t lan_nb_qps; /* Actual queues allocated */
 	uint16_t reset_cnt; /* Total vf reset times */
+};
+
+/*
+ * Structure to store private data for flow control.
+ */
+struct i40e_fc_conf {
+	uint16_t pause_time; /* Flow control pause timer */
+	/* FC high water 0-7 for pfc and 8 for lfc unit:kilobytes */
+	uint32_t high_water[I40E_MAX_TRAFFIC_CLASS + 1];
+	/* FC low water  0-7 for pfc and 8 for lfc unit:kilobytes */
+	uint32_t low_water[I40E_MAX_TRAFFIC_CLASS + 1];
 };
 
 /*
@@ -370,10 +414,18 @@ struct i40e_pf {
 	uint16_t vf_num;
 	/* Each of below queue pairs should be power of 2 since it's the
 	   precondition after TC configuration applied */
+	uint16_t lan_nb_qp_max;
 	uint16_t lan_nb_qps; /* The number of queue pairs of LAN */
+	uint16_t lan_qp_offset;
+	uint16_t vmdq_nb_qp_max;
 	uint16_t vmdq_nb_qps; /* The number of queue pairs of VMDq */
+	uint16_t vmdq_qp_offset;
+	uint16_t vf_nb_qp_max;
 	uint16_t vf_nb_qps; /* The number of queue pairs of VF */
+	uint16_t vf_qp_offset;
 	uint16_t fdir_nb_qps; /* The number of queue pairs of Flow Director */
+	uint16_t fdir_qp_offset;
+
 	uint16_t hash_lut_size; /* The size of hash lookup table */
 	/* store VXLAN UDP ports */
 	uint16_t vxlan_ports[I40E_MAX_PF_UDP_OFFLOAD_PORTS];
@@ -385,6 +437,7 @@ struct i40e_pf {
 	struct i40e_vmdq_info *vmdq;
 
 	struct i40e_fdir_info fdir; /* flow director info */
+	struct i40e_fc_conf fc_conf; /* Flow control conf */
 	struct i40e_mirror_rule_list mirror_list;
 	uint16_t nb_mirror_rule;   /* The number of mirror rules */
 };
@@ -447,6 +500,7 @@ struct i40e_vf {
 	struct i40e_virtchnl_vf_resource *vf_res; /* All VSIs */
 	struct i40e_virtchnl_vsi_resource *vsi_res; /* LAN VSI */
 	struct i40e_vsi vsi;
+	uint64_t flags;
 };
 
 /*
@@ -462,6 +516,17 @@ struct i40e_adapter {
 		struct i40e_pf pf;
 		struct i40e_vf vf;
 	};
+
+	/* For vector PMD */
+	bool rx_bulk_alloc_allowed;
+	bool rx_vec_allowed;
+	bool tx_simple_allowed;
+	bool tx_vec_allowed;
+
+	/* For PTP */
+	struct rte_timecounter systime_tc;
+	struct rte_timecounter rx_tstamp_tc;
+	struct rte_timecounter tx_tstamp_tc;
 };
 
 int i40e_dev_switch_queues(struct i40e_pf *pf, bool on);
@@ -501,6 +566,17 @@ uint16_t i40e_pctype_to_flowtype(enum i40e_filter_pctype pctype);
 int i40e_fdir_ctrl_func(struct rte_eth_dev *dev,
 			  enum rte_filter_op filter_op,
 			  void *arg);
+int i40e_select_filter_input_set(struct i40e_hw *hw,
+				 struct rte_eth_input_set_conf *conf,
+				 enum rte_filter_type filter);
+int i40e_filter_inset_select(struct i40e_hw *hw,
+			     struct rte_eth_input_set_conf *conf,
+			     enum rte_filter_type filter);
+
+void i40e_rxq_info_get(struct rte_eth_dev *dev, uint16_t queue_id,
+	struct rte_eth_rxq_info *qinfo);
+void i40e_txq_info_get(struct rte_eth_dev *dev, uint16_t queue_id,
+	struct rte_eth_txq_info *qinfo);
 
 /* I40E_DEV_PRIVATE_TO */
 #define I40E_DEV_PRIVATE_TO_PF(adapter) \
@@ -539,6 +615,8 @@ i40e_get_vsi_from_adapter(struct i40e_adapter *adapter)
 	(&(((struct i40e_vsi *)vsi)->adapter->hw))
 #define I40E_VSI_TO_PF(vsi) \
 	(&(((struct i40e_vsi *)vsi)->adapter->pf))
+#define I40E_VSI_TO_VF(vsi) \
+	(&(((struct i40e_vsi *)vsi)->adapter->vf))
 #define I40E_VSI_TO_DEV_DATA(vsi) \
 	(((struct i40e_vsi *)vsi)->adapter->pf.dev_data)
 #define I40E_VSI_TO_ETH_DEV(vsi) \
@@ -569,6 +647,16 @@ i40e_align_floor(int n)
 	if (n == 0)
 		return 0;
 	return 1 << (sizeof(n) * CHAR_BIT - 1 - __builtin_clz(n));
+}
+
+static inline uint16_t
+i40e_calc_itr_interval(int16_t interval)
+{
+	if (interval < 0 || interval > I40E_QUEUE_ITR_INTERVAL_MAX)
+		interval = I40E_QUEUE_ITR_INTERVAL_DEFAULT;
+
+	/* Convert to hardware count, as writing each 1 represents 2 us */
+	return (interval / 2);
 }
 
 #define I40E_VALID_FLOW(flow_type) \

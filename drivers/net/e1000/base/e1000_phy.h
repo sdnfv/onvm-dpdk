@@ -1,6 +1,6 @@
 /*******************************************************************************
 
-Copyright (c) 2001-2014, Intel Corporation
+Copyright (c) 2001-2015, Intel Corporation
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
@@ -143,7 +143,6 @@ bool e1000_is_mphy_ready(struct e1000_hw *hw);
 #define GS40G_MAC_LB			0x4140
 #define GS40G_MAC_SPEED_1G		0X0006
 #define GS40G_COPPER_SPEC		0x0010
-#define GS40G_CS_POWER_DOWN		0x0002
 
 /* BM/HV Specific Registers */
 #define BM_PORT_CTRL_PAGE		769
@@ -275,6 +274,13 @@ bool e1000_is_mphy_ready(struct e1000_hw *hw);
 #define E1000_KMRNCTRLSTA_K1_CONFIG	0x7
 #define E1000_KMRNCTRLSTA_K1_ENABLE	0x0002 /* enable K1 */
 #define E1000_KMRNCTRLSTA_HD_CTRL	0x10   /* Kumeran HD Control */
+#define E1000_KMRNCTRLSTA_K0S_CTRL	0x1E	/* Kumeran K0s Control */
+#define E1000_KMRNCTRLSTA_K0S_CTRL_ENTRY_LTNCY_SHIFT	0
+#define E1000_KMRNCTRLSTA_K0S_CTRL_MIN_TIME_SHIFT	4
+#define E1000_KMRNCTRLSTA_K0S_CTRL_ENTRY_LTNCY_MASK	\
+	(3 << E1000_KMRNCTRLSTA_K0S_CTRL_ENTRY_LTNCY_SHIFT)
+#define E1000_KMRNCTRLSTA_K0S_CTRL_MIN_TIME_MASK \
+	(7 << E1000_KMRNCTRLSTA_K0S_CTRL_MIN_TIME_SHIFT)
 #define E1000_KMRNCTRLSTA_OP_MODES	0x1F   /* Kumeran Modes of Operation */
 #define E1000_KMRNCTRLSTA_OP_MODES_LSC2CSC	0x0002 /* change LSC to CSC */
 

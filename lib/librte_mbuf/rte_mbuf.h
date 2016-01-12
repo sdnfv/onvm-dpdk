@@ -93,18 +93,8 @@ extern "C" {
 #define PKT_RX_HBUF_OVERFLOW (0ULL << 0)  /**< Header buffer overflow. */
 #define PKT_RX_RECIP_ERR     (0ULL << 0)  /**< Hardware processing error. */
 #define PKT_RX_MAC_ERR       (0ULL << 0)  /**< MAC error. */
-#ifndef RTE_NEXT_ABI
-#define PKT_RX_IPV4_HDR      (1ULL << 5)  /**< RX packet with IPv4 header. */
-#define PKT_RX_IPV4_HDR_EXT  (1ULL << 6)  /**< RX packet with extended IPv4 header. */
-#define PKT_RX_IPV6_HDR      (1ULL << 7)  /**< RX packet with IPv6 header. */
-#define PKT_RX_IPV6_HDR_EXT  (1ULL << 8)  /**< RX packet with extended IPv6 header. */
-#endif /* RTE_NEXT_ABI */
 #define PKT_RX_IEEE1588_PTP  (1ULL << 9)  /**< RX IEEE1588 L2 Ethernet PT Packet. */
 #define PKT_RX_IEEE1588_TMST (1ULL << 10) /**< RX IEEE1588 L2/L4 timestamped packet.*/
-#ifndef RTE_NEXT_ABI
-#define PKT_RX_TUNNEL_IPV4_HDR (1ULL << 11) /**< RX tunnel packet with IPv4 header.*/
-#define PKT_RX_TUNNEL_IPV6_HDR (1ULL << 12) /**< RX tunnel packet with IPv6 header. */
-#endif /* RTE_NEXT_ABI */
 #define PKT_RX_FDIR_ID       (1ULL << 13) /**< FD id reported if FDIR match. */
 #define PKT_RX_FDIR_FLX      (1ULL << 14) /**< Flexible bytes reported if FDIR match. */
 #define PKT_RX_QINQ_PKT      (1ULL << 15)  /**< RX packet with double VLAN stripped. */
@@ -209,7 +199,6 @@ extern "C" {
 /* Use final bit of flags to indicate a control mbuf */
 #define CTRL_MBUF_FLAG       (1ULL << 63) /**< Mbuf contains control data */
 
-#ifdef RTE_NEXT_ABI
 /*
  * 32 bits are divided into several fields to mark packet types. Note that
  * each field is indexical.
@@ -696,7 +685,6 @@ extern "C" {
                                                  RTE_PTYPE_INNER_L2_MASK | \
                                                  RTE_PTYPE_INNER_L3_MASK | \
                                                  RTE_PTYPE_INNER_L4_MASK))
-#endif /* RTE_NEXT_ABI */
 
 /** Alignment constraint of mbuf private area. */
 #define RTE_MBUF_PRIV_ALIGN 8
@@ -740,6 +728,9 @@ typedef uint8_t  MARKER8[0];  /**< generic marker with 1B alignment */
 typedef uint64_t MARKER64[0]; /**< marker that allows us to overwrite 8 bytes
                                * with a single assignment */
 
+/** Opaque rte_mbuf_offload  structure declarations */
+struct rte_mbuf_offload;
+
 /**
  * The generic rte_mbuf, containing a packet mbuf.
  */
@@ -775,7 +766,6 @@ struct rte_mbuf {
 	/* remaining bytes are set on RX when pulling packet from descriptor */
 	MARKER rx_descriptor_fields1;
 
-#ifdef RTE_NEXT_ABI
 	/*
 	 * The packet type, which is the combination of outer/inner L2, L3, L4
 	 * and tunnel types.
@@ -796,19 +786,7 @@ struct rte_mbuf {
 	uint32_t pkt_len;         /**< Total pkt len: sum of all segments. */
 	uint16_t data_len;        /**< Amount of data in segment buffer. */
 	uint16_t vlan_tci;        /**< VLAN Tag Control Identifier (CPU order) */
-#else /* RTE_NEXT_ABI */
-	/**
-	 * The packet type, which is used to indicate ordinary packet and also
-	 * tunneled packet format, i.e. each number is represented a type of
-	 * packet.
-	 */
-	uint16_t packet_type;
 
-	uint16_t data_len;        /**< Amount of data in segment buffer. */
-	uint32_t pkt_len;         /**< Total pkt len: sum of all segments. */
-	uint16_t vlan_tci;        /**< VLAN Tag Control Identifier (CPU order) */
-	uint16_t vlan_tci_outer;  /**< Outer VLAN Tag Control Identifier (CPU order) */
-#endif /* RTE_NEXT_ABI */
 	union {
 		uint32_t rss;     /**< RSS hash result if RSS enabled */
 		struct {
@@ -824,14 +802,16 @@ struct rte_mbuf {
 			/**< First 4 flexible bytes or FD ID, dependent on
 			     PKT_RX_FDIR_* flag in ol_flags. */
 		} fdir;           /**< Filter identifier if FDIR enabled */
-		uint32_t sched;   /**< Hierarchical scheduler */
+		struct {
+			uint32_t lo;
+			uint32_t hi;
+		} sched;          /**< Hierarchical scheduler */
 		uint32_t usr;	  /**< User defined tags. See rte_distributor_process() */
 	} hash;                   /**< hash information */
 
 	uint32_t seqn; /**< Sequence number. See also rte_reorder_insert() */
-#ifdef RTE_NEXT_ABI
+
 	uint16_t vlan_tci_outer;  /**< Outer VLAN Tag Control Identifier (CPU order) */
-#endif /* RTE_NEXT_ABI */
 
 	/* second cache line - fields only used in slow path or on TX */
 	MARKER cacheline1 __rte_cache_aligned;
@@ -867,6 +847,9 @@ struct rte_mbuf {
 
 	/** Timesync flags for use with IEEE1588. */
 	uint16_t timesync;
+
+	/* Chain of off-load operations to perform on mbuf */
+	struct rte_mbuf_offload *offload_ops;
 } __rte_cache_aligned;
 
 static inline uint16_t rte_pktmbuf_priv_size(struct rte_mempool *mp);
@@ -1648,6 +1631,27 @@ static inline struct rte_mbuf *rte_pktmbuf_lastseg(struct rte_mbuf *m)
 #define rte_pktmbuf_mtod(m, t) rte_pktmbuf_mtod_offset(m, t, 0)
 
 /**
+ * A macro that returns the physical address that points to an offset of the
+ * start of the data in the mbuf
+ *
+ * @param m
+ *   The packet mbuf.
+ * @param o
+ *   The offset into the data to calculate address from.
+ */
+#define rte_pktmbuf_mtophys_offset(m, o) \
+	(phys_addr_t)((m)->buf_physaddr + (m)->data_off + (o))
+
+/**
+ * A macro that returns the physical address that points to the start of the
+ * data in the mbuf
+ *
+ * @param m
+ *   The packet mbuf.
+ */
+#define rte_pktmbuf_mtophys(m) rte_pktmbuf_mtophys_offset(m, 0)
+
+/**
  * A macro that returns the length of the packet.
  *
  * The value can be read or assigned.
@@ -1798,6 +1802,44 @@ static inline int rte_pktmbuf_is_contiguous(const struct rte_mbuf *m)
 {
 	__rte_mbuf_sanity_check(m, 1);
 	return !!(m->nb_segs == 1);
+}
+
+/**
+ * Chain an mbuf to another, thereby creating a segmented packet.
+ *
+ * Note: The implementation will do a linear walk over the segments to find
+ * the tail entry. For cases when there are many segments, it's better to
+ * chain the entries manually.
+ *
+ * @param head
+ *   The head of the mbuf chain (the first packet)
+ * @param tail
+ *   The mbuf to put last in the chain
+ *
+ * @return
+ *   - 0, on success.
+ *   - -EOVERFLOW, if the chain is full (256 entries)
+ */
+static inline int rte_pktmbuf_chain(struct rte_mbuf *head, struct rte_mbuf *tail)
+{
+	struct rte_mbuf *cur_tail;
+
+	/* Check for number-of-segments-overflow */
+	if (head->nb_segs + tail->nb_segs >= 1 << (sizeof(head->nb_segs) * 8))
+		return -EOVERFLOW;
+
+	/* Chain 'tail' onto the old tail */
+	cur_tail = rte_pktmbuf_lastseg(head);
+	cur_tail->next = tail;
+
+	/* accumulate number of segments and total length. */
+	head->nb_segs = (uint8_t)(head->nb_segs + tail->nb_segs);
+	head->pkt_len += tail->pkt_len;
+
+	/* pkt_len is only set in the head */
+	tail->pkt_len = tail->data_len;
+
+	return 0;
 }
 
 /**

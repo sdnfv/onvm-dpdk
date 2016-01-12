@@ -13,6 +13,7 @@ General Guidelines
 ------------------
 
 #. Whenever possible, ABI should be preserved
+#. The libraries marked in experimental state may change without constraint.
 #. The addition of symbols is generally not problematic
 #. The modification of symbols can generally be managed with versioning
 #. The removal of symbols generally is an ABI break and requires bumping of the
@@ -260,7 +261,7 @@ with the public symbol name
         struct rte_acl_ctx *ctx;
         ...
 
-Note that the base name of the symbol was kept intact, as this is condusive to
+Note that the base name of the symbol was kept intact, as this is conducive to
 the macros used for versioning symbols.  That is our next step, mapping this new
 symbol name to the initial symbol name at version node 2.0.  Immediately after
 the function, we add this line of code
@@ -382,7 +383,8 @@ easy.  Start by removing the symbol from the requisite version map file:
    } DPDK_2.0;
 
 
-Next remove the corresponding versioned export
+Next remove the corresponding versioned export.
+
 .. code-block:: c
 
  -VERSION_SYMBOL(rte_acl_create, _v20, 2.0);
@@ -467,16 +469,22 @@ utilities which can be installed via a package manager. For example::
 
 The syntax of the ``validate-abi.sh`` utility is::
 
-   ./scripts/validate-abi.sh <TAG1> <TAG2> <TARGET>
+   ./scripts/validate-abi.sh <REV1> <REV2> <TARGET>
 
-Where ``TAG1`` and ``TAG2`` are valid git tags on the local repo and target is
-the usual DPDK compilation target.
+Where ``REV1`` and ``REV2`` are valid gitrevisions(7)
+https://www.kernel.org/pub/software/scm/git/docs/gitrevisions.html
+on the local repo and target is the usual DPDK compilation target.
 
-For example to test the current committed HEAD against a previous release tag
-we could add a temporary tag and run the utility as follows::
+For example:
 
-   git tag MY_TEMP_TAG
-   ./scripts/validate-abi.sh v2.0.0 MY_TEMP_TAG x86_64-native-linuxapp-gcc
+   # Check between the previous and latest commit:
+   ./scripts/validate-abi.sh HEAD~1 HEAD x86_64-native-linuxapp-gcc
+
+   # Check between two tags:
+   ./scripts/validate-abi.sh v2.0.0 v2.1.0 x86_64-native-linuxapp-gcc
+
+   # Check between git master and local topic-branch "vhost-hacking":
+   ./scripts/validate-abi.sh master vhost-hacking x86_64-native-linuxapp-gcc
 
 After the validation script completes (it can take a while since it need to
 compile both tags) it will create compatibility reports in the
