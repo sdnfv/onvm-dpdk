@@ -33,6 +33,9 @@
 #include <linux/version.h>
 #include <linux/slab.h>
 
+/* Disable Xen Dom0 config--breaks on cloudlab ARM servers */
+#undef CONFIG_XEN_DOM0
+
 #ifdef CONFIG_XEN_DOM0
 #include <xen/xen.h>
 #endif
