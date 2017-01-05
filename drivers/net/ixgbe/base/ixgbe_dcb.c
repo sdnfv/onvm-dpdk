@@ -147,6 +147,11 @@ s32 ixgbe_dcb_calculate_tc_credits_cee(struct ixgbe_hw *hw,
 		/* Calculate credit refill ratio using multiplier */
 		credit_refill = min(link_percentage * min_multiplier,
 				    (u32)IXGBE_DCB_MAX_CREDIT_REFILL);
+
+		/* Refill at least minimum credit */
+		if (credit_refill < min_credit)
+			credit_refill = min_credit;
+
 		p->data_credits_refill = (u16)credit_refill;
 
 		/* Calculate maximum credit for the TC */
@@ -157,7 +162,7 @@ s32 ixgbe_dcb_calculate_tc_credits_cee(struct ixgbe_hw *hw,
 		 * of a TC is too small, the maximum credit may not be
 		 * enough to send out a jumbo frame in data plane arbitration.
 		 */
-		if (credit_max && (credit_max < min_credit))
+		if (credit_max < min_credit)
 			credit_max = min_credit;
 
 		if (direction == IXGBE_DCB_TX_CONFIG) {
@@ -369,8 +374,6 @@ s32 ixgbe_dcb_check_config_cee(struct ixgbe_dcb_config *dcb_config)
 	}
 
 err_config:
-	DEBUGOUT2("DCB error code %d while checking %s settings.\n",
-		  ret_val, (i == IXGBE_DCB_TX_CONFIG) ? "Tx" : "Rx");
 
 	return ret_val;
 }
@@ -395,6 +398,7 @@ s32 ixgbe_dcb_get_tc_stats(struct ixgbe_hw *hw, struct ixgbe_hw_stats *stats,
 	case ixgbe_mac_X540:
 	case ixgbe_mac_X550:
 	case ixgbe_mac_X550EM_x:
+	case ixgbe_mac_X550EM_a:
 		ret = ixgbe_dcb_get_tc_stats_82599(hw, stats, tc_count);
 		break;
 	default:
@@ -423,6 +427,7 @@ s32 ixgbe_dcb_get_pfc_stats(struct ixgbe_hw *hw, struct ixgbe_hw_stats *stats,
 	case ixgbe_mac_X540:
 	case ixgbe_mac_X550:
 	case ixgbe_mac_X550EM_x:
+	case ixgbe_mac_X550EM_a:
 		ret = ixgbe_dcb_get_pfc_stats_82599(hw, stats, tc_count);
 		break;
 	default:
@@ -462,6 +467,7 @@ s32 ixgbe_dcb_config_rx_arbiter_cee(struct ixgbe_hw *hw,
 	case ixgbe_mac_X540:
 	case ixgbe_mac_X550:
 	case ixgbe_mac_X550EM_x:
+	case ixgbe_mac_X550EM_a:
 		ret = ixgbe_dcb_config_rx_arbiter_82599(hw, refill, max, bwgid,
 							tsa, map);
 		break;
@@ -501,6 +507,7 @@ s32 ixgbe_dcb_config_tx_desc_arbiter_cee(struct ixgbe_hw *hw,
 	case ixgbe_mac_X540:
 	case ixgbe_mac_X550:
 	case ixgbe_mac_X550EM_x:
+	case ixgbe_mac_X550EM_a:
 		ret = ixgbe_dcb_config_tx_desc_arbiter_82599(hw, refill, max,
 							     bwgid, tsa);
 		break;
@@ -542,6 +549,7 @@ s32 ixgbe_dcb_config_tx_data_arbiter_cee(struct ixgbe_hw *hw,
 	case ixgbe_mac_X540:
 	case ixgbe_mac_X550:
 	case ixgbe_mac_X550EM_x:
+	case ixgbe_mac_X550EM_a:
 		ret = ixgbe_dcb_config_tx_data_arbiter_82599(hw, refill, max,
 							     bwgid, tsa,
 							     map);
@@ -577,6 +585,7 @@ s32 ixgbe_dcb_config_pfc_cee(struct ixgbe_hw *hw,
 	case ixgbe_mac_X540:
 	case ixgbe_mac_X550:
 	case ixgbe_mac_X550EM_x:
+	case ixgbe_mac_X550EM_a:
 		ret = ixgbe_dcb_config_pfc_82599(hw, pfc_en, map);
 		break;
 	default:
@@ -603,6 +612,7 @@ s32 ixgbe_dcb_config_tc_stats(struct ixgbe_hw *hw)
 	case ixgbe_mac_X540:
 	case ixgbe_mac_X550:
 	case ixgbe_mac_X550EM_x:
+	case ixgbe_mac_X550EM_a:
 		ret = ixgbe_dcb_config_tc_stats_82599(hw, NULL);
 		break;
 	default:
@@ -645,6 +655,7 @@ s32 ixgbe_dcb_hw_config_cee(struct ixgbe_hw *hw,
 	case ixgbe_mac_X540:
 	case ixgbe_mac_X550:
 	case ixgbe_mac_X550EM_x:
+	case ixgbe_mac_X550EM_a:
 		ixgbe_dcb_config_82599(hw, dcb_config);
 		ret = ixgbe_dcb_hw_config_82599(hw, dcb_config->link_speed,
 						refill, max, bwgid,
@@ -677,6 +688,7 @@ s32 ixgbe_dcb_config_pfc(struct ixgbe_hw *hw, u8 pfc_en, u8 *map)
 	case ixgbe_mac_X540:
 	case ixgbe_mac_X550:
 	case ixgbe_mac_X550EM_x:
+	case ixgbe_mac_X550EM_a:
 		ret = ixgbe_dcb_config_pfc_82599(hw, pfc_en, map);
 		break;
 	default:
@@ -700,6 +712,7 @@ s32 ixgbe_dcb_hw_config(struct ixgbe_hw *hw, u16 *refill, u16 *max,
 	case ixgbe_mac_X540:
 	case ixgbe_mac_X550:
 	case ixgbe_mac_X550EM_x:
+	case ixgbe_mac_X550EM_a:
 		ixgbe_dcb_config_rx_arbiter_82599(hw, refill, max, bwg_id,
 						  tsa, map);
 		ixgbe_dcb_config_tx_desc_arbiter_82599(hw, refill, max, bwg_id,

@@ -292,13 +292,13 @@ void bnx2x_post_dmae(struct bnx2x_softc *sc, struct dmae_command *dmae, int idx)
 
 uint32_t bnx2x_dmae_opcode_add_comp(uint32_t opcode, uint8_t comp_type)
 {
-	return (opcode | ((comp_type << DMAE_COMMAND_C_DST_SHIFT) |
-			  DMAE_COMMAND_C_TYPE_ENABLE));
+	return opcode | ((comp_type << DMAE_COMMAND_C_DST_SHIFT) |
+			  DMAE_COMMAND_C_TYPE_ENABLE);
 }
 
 uint32_t bnx2x_dmae_opcode_clr_src_reset(uint32_t opcode)
 {
-	return (opcode & ~DMAE_COMMAND_SRC_RESET);
+	return opcode & ~DMAE_COMMAND_SRC_RESET;
 }
 
 uint32_t
@@ -1098,7 +1098,7 @@ static int bnx2x_tx_queue_has_work(const struct bnx2x_fastpath *fp)
 
 	mb();			/* status block fields can change */
 	hw_cons = le16toh(*fp->tx_cons_sb);
-	return (hw_cons != txq->tx_pkt_head);
+	return hw_cons != txq->tx_pkt_head;
 }
 
 static uint8_t bnx2x_has_tx_work(struct bnx2x_fastpath *fp)
@@ -1122,7 +1122,7 @@ static int bnx2x_has_rx_work(struct bnx2x_fastpath *fp)
 	if (unlikely((rx_cq_cons_sb & MAX_RCQ_ENTRIES(rxq)) ==
 		     MAX_RCQ_ENTRIES(rxq)))
 		rx_cq_cons_sb++;
-	return (rxq->rx_cq_head != rx_cq_cons_sb);
+	return rxq->rx_cq_head != rx_cq_cons_sb;
 }
 
 static void
@@ -1280,7 +1280,7 @@ next_cqe:
 	/* Update producers */
 	bnx2x_update_rx_prod(sc, fp, bd_prod_fw, sw_cq_prod);
 
-	return (sw_cq_cons != hw_cq_cons);
+	return sw_cq_cons != hw_cq_cons;
 }
 
 static uint16_t
@@ -2147,7 +2147,7 @@ int bnx2x_tx_encap(struct bnx2x_tx_queue *txq, struct rte_mbuf **m_head, int m_p
 		tx_start_bd = &txq->tx_ring[TX_BD(bd_prod, txq)].start_bd;
 
 		tx_start_bd->addr =
-		    rte_cpu_to_le_64(RTE_MBUF_DATA_DMA_ADDR(m0));
+		    rte_cpu_to_le_64(rte_mbuf_data_dma_addr(m0));
 		tx_start_bd->nbytes = rte_cpu_to_le_16(m0->data_len);
 		tx_start_bd->bd_flags.as_bitfield = ETH_TX_BD_FLAGS_START_BD;
 		tx_start_bd->general_data =
@@ -2331,15 +2331,6 @@ static void bnx2x_set_fp_rx_buf_size(struct bnx2x_softc *sc)
 		/* get the Rx buffer size for RX frames */
 		sc->fp[i].rx_buf_size =
 		    (IP_HEADER_ALIGNMENT_PADDING + ETH_OVERHEAD + sc->mtu);
-
-		/* get the mbuf allocation size for RX frames */
-		if (sc->fp[i].rx_buf_size <= MCLBYTES) {
-			sc->fp[i].mbuf_alloc_size = MCLBYTES;
-		} else if (sc->fp[i].rx_buf_size <= BNX2X_PAGE_SIZE) {
-			sc->fp[i].mbuf_alloc_size = PAGE_SIZE;
-		} else {
-			sc->fp[i].mbuf_alloc_size = MJUM9BYTES;
-		}
 	}
 }
 
@@ -2559,7 +2550,7 @@ static void bnx2x_clear_reset_global(struct bnx2x_softc *sc)
 /* checks the GLOBAL_RESET bit, should be run under rtnl lock */
 static uint8_t bnx2x_reset_is_global(struct bnx2x_softc *sc)
 {
-	return (REG_RD(sc, BNX2X_RECOVERY_GLOB_REG) & BNX2X_GLOBAL_RESET_BIT);
+	return REG_RD(sc, BNX2X_RECOVERY_GLOB_REG) & BNX2X_GLOBAL_RESET_BIT;
 }
 
 /* clear RESET_IN_PROGRESS bit for the engine, should be run under rtnl lock */
@@ -2618,7 +2609,7 @@ static uint8_t bnx2x_get_load_status(struct bnx2x_softc *sc, int engine)
 
 	val = ((val & mask) >> shift);
 
-	return (val != 0);
+	return val != 0;
 }
 
 /* set pf load mark */
@@ -4860,9 +4851,9 @@ bnx2x_init_sb(struct bnx2x_softc *sc, phys_addr_t busaddr, int vfid,
 static uint8_t bnx2x_fp_qzone_id(struct bnx2x_fastpath *fp)
 {
 	if (CHIP_IS_E1x(fp->sc)) {
-		return (fp->cl_id + SC_PORT(fp->sc) * ETH_MAX_RX_CLIENTS_E1H);
+		return fp->cl_id + SC_PORT(fp->sc) * ETH_MAX_RX_CLIENTS_E1H;
 	} else {
-		return (fp->cl_id);
+		return fp->cl_id;
 	}
 }
 
@@ -4872,9 +4863,9 @@ bnx2x_rx_ustorm_prods_offset(struct bnx2x_softc *sc, struct bnx2x_fastpath *fp)
 	uint32_t offset = BAR_USTRORM_INTMEM;
 
 	if (IS_VF(sc)) {
-		return (PXP_VF_ADDR_USDM_QUEUES_START +
+		return PXP_VF_ADDR_USDM_QUEUES_START +
 			(sc->acquire_resp.resc.hw_qid[fp->index] *
-			 sizeof(struct ustorm_queue_zone_data)));
+			 sizeof(struct ustorm_queue_zone_data));
 	} else if (!CHIP_IS_E1x(sc)) {
 		offset += USTORM_RX_PRODS_E2_OFFSET(fp->cl_qzone_id);
 	} else {
@@ -7587,8 +7578,8 @@ static uint32_t bnx2x_pcie_capability_read(struct bnx2x_softc *sc, int reg)
 
 static uint8_t bnx2x_is_pcie_pending(struct bnx2x_softc *sc)
 {
-	return (bnx2x_pcie_capability_read(sc, PCIR_EXPRESS_DEVICE_STA) &
-		PCIM_EXP_STA_TRANSACTION_PND);
+	return bnx2x_pcie_capability_read(sc, PCIR_EXPRESS_DEVICE_STA) &
+		PCIM_EXP_STA_TRANSACTION_PND;
 }
 
 /*
@@ -9578,8 +9569,13 @@ static int bnx2x_pci_get_caps(struct bnx2x_softc *sc)
 
 static void bnx2x_init_rte(struct bnx2x_softc *sc)
 {
-	sc->max_tx_queues = 128;
-	sc->max_rx_queues = 128;
+	if (IS_VF(sc)) {
+		sc->max_tx_queues = BNX2X_VF_MAX_QUEUES_PER_VF;
+		sc->max_rx_queues = BNX2X_VF_MAX_QUEUES_PER_VF;
+	} else {
+		sc->max_tx_queues = 128;
+		sc->max_rx_queues = 128;
+	}
 }
 
 #define FW_HEADER_LEN 104
@@ -9922,7 +9918,7 @@ static uint32_t bnx2x_get_pretend_reg(struct bnx2x_softc *sc)
 {
 	uint32_t base = PXP2_REG_PGL_PRETEND_FUNC_F0;
 	uint32_t stride = (PXP2_REG_PGL_PRETEND_FUNC_F1 - base);
-	return (base + (SC_ABS_FUNC(sc)) * stride);
+	return base + (SC_ABS_FUNC(sc)) * stride;
 }
 
 /*
@@ -10777,11 +10773,11 @@ static uint32_t bnx2x_flr_clnup_poll_count(struct bnx2x_softc *sc)
 {
 	/* adjust polling timeout */
 	if (CHIP_REV_IS_EMUL(sc)) {
-		return (FLR_POLL_CNT * 2000);
+		return FLR_POLL_CNT * 2000;
 	}
 
 	if (CHIP_REV_IS_FPGA(sc)) {
-		return (FLR_POLL_CNT * 120);
+		return FLR_POLL_CNT * 120;
 	}
 
 	return FLR_POLL_CNT;

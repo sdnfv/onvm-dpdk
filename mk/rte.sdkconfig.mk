@@ -35,12 +35,19 @@ showversion:
 		$$(sed -rne 's,^#define RTE_VER_[A-Z_]*[[:space:]]+([0-9]+).*,\1,p' \
 			-e 's,^#define RTE_VER_SUFFIX[[:space:]]+"(.*)",\1,p' \
 			$(RTE_SRCDIR)/lib/librte_eal/common/include/rte_version.h) ;\
-		printf '%d.%d.%d' "$$1" "$$2" "$$3"; \
+		printf '%d.%02d.%d' "$$1" "$$2" "$$3"; \
 		if [ -z "$$5" ]; then echo; \
 		else printf '%s' "$$4"; \
 			if [ $$5 -lt 16 ] ; then echo $$5; \
 			else echo $$(($$5 - 16)); fi; \
 		fi
+
+.PHONY: showversionum
+showversionum:
+	@set -- \
+		$$(sed -rne 's,^#define RTE_VER_[A-Z_]*[[:space:]]+([0-9]+).*,\1,p' \
+			$(RTE_SRCDIR)/lib/librte_eal/common/include/rte_version.h); \
+		printf '%02d%02d\n' "$$1" "$$2"
 
 INSTALL_CONFIGS := $(sort $(filter-out %~,\
 	$(patsubst $(RTE_SRCDIR)/config/defconfig_%,%,\

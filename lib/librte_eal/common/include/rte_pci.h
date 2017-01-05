@@ -367,6 +367,32 @@ int rte_eal_pci_scan(void);
 int rte_eal_pci_probe(void);
 
 /**
+ * Map the PCI device resources in user space virtual memory address
+ *
+ * Note that driver should not call this function when flag
+ * RTE_PCI_DRV_NEED_MAPPING is set, as EAL will do that for
+ * you when it's on.
+ *
+ * @param dev
+ *   A pointer to a rte_pci_device structure describing the device
+ *   to use
+ *
+ * @return
+ *   0 on success, negative on error and positive if no driver
+ *   is found for the device.
+ */
+int rte_eal_pci_map_device(struct rte_pci_device *dev);
+
+/**
+ * Unmap this device
+ *
+ * @param dev
+ *   A pointer to a rte_pci_device structure describing the device
+ *   to use
+ */
+void rte_eal_pci_unmap_device(struct rte_pci_device *dev);
+
+/**
  * @internal
  * Map a particular resource from a file.
  *
@@ -486,15 +512,83 @@ int rte_eal_pci_read_config(const struct rte_pci_device *device,
 int rte_eal_pci_write_config(const struct rte_pci_device *device,
 			     const void *buf, size_t len, off_t offset);
 
+/**
+ * A structure used to access io resources for a pci device.
+ * rte_pci_ioport is arch, os, driver specific, and should not be used outside
+ * of pci ioport api.
+ */
+struct rte_pci_ioport {
+	struct rte_pci_device *dev;
+	uint64_t base;
+};
+
+/**
+ * Initialises a rte_pci_ioport object for a pci device io resource.
+ * This object is then used to gain access to those io resources (see below).
+ *
+ * @param dev
+ *   A pointer to a rte_pci_device structure describing the device.
+ *   to use
+ * @param bar
+ *   Index of the io pci resource we want to access.
+ * @param p
+ *   The rte_pci_ioport object to be initialized.
+ * @return
+ *  0 on success, negative on error.
+ */
+int rte_eal_pci_ioport_map(struct rte_pci_device *dev, int bar,
+			   struct rte_pci_ioport *p);
+
+/**
+ * Release any resources used in a rte_pci_ioport object.
+ *
+ * @param p
+ *   The rte_pci_ioport object to be uninitialized.
+ */
+int rte_eal_pci_ioport_unmap(struct rte_pci_ioport *p);
+
+/**
+ * Read from a io pci resource.
+ *
+ * @param p
+ *   The rte_pci_ioport object from which we want to read.
+ * @param data
+ *   A data buffer where the bytes should be read into
+ * @param len
+ *   The length of the data buffer.
+ * @param offset
+ *   The offset into the pci io resource.
+ */
+void rte_eal_pci_ioport_read(struct rte_pci_ioport *p,
+			     void *data, size_t len, off_t offset);
+
+/**
+ * Write to a io pci resource.
+ *
+ * @param p
+ *   The rte_pci_ioport object to which we want to write.
+ * @param data
+ *   A data buffer where the bytes should be read into
+ * @param len
+ *   The length of the data buffer.
+ * @param offset
+ *   The offset into the pci io resource.
+ */
+void rte_eal_pci_ioport_write(struct rte_pci_ioport *p,
+			      const void *data, size_t len, off_t offset);
+
 #ifdef RTE_PCI_CONFIG
+#include <rte_common.h>
 /**
  * Set special config space registers for performance purpose.
+ * It is deprecated, as all configurations have been moved into
+ * each PMDs respectively.
  *
  * @param dev
  *   A pointer to a rte_pci_device structure describing the device
  *   to use
  */
-void pci_config_space_set(struct rte_pci_device *dev);
+void pci_config_space_set(struct rte_pci_device *dev) __rte_deprecated;
 #endif /* RTE_PCI_CONFIG */
 
 #ifdef __cplusplus

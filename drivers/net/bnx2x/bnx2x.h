@@ -128,9 +128,6 @@ struct bnx2x_device_type {
 	char     *bnx2x_name;
 };
 
-#define RTE_MBUF_DATA_DMA_ADDR(mb) \
-	((uint64_t)((mb)->buf_physaddr + (mb)->data_off))
-
 #define BNX2X_PAGE_SHIFT       12
 #define BNX2X_PAGE_SIZE        (1 << BNX2X_PAGE_SHIFT)
 #define BNX2X_PAGE_MASK        (~(BNX2X_PAGE_SIZE - 1))
@@ -150,23 +147,6 @@ struct bnx2x_device_type {
 #define FW_DROP_LEVEL(sc)    (3 + MAX_SPQ_PENDING + MAX_AGG_QS(sc))
 #define FW_PREFETCH_CNT      16U
 #define DROPLESS_FC_HEADROOM 100
-
-#ifndef MCLSHIFT
-#define MCLSHIFT                              11
-#endif
-#define MCLBYTES                              (1 << MCLSHIFT)
-
-#if !defined(MJUMPAGESIZE)
-#if BNX2X_PAGE_SIZE < 2048
-#define MJUMPAGESIZE    MCLBYTES
-#elif BNX2X_PAGE_SIZE <= 8192
-#define MJUMPAGESIZE    BNX2X_PAGE_SIZE
-#else
-#define MJUMPAGESIZE    (8 * 1024)
-#endif
-#endif
-#define MJUM9BYTES      (9 * 1024)
-#define MJUM16BYTES     (16 * 1024)
 
 /*
  * Transmit Buffer Descriptor (tx_bd) definitions*
@@ -402,7 +382,6 @@ struct bnx2x_fastpath {
 	uint8_t fw_sb_id;  /* status block number in FW */
 
 	uint32_t rx_buf_size;
-	int mbuf_alloc_size;
 
 	int state;
 #define BNX2X_FP_STATE_CLOSED  0x01
@@ -1839,7 +1818,7 @@ bnx2x_ack_int(struct bnx2x_softc *sc)
 static inline int
 func_by_vn(struct bnx2x_softc *sc, int vn)
 {
-    return (2 * vn + SC_PORT(sc));
+    return 2 * vn + SC_PORT(sc);
 }
 
 /*
@@ -1874,7 +1853,7 @@ bnx2x_stats_id(struct bnx2x_fastpath *fp)
 	return fp->cl_id;
     }
 
-    return (fp->cl_id + SC_PORT(sc) * FP_SB_MAX_E1x);
+    return fp->cl_id + SC_PORT(sc) * FP_SB_MAX_E1x;
 }
 
 int bnx2x_init(struct bnx2x_softc *sc);

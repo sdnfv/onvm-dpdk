@@ -55,6 +55,7 @@
 #include <rte_prefetch.h>
 #include <rte_common.h>
 #include <rte_branch_prediction.h>
+#include <rte_memory.h>
 #ifdef PEDANTIC
 #pragma GCC diagnostic error "-pedantic"
 #endif
@@ -62,6 +63,7 @@
 #include "mlx5.h"
 #include "mlx5_utils.h"
 #include "mlx5_rxtx.h"
+#include "mlx5_autoconf.h"
 #include "mlx5_defs.h"
 
 /**
@@ -83,6 +85,7 @@ txq_complete(struct txq *txq)
 {
 	unsigned int elts_comp = txq->elts_comp;
 	unsigned int elts_tail = txq->elts_tail;
+	unsigned int elts_free = txq->elts_tail;
 	const unsigned int elts_n = txq->elts_n;
 	int wcs_n;
 
@@ -92,7 +95,7 @@ txq_complete(struct txq *txq)
 	DEBUG("%p: processing %u work requests completions",
 	      (void *)txq, elts_comp);
 #endif
-	wcs_n = txq->if_cq->poll_cnt(txq->cq, elts_comp);
+	wcs_n = txq->poll_cnt(txq->cq, elts_comp);
 	if (unlikely(wcs_n == 0))
 		return 0;
 	if (unlikely(wcs_n < 0)) {
@@ -109,9 +112,78 @@ txq_complete(struct txq *txq)
 	elts_tail += wcs_n * txq->elts_comp_cd_init;
 	if (elts_tail >= elts_n)
 		elts_tail -= elts_n;
+
+	while (elts_free != elts_tail) {
+		struct txq_elt *elt = &(*txq->elts)[elts_free];
+		unsigned int elts_free_next =
+			(((elts_free + 1) == elts_n) ? 0 : elts_free + 1);
+		struct rte_mbuf *tmp = elt->buf;
+		struct txq_elt *elt_next = &(*txq->elts)[elts_free_next];
+
+#ifndef NDEBUG
+		/* Poisoning. */
+		memset(elt, 0x66, sizeof(*elt));
+#endif
+		RTE_MBUF_PREFETCH_TO_FREE(elt_next->buf);
+		/* Faster than rte_pktmbuf_free(). */
+		do {
+			struct rte_mbuf *next = NEXT(tmp);
+
+			rte_pktmbuf_free_seg(tmp);
+			tmp = next;
+		} while (tmp != NULL);
+		elts_free = elts_free_next;
+	}
+
 	txq->elts_tail = elts_tail;
 	txq->elts_comp = elts_comp;
 	return 0;
+}
+
+/* For best performance, this function should not be inlined. */
+struct ibv_mr *mlx5_mp2mr(struct ibv_pd *, const struct rte_mempool *)
+	__attribute__((noinline));
+
+/**
+ * Register mempool as a memory region.
+ *
+ * @param pd
+ *   Pointer to protection domain.
+ * @param mp
+ *   Pointer to memory pool.
+ *
+ * @return
+ *   Memory region pointer, NULL in case of error.
+ */
+struct ibv_mr *
+mlx5_mp2mr(struct ibv_pd *pd, const struct rte_mempool *mp)
+{
+	const struct rte_memseg *ms = rte_eal_get_physmem_layout();
+	uintptr_t start = mp->elt_va_start;
+	uintptr_t end = mp->elt_va_end;
+	unsigned int i;
+
+	DEBUG("mempool %p area start=%p end=%p size=%zu",
+	      (const void *)mp, (void *)start, (void *)end,
+	      (size_t)(end - start));
+	/* Round start and end to page boundary if found in memory segments. */
+	for (i = 0; (i < RTE_MAX_MEMSEG) && (ms[i].addr != NULL); ++i) {
+		uintptr_t addr = (uintptr_t)ms[i].addr;
+		size_t len = ms[i].len;
+		unsigned int align = ms[i].hugepage_sz;
+
+		if ((start > addr) && (start < addr + len))
+			start = RTE_ALIGN_FLOOR(start, align);
+		if ((end > addr) && (end < addr + len))
+			end = RTE_ALIGN_CEIL(end, align);
+	}
+	DEBUG("mempool %p using start=%p end=%p size=%zu for MR",
+	      (const void *)mp, (void *)start, (void *)end,
+	      (size_t)(end - start));
+	return ibv_reg_mr(pd,
+			  (void *)start,
+			  end - start,
+			  IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE);
 }
 
 /**
@@ -165,10 +237,7 @@ txq_mp2mr(struct txq *txq, const struct rte_mempool *mp)
 	/* Add a new entry, register MR first. */
 	DEBUG("%p: discovered new memory pool \"%s\" (%p)",
 	      (void *)txq, mp->name, (const void *)mp);
-	mr = ibv_reg_mr(txq->priv->pd,
-			(void *)mp->elt_va_start,
-			(mp->elt_va_end - mp->elt_va_start),
-			(IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE));
+	mr = mlx5_mp2mr(txq->priv->pd, mp);
 	if (unlikely(mr == NULL)) {
 		DEBUG("%p: unable to configure MR, ibv_reg_mr() failed.",
 		      (void *)txq);
@@ -266,6 +335,36 @@ txq_mp2mr_iter(const struct rte_mempool *mp, void *arg)
 	if (data.ret)
 		return;
 	txq_mp2mr(txq, mp);
+}
+
+/**
+ * Insert VLAN using mbuf headroom space.
+ *
+ * @param buf
+ *   Buffer for VLAN insertion.
+ *
+ * @return
+ *   0 on success, errno value on failure.
+ */
+static inline int
+insert_vlan_sw(struct rte_mbuf *buf)
+{
+	uintptr_t addr;
+	uint32_t vlan;
+	uint16_t head_room_len = rte_pktmbuf_headroom(buf);
+
+	if (head_room_len < 4)
+		return EINVAL;
+
+	addr = rte_pktmbuf_mtod(buf, uintptr_t);
+	vlan = htonl(0x81000000 | buf->vlan_tci);
+	memmove((void *)(addr - 4), (void *)addr, 12);
+	memcpy((void *)(addr + 8), &vlan, sizeof(vlan));
+
+	SET_DATA_OFF(buf, head_room_len - 4);
+	DATA_LEN(buf) += 4;
+
+	return 0;
 }
 
 #if MLX5_PMD_SGE_WR_N > 1
@@ -442,8 +541,11 @@ mlx5_tx_burst(void *dpdk_txq, struct rte_mbuf **pkts, uint16_t pkts_n)
 	unsigned int i;
 	unsigned int max;
 	int err;
+	struct rte_mbuf *buf = pkts[0];
 
 	assert(elts_comp_cd != 0);
+	/* Prefetch first packet cacheline. */
+	rte_prefetch0(buf);
 	txq_complete(txq);
 	max = (elts_n - (elts_head - txq->elts_tail));
 	if (max > elts_n)
@@ -457,29 +559,21 @@ mlx5_tx_burst(void *dpdk_txq, struct rte_mbuf **pkts, uint16_t pkts_n)
 	if (max > pkts_n)
 		max = pkts_n;
 	for (i = 0; (i != max); ++i) {
-		struct rte_mbuf *buf = pkts[i];
+		struct rte_mbuf *buf_next = pkts[i + 1];
 		unsigned int elts_head_next =
 			(((elts_head + 1) == elts_n) ? 0 : elts_head + 1);
-		struct txq_elt *elt_next = &(*txq->elts)[elts_head_next];
 		struct txq_elt *elt = &(*txq->elts)[elts_head];
 		unsigned int segs = NB_SEGS(buf);
 #ifdef MLX5_PMD_SOFT_COUNTERS
 		unsigned int sent_size = 0;
 #endif
 		uint32_t send_flags = 0;
+#ifdef HAVE_VERBS_VLAN_INSERTION
+		int insert_vlan = 0;
+#endif /* HAVE_VERBS_VLAN_INSERTION */
 
-		/* Clean up old buffer. */
-		if (likely(elt->buf != NULL)) {
-			struct rte_mbuf *tmp = elt->buf;
-
-			/* Faster than rte_pktmbuf_free(). */
-			do {
-				struct rte_mbuf *next = NEXT(tmp);
-
-				rte_pktmbuf_free_seg(tmp);
-				tmp = next;
-			} while (tmp != NULL);
-		}
+		if (i + 1 < max)
+			rte_prefetch0(buf_next);
 		/* Request TX completion. */
 		if (unlikely(--elts_comp_cd == 0)) {
 			elts_comp_cd = txq->elts_comp_cd_init;
@@ -497,46 +591,89 @@ mlx5_tx_burst(void *dpdk_txq, struct rte_mbuf **pkts, uint16_t pkts_n)
 			if (RTE_ETH_IS_TUNNEL_PKT(buf->packet_type))
 				send_flags |= IBV_EXP_QP_BURST_TUNNEL;
 		}
+		if (buf->ol_flags & PKT_TX_VLAN_PKT) {
+#ifdef HAVE_VERBS_VLAN_INSERTION
+			if (!txq->priv->mps)
+				insert_vlan = 1;
+			else
+#endif /* HAVE_VERBS_VLAN_INSERTION */
+			{
+				err = insert_vlan_sw(buf);
+				if (unlikely(err))
+					goto stop;
+			}
+		}
 		if (likely(segs == 1)) {
 			uintptr_t addr;
 			uint32_t length;
 			uint32_t lkey;
+			uintptr_t buf_next_addr;
 
 			/* Retrieve buffer information. */
 			addr = rte_pktmbuf_mtod(buf, uintptr_t);
 			length = DATA_LEN(buf);
-			/* Retrieve Memory Region key for this memory pool. */
-			lkey = txq_mp2mr(txq, txq_mb2mp(buf));
-			if (unlikely(lkey == (uint32_t)-1)) {
-				/* MR does not exist. */
-				DEBUG("%p: unable to get MP <-> MR"
-				      " association", (void *)txq);
-				/* Clean up TX element. */
-				elt->buf = NULL;
-				goto stop;
-			}
 			/* Update element. */
 			elt->buf = buf;
 			if (txq->priv->vf)
 				rte_prefetch0((volatile void *)
 					      (uintptr_t)addr);
-			RTE_MBUF_PREFETCH_TO_FREE(elt_next->buf);
+			/* Prefetch next buffer data. */
+			if (i + 1 < max) {
+				buf_next_addr =
+					rte_pktmbuf_mtod(buf_next, uintptr_t);
+				rte_prefetch0((volatile void *)
+					      (uintptr_t)buf_next_addr);
+			}
 			/* Put packet into send queue. */
 #if MLX5_PMD_MAX_INLINE > 0
-			if (length <= txq->max_inline)
-				err = txq->if_qp->send_pending_inline
-					(txq->qp,
-					 (void *)addr,
-					 length,
-					 send_flags);
-			else
+			if (length <= txq->max_inline) {
+#ifdef HAVE_VERBS_VLAN_INSERTION
+				if (insert_vlan)
+					err = txq->send_pending_inline_vlan
+						(txq->qp,
+						 (void *)addr,
+						 length,
+						 send_flags,
+						 &buf->vlan_tci);
+				else
+#endif /* HAVE_VERBS_VLAN_INSERTION */
+					err = txq->send_pending_inline
+						(txq->qp,
+						 (void *)addr,
+						 length,
+						 send_flags);
+			} else
 #endif
-				err = txq->if_qp->send_pending
-					(txq->qp,
-					 addr,
-					 length,
-					 lkey,
-					 send_flags);
+			{
+				/* Retrieve Memory Region key for this
+				 * memory pool. */
+				lkey = txq_mp2mr(txq, txq_mb2mp(buf));
+				if (unlikely(lkey == (uint32_t)-1)) {
+					/* MR does not exist. */
+					DEBUG("%p: unable to get MP <-> MR"
+					      " association", (void *)txq);
+					/* Clean up TX element. */
+					elt->buf = NULL;
+					goto stop;
+				}
+#ifdef HAVE_VERBS_VLAN_INSERTION
+				if (insert_vlan)
+					err = txq->send_pending_vlan
+						(txq->qp,
+						 addr,
+						 length,
+						 lkey,
+						 send_flags,
+						 &buf->vlan_tci);
+				else
+#endif /* HAVE_VERBS_VLAN_INSERTION */
+					err = txq->send_pending
+						(txq->qp,
+						 addr,
+						 length,
+						 lkey,
+						 send_flags);
+			}
 			if (unlikely(err))
 				goto stop;
 #ifdef MLX5_PMD_SOFT_COUNTERS
@@ -551,13 +688,22 @@ mlx5_tx_burst(void *dpdk_txq, struct rte_mbuf **pkts, uint16_t pkts_n)
 					  &sges);
 			if (ret.length == (unsigned int)-1)
 				goto stop;
-			RTE_MBUF_PREFETCH_TO_FREE(elt_next->buf);
 			/* Put SG list into send queue. */
-			err = txq->if_qp->send_pending_sg_list
-				(txq->qp,
-				 sges,
-				 ret.num,
-				 send_flags);
+#ifdef HAVE_VERBS_VLAN_INSERTION
+			if (insert_vlan)
+				err = txq->send_pending_sg_list_vlan
+					(txq->qp,
+					 sges,
+					 ret.num,
+					 send_flags,
+					 &buf->vlan_tci);
+			else
+#endif /* HAVE_VERBS_VLAN_INSERTION */
+				err = txq->send_pending_sg_list
+					(txq->qp,
+					 sges,
+					 ret.num,
+					 send_flags);
 			if (unlikely(err))
 				goto stop;
 #ifdef MLX5_PMD_SOFT_COUNTERS
@@ -570,6 +716,7 @@ mlx5_tx_burst(void *dpdk_txq, struct rte_mbuf **pkts, uint16_t pkts_n)
 #endif /* MLX5_PMD_SGE_WR_N > 1 */
 		}
 		elts_head = elts_head_next;
+		buf = buf_next;
 #ifdef MLX5_PMD_SOFT_COUNTERS
 		/* Increment sent bytes counter. */
 		txq->stats.obytes += sent_size;
@@ -584,7 +731,7 @@ stop:
 	txq->stats.opackets += i;
 #endif
 	/* Ring QP doorbell. */
-	err = txq->if_qp->send_flush(txq->qp);
+	err = txq->send_flush(txq->qp);
 	if (unlikely(err)) {
 		/* A nonzero value is not supposed to be returned.
 		 * Nothing can be done about it. */
@@ -602,6 +749,8 @@ stop:
  *
  * @param flags
  *   RX completion flags returned by poll_length_flags().
+ *
+ * @note: fix mlx5_dev_supported_ptypes_get() if any change here.
  *
  * @return
  *   Packet type for struct rte_mbuf.
@@ -652,14 +801,24 @@ rxq_cq_to_ol_flags(const struct rxq *rxq, uint32_t flags)
 {
 	uint32_t ol_flags = 0;
 
-	if (rxq->csum)
-		ol_flags |=
-			TRANSPOSE(~flags,
-				  IBV_EXP_CQ_RX_IP_CSUM_OK,
-				  PKT_RX_IP_CKSUM_BAD) |
-			TRANSPOSE(~flags,
-				  IBV_EXP_CQ_RX_TCP_UDP_CSUM_OK,
-				  PKT_RX_L4_CKSUM_BAD);
+	if (rxq->csum) {
+		/* Set IP checksum flag only for IPv4/IPv6 packets. */
+		if (flags &
+		    (IBV_EXP_CQ_RX_IPV4_PACKET | IBV_EXP_CQ_RX_IPV6_PACKET))
+			ol_flags |=
+				TRANSPOSE(~flags,
+					IBV_EXP_CQ_RX_IP_CSUM_OK,
+					PKT_RX_IP_CKSUM_BAD);
+#ifdef HAVE_EXP_CQ_RX_TCP_PACKET
+		/* Set L4 checksum flag only for TCP/UDP packets. */
+		if (flags &
+		    (IBV_EXP_CQ_RX_TCP_PACKET | IBV_EXP_CQ_RX_UDP_PACKET))
+#endif /* HAVE_EXP_CQ_RX_TCP_PACKET */
+			ol_flags |=
+				TRANSPOSE(~flags,
+					IBV_EXP_CQ_RX_TCP_UDP_CSUM_OK,
+					PKT_RX_L4_CKSUM_BAD);
+	}
 	/*
 	 * PKT_RX_IP_CKSUM_BAD and PKT_RX_L4_CKSUM_BAD are used in place
 	 * of PKT_RX_EIP_CKSUM_BAD because the latter is not functional
@@ -713,12 +872,12 @@ mlx5_rx_burst_sp(void *dpdk_rxq, struct rte_mbuf **pkts, uint16_t pkts_n)
 		unsigned int seg_headroom = RTE_PKTMBUF_HEADROOM;
 		unsigned int j = 0;
 		uint32_t flags;
+		uint16_t vlan_tci;
 
 		/* Sanity checks. */
 		assert(elts_head < rxq->elts_n);
 		assert(rxq->elts_head < rxq->elts_n);
-		ret = rxq->if_cq->poll_length_flags(rxq->cq, NULL, NULL,
-						    &flags);
+		ret = rxq->poll(rxq->cq, NULL, NULL, &flags, &vlan_tci);
 		if (unlikely(ret < 0)) {
 			struct ibv_wc wc;
 			int wcs_n;
@@ -751,7 +910,8 @@ mlx5_rx_burst_sp(void *dpdk_rxq, struct rte_mbuf **pkts, uint16_t pkts_n)
 		}
 		if (ret == 0)
 			break;
-		len = ret;
+		assert(ret >= (rxq->crc_present << 2));
+		len = ret - (rxq->crc_present << 2);
 		pkt_buf_len = len;
 		/*
 		 * Replace spent segments with new ones, concatenate and
@@ -838,8 +998,16 @@ mlx5_rx_burst_sp(void *dpdk_rxq, struct rte_mbuf **pkts, uint16_t pkts_n)
 		NB_SEGS(pkt_buf) = j;
 		PORT(pkt_buf) = rxq->port_id;
 		PKT_LEN(pkt_buf) = pkt_buf_len;
-		pkt_buf->packet_type = rxq_cq_to_pkt_type(flags);
-		pkt_buf->ol_flags = rxq_cq_to_ol_flags(rxq, flags);
+		if (rxq->csum | rxq->csum_l2tun | rxq->vlan_strip) {
+			pkt_buf->packet_type = rxq_cq_to_pkt_type(flags);
+			pkt_buf->ol_flags = rxq_cq_to_ol_flags(rxq, flags);
+#ifdef HAVE_EXP_DEVICE_ATTR_VLAN_OFFLOADS
+			if (flags & IBV_EXP_CQ_RX_CVLAN_STRIPPED_V1) {
+				pkt_buf->ol_flags |= PKT_RX_VLAN_PKT;
+				pkt_buf->vlan_tci = vlan_tci;
+			}
+#endif /* HAVE_EXP_DEVICE_ATTR_VLAN_OFFLOADS */
+		}
 
 		/* Return packet. */
 		*(pkts++) = pkt_buf;
@@ -849,9 +1017,7 @@ mlx5_rx_burst_sp(void *dpdk_rxq, struct rte_mbuf **pkts, uint16_t pkts_n)
 		rxq->stats.ibytes += pkt_buf_len;
 #endif
 repost:
-		ret = rxq->if_wq->recv_sg_list(rxq->wq,
-					       elt->sges,
-					       RTE_DIM(elt->sges));
+		ret = rxq->recv(rxq->wq, elt->sges, RTE_DIM(elt->sges));
 		if (unlikely(ret)) {
 			/* Inability to repost WRs is fatal. */
 			DEBUG("%p: recv_sg_list(): failed (ret=%d)",
@@ -910,6 +1076,7 @@ mlx5_rx_burst(void *dpdk_rxq, struct rte_mbuf **pkts, uint16_t pkts_n)
 		struct rte_mbuf *seg = elt->buf;
 		struct rte_mbuf *rep;
 		uint32_t flags;
+		uint16_t vlan_tci;
 
 		/* Sanity checks. */
 		assert(seg != NULL);
@@ -921,8 +1088,7 @@ mlx5_rx_burst(void *dpdk_rxq, struct rte_mbuf **pkts, uint16_t pkts_n)
 		 */
 		rte_prefetch0(seg);
 		rte_prefetch0(&seg->cacheline1);
-		ret = rxq->if_cq->poll_length_flags(rxq->cq, NULL, NULL,
-						    &flags);
+		ret = rxq->poll(rxq->cq, NULL, NULL, &flags, &vlan_tci);
 		if (unlikely(ret < 0)) {
 			struct ibv_wc wc;
 			int wcs_n;
@@ -957,7 +1123,8 @@ mlx5_rx_burst(void *dpdk_rxq, struct rte_mbuf **pkts, uint16_t pkts_n)
 		}
 		if (ret == 0)
 			break;
-		len = ret;
+		assert(ret >= (rxq->crc_present << 2));
+		len = ret - (rxq->crc_present << 2);
 		rep = __rte_mbuf_raw_alloc(rxq->mp);
 		if (unlikely(rep == NULL)) {
 			/*
@@ -987,9 +1154,16 @@ mlx5_rx_burst(void *dpdk_rxq, struct rte_mbuf **pkts, uint16_t pkts_n)
 		NEXT(seg) = NULL;
 		PKT_LEN(seg) = len;
 		DATA_LEN(seg) = len;
-		seg->packet_type = rxq_cq_to_pkt_type(flags);
-		seg->ol_flags = rxq_cq_to_ol_flags(rxq, flags);
-
+		if (rxq->csum | rxq->csum_l2tun | rxq->vlan_strip) {
+			seg->packet_type = rxq_cq_to_pkt_type(flags);
+			seg->ol_flags = rxq_cq_to_ol_flags(rxq, flags);
+#ifdef HAVE_EXP_DEVICE_ATTR_VLAN_OFFLOADS
+			if (flags & IBV_EXP_CQ_RX_CVLAN_STRIPPED_V1) {
+				seg->ol_flags |= PKT_RX_VLAN_PKT;
+				seg->vlan_tci = vlan_tci;
+			}
+#endif /* HAVE_EXP_DEVICE_ATTR_VLAN_OFFLOADS */
+		}
 		/* Return packet. */
 		*(pkts++) = seg;
 		++pkts_ret;
@@ -1008,7 +1182,7 @@ repost:
 #ifdef DEBUG_RECV
 	DEBUG("%p: reposting %u WRs", (void *)rxq, i);
 #endif
-	ret = rxq->if_wq->recv_burst(rxq->wq, sges, i);
+	ret = rxq->recv(rxq->wq, sges, i);
 	if (unlikely(ret)) {
 		/* Inability to repost WRs is fatal. */
 		DEBUG("%p: recv_burst(): failed (ret=%d)",

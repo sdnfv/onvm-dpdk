@@ -39,8 +39,7 @@ Overview
 --------
 
 The application demonstrates the use of zero-copy buffers for packet forwarding.
-The initialization and run-time paths are very similar to those of the L2 forwarding application
-(see Chapter 9 "L2 Forwarding Sample Application (in Real and Virtualized Environments)" for details more information).
+The initialization and run-time paths are very similar to those of the :doc:`l2_forward_real_virtual`.
 This guide highlights the differences between the two applications.
 There are two key differences from the L2 Forwarding sample application:
 
@@ -134,8 +133,7 @@ Explanation
 
 The following sections provide some explanation of the code.
 As mentioned in the overview section,
-the initialization and run-time paths are very similar to those of the L2 Forwarding sample application
-(see Chapter 9 "L2 Forwarding Sample Application in Real and Virtualized Environments" for more information).
+the initialization and run-time paths are very similar to those of the :doc:`l2_forward_real_virtual`.
 The following sections describe aspects that are specific to the IPv4 Multicast sample application.
 
 Memory Pool Initialization
@@ -222,7 +220,7 @@ Then, the number of ports in the destination portmask is calculated with the hel
 
         for (n = 0; v != 0; v &= v - 1, n++)
            ;
-        return (n);
+        return n;
     }
 
 This is done to determine which forwarding algorithm to use.
@@ -344,13 +342,13 @@ It is the mcast_out_pkt() function that performs the packet duplication (either 
         /* Create new mbuf for the header. */
 
         if (unlikely ((hdr = rte_pktmbuf_alloc(header_pool)) == NULL))
-            return (NULL);
+            return NULL;
 
         /* If requested, then make a new clone packet. */
 
         if (use_clone != 0 && unlikely ((pkt = rte_pktmbuf_clone(pkt, clone_pool)) == NULL)) {
             rte_pktmbuf_free(hdr);
-            return (NULL);
+            return NULL;
         }
 
         /* prepend new header */
@@ -370,5 +368,5 @@ It is the mcast_out_pkt() function that performs the packet duplication (either 
         hdr->ol_flags = pkt->ol_flags;
         rte_mbuf_sanity_check(hdr, RTE_MBUF_PKT, 1);
 
-        return (hdr);
+        return hdr;
     }

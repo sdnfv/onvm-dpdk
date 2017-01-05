@@ -1,7 +1,7 @@
 /*-
  *   BSD LICENSE
  *
- *   Copyright(c) 2010-2014 Intel Corporation. All rights reserved.
+ *   Copyright(c) 2010-2016 Intel Corporation. All rights reserved.
  *   Copyright(c) 2012-2014 6WIND S.A.
  *   All rights reserved.
  *
@@ -49,7 +49,8 @@
 #include <errno.h>
 #include <sys/mman.h>
 #include <sys/queue.h>
-#if defined(RTE_ARCH_X86_64) || defined(RTE_ARCH_I686)
+#include <sys/stat.h>
+#if defined(RTE_ARCH_X86)
 #include <sys/io.h>
 #endif
 
@@ -711,10 +712,12 @@ rte_eal_mcfg_complete(void)
 int
 rte_eal_iopl_init(void)
 {
-#if defined(RTE_ARCH_X86_64) || defined(RTE_ARCH_I686)
+#if defined(RTE_ARCH_X86)
 	if (iopl(3) != 0)
 		return -1;
 	return 0;
+#elif defined(RTE_ARCH_ARM) || defined(RTE_ARCH_ARM64)
+	return 0; /* iopl syscall not supported for ARM/ARM64 */
 #else
 	return -1;
 #endif
@@ -818,8 +821,6 @@ rte_eal_init(int argc, char **argv)
 
 	eal_check_mem_on_local_socket();
 
-	rte_eal_mcfg_complete();
-
 	if (eal_plugins_init() < 0)
 		rte_panic("Cannot init plugins\n");
 
@@ -877,6 +878,8 @@ rte_eal_init(int argc, char **argv)
 	if (rte_eal_pci_probe())
 		rte_panic("Cannot probe PCI\n");
 
+	rte_eal_mcfg_complete();
+
 	return fctret;
 }
 
@@ -901,27 +904,33 @@ int rte_eal_has_hugepages(void)
 int
 rte_eal_check_module(const char *module_name)
 {
-	char mod_name[30]; /* Any module names can be longer than 30 bytes? */
-	int ret = 0;
+	char sysfs_mod_name[PATH_MAX];
+	struct stat st;
 	int n;
 
 	if (NULL == module_name)
 		return -1;
 
-	FILE *fd = fopen("/proc/modules", "r");
-	if (NULL == fd) {
-		RTE_LOG(ERR, EAL, "Open /proc/modules failed!"
-			" error %i (%s)\n", errno, strerror(errno));
+	/* Check if there is sysfs mounted */
+	if (stat("/sys/module", &st) != 0) {
+		RTE_LOG(DEBUG, EAL, "sysfs is not mounted! error %i (%s)\n",
+			errno, strerror(errno));
 		return -1;
 	}
-	while (!feof(fd)) {
-		n = fscanf(fd, "%29s %*[^\n]", mod_name);
-		if ((n == 1) && !strcmp(mod_name, module_name)) {
-			ret = 1;
-			break;
-		}
-	}
-	fclose(fd);
 
-	return ret;
+	/* A module might be built-in, therefore try sysfs */
+	n = snprintf(sysfs_mod_name, PATH_MAX, "/sys/module/%s", module_name);
+	if (n < 0 || n > PATH_MAX) {
+		RTE_LOG(DEBUG, EAL, "Could not format module path\n");
+		return -1;
+	}
+
+	if (stat(sysfs_mod_name, &st) != 0) {
+		RTE_LOG(DEBUG, EAL, "Module %s not found! error %i (%s)\n",
+		        sysfs_mod_name, errno, strerror(errno));
+		return 0;
+	}
+
+	/* Module has been found */
+	return 1;
 }

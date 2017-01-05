@@ -88,7 +88,7 @@ extern "C" {
 #define PKT_RX_FDIR          (1ULL << 2)  /**< RX packet with FDIR match indicate. */
 #define PKT_RX_L4_CKSUM_BAD  (1ULL << 3)  /**< L4 cksum of RX pkt. is not OK. */
 #define PKT_RX_IP_CKSUM_BAD  (1ULL << 4)  /**< IP cksum of RX pkt. is not OK. */
-#define PKT_RX_EIP_CKSUM_BAD (0ULL << 0)  /**< External IP header checksum error. */
+#define PKT_RX_EIP_CKSUM_BAD (1ULL << 5)  /**< External IP header checksum error. */
 #define PKT_RX_OVERSIZE      (0ULL << 0)  /**< Num of desc of an RX pkt oversize. */
 #define PKT_RX_HBUF_OVERFLOW (0ULL << 0)  /**< Header buffer overflow. */
 #define PKT_RX_RECIP_ERR     (0ULL << 0)  /**< Hardware processing error. */
@@ -728,9 +728,6 @@ typedef uint8_t  MARKER8[0];  /**< generic marker with 1B alignment */
 typedef uint64_t MARKER64[0]; /**< marker that allows us to overwrite 8 bytes
                                * with a single assignment */
 
-/** Opaque rte_mbuf_offload  structure declarations */
-struct rte_mbuf_offload;
-
 /**
  * The generic rte_mbuf, containing a packet mbuf.
  */
@@ -814,7 +811,7 @@ struct rte_mbuf {
 	uint16_t vlan_tci_outer;  /**< Outer VLAN Tag Control Identifier (CPU order) */
 
 	/* second cache line - fields only used in slow path or on TX */
-	MARKER cacheline1 __rte_cache_aligned;
+	MARKER cacheline1 __rte_cache_min_aligned;
 
 	union {
 		void *userdata;   /**< Can be used for external metadata */
@@ -847,12 +844,41 @@ struct rte_mbuf {
 
 	/** Timesync flags for use with IEEE1588. */
 	uint16_t timesync;
-
-	/* Chain of off-load operations to perform on mbuf */
-	struct rte_mbuf_offload *offload_ops;
 } __rte_cache_aligned;
 
 static inline uint16_t rte_pktmbuf_priv_size(struct rte_mempool *mp);
+
+/**
+ * Return the DMA address of the beginning of the mbuf data
+ *
+ * @param mb
+ *   The pointer to the mbuf.
+ * @return
+ *   The physical address of the beginning of the mbuf data
+ */
+static inline phys_addr_t
+rte_mbuf_data_dma_addr(const struct rte_mbuf *mb)
+{
+	return mb->buf_physaddr + mb->data_off;
+}
+
+/**
+ * Return the default DMA address of the beginning of the mbuf data
+ *
+ * This function is used by drivers in their receive function, as it
+ * returns the location where data should be written by the NIC, taking
+ * the default headroom in account.
+ *
+ * @param mb
+ *   The pointer to the mbuf.
+ * @return
+ *   The physical address of the beginning of the mbuf data
+ */
+static inline phys_addr_t
+rte_mbuf_data_dma_addr_default(const struct rte_mbuf *mb)
+{
+	return mb->buf_physaddr + RTE_PKTMBUF_HEADROOM;
+}
 
 /**
  * Return the mbuf owning the data buffer address of an indirect mbuf.
@@ -1333,6 +1359,61 @@ static inline struct rte_mbuf *rte_pktmbuf_alloc(struct rte_mempool *mp)
 	if ((m = __rte_mbuf_raw_alloc(mp)) != NULL)
 		rte_pktmbuf_reset(m);
 	return m;
+}
+
+/**
+ * Allocate a bulk of mbufs, initialize refcnt and reset the fields to default
+ * values.
+ *
+ *  @param pool
+ *    The mempool from which mbufs are allocated.
+ *  @param mbufs
+ *    Array of pointers to mbufs
+ *  @param count
+ *    Array size
+ *  @return
+ *   - 0: Success
+ */
+static inline int rte_pktmbuf_alloc_bulk(struct rte_mempool *pool,
+	 struct rte_mbuf **mbufs, unsigned count)
+{
+	unsigned idx = 0;
+	int rc;
+
+	rc = rte_mempool_get_bulk(pool, (void **)mbufs, count);
+	if (unlikely(rc))
+		return rc;
+
+	/* To understand duff's device on loop unwinding optimization, see
+	 * https://en.wikipedia.org/wiki/Duff's_device.
+	 * Here while() loop is used rather than do() while{} to avoid extra
+	 * check if count is zero.
+	 */
+	switch (count % 4) {
+	case 0:
+		while (idx != count) {
+			RTE_MBUF_ASSERT(rte_mbuf_refcnt_read(mbufs[idx]) == 0);
+			rte_mbuf_refcnt_set(mbufs[idx], 1);
+			rte_pktmbuf_reset(mbufs[idx]);
+			idx++;
+	case 3:
+			RTE_MBUF_ASSERT(rte_mbuf_refcnt_read(mbufs[idx]) == 0);
+			rte_mbuf_refcnt_set(mbufs[idx], 1);
+			rte_pktmbuf_reset(mbufs[idx]);
+			idx++;
+	case 2:
+			RTE_MBUF_ASSERT(rte_mbuf_refcnt_read(mbufs[idx]) == 0);
+			rte_mbuf_refcnt_set(mbufs[idx], 1);
+			rte_pktmbuf_reset(mbufs[idx]);
+			idx++;
+	case 1:
+			RTE_MBUF_ASSERT(rte_mbuf_refcnt_read(mbufs[idx]) == 0);
+			rte_mbuf_refcnt_set(mbufs[idx], 1);
+			rte_pktmbuf_reset(mbufs[idx]);
+			idx++;
+		}
+	}
+	return 0;
 }
 
 /**

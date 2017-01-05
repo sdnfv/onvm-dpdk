@@ -163,7 +163,7 @@ Not all variants of supported NIC types have been used in testing
 
 **Description**:
    The supported network interface cards can come in a number of variants with different device ID's.
-   Not all of these variants have been tested with the Intel® DPDK.
+   Not all of these variants have been tested with the DPDK.
 
    The NIC device identifiers used during testing:
 
@@ -210,7 +210,7 @@ Multi-process sample app requires exact memory mapping
    A multi-process client application fails to initialize.
 
 **Resolution/Workaround**:
-   See the "Multi-process Limitations" section in the Intel®  DPDK Programmer's Guide for more information.
+   See the "Multi-process Limitations" section in the DPDK Programmer's Guide for more information.
 
 **Affected Environment/Platform**:
    All.
@@ -468,7 +468,7 @@ GCC might generate Intel® AVX instructions for processors without Intel® AVX s
 ------------------------------------------------------------------------------------
 
 **Description**:
-   When compiling Intel®  DPDK (and any DPDK app), gcc may generate Intel® AVX instructions, even when the
+   When compiling DPDK (and any DPDK app), gcc may generate Intel® AVX instructions, even when the
    processor does not support Intel® AVX.
 
 **Implication**:
@@ -598,3 +598,23 @@ VM power manager may not work on systems with more than 64 cores
 
 **Driver/Module**:
    VM power manager application.
+
+
+DPDK may not build on some Intel CPUs using clang < 3.7.0
+---------------------------------------------------------
+
+**Description**:
+   When compiling DPDK with an earlier version than 3.7.0 of clang, CPU flags are not detected on some Intel platforms
+   such as Intel Broadwell/Skylake (and possibly future CPUs), and therefore compilation fails due to missing intrinsics.
+
+**Implication**:
+   DPDK will not build when using a clang version < 3.7.0.
+
+**Resolution/Workaround**:
+   Use clang 3.7.0 or higher, or gcc.
+
+**Affected Environment/Platform**:
+   Platforms with Intel Broadwell/Skylake using an old clang version.
+
+**Driver/Module**:
+   Environment Abstraction Layer (EAL).

@@ -114,6 +114,7 @@ SRCS-$(CONFIG_RTE_LIBRTE_CMDLINE) += test_cmdline_string.c
 SRCS-$(CONFIG_RTE_LIBRTE_CMDLINE) += test_cmdline_lib.c
 
 ifeq ($(CONFIG_RTE_LIBRTE_SCHED),y)
+LDLIBS += -lrt
 SRCS-y += test_red.c
 SRCS-y += test_sched.c
 endif
@@ -159,6 +160,8 @@ CFLAGS += -O3
 CFLAGS += $(WERROR_FLAGS)
 
 CFLAGS += -D_GNU_SOURCE
+
+LDLIBS += -lm
 
 # Disable VTA for memcpy test
 ifeq ($(CC), gcc)

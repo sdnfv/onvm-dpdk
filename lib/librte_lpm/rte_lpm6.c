@@ -182,8 +182,11 @@ rte_lpm6_create(const char *name, int socket_id,
 		if (strncmp(name, lpm->name, RTE_LPM6_NAMESIZE) == 0)
 			break;
 	}
-	if (te != NULL)
+	lpm = NULL;
+	if (te != NULL) {
+		rte_errno = EEXIST;
 		goto exit;
+	}
 
 	/* allocate tailq entry */
 	te = rte_zmalloc("LPM6_TAILQ_ENTRY", sizeof(*te), 0);
@@ -206,8 +209,9 @@ rte_lpm6_create(const char *name, int socket_id,
 			(size_t)rules_size, RTE_CACHE_LINE_SIZE, socket_id);
 
 	if (lpm->rules_tbl == NULL) {
-		RTE_LOG(ERR, LPM, "LPM memory allocation failed\n");
+		RTE_LOG(ERR, LPM, "LPM rules_tbl allocation failed\n");
 		rte_free(lpm);
+		lpm = NULL;
 		rte_free(te);
 		goto exit;
 	}
@@ -277,15 +281,13 @@ rte_lpm6_free(struct rte_lpm6 *lpm)
 		if (te->data == (void *) lpm)
 			break;
 	}
-	if (te == NULL) {
-		rte_rwlock_write_unlock(RTE_EAL_TAILQ_RWLOCK);
-		return;
-	}
 
-	TAILQ_REMOVE(lpm_list, te, next);
+	if (te != NULL)
+		TAILQ_REMOVE(lpm_list, te, next);
 
 	rte_rwlock_write_unlock(RTE_EAL_TAILQ_RWLOCK);
 
+	rte_free(lpm->rules_tbl);
 	rte_free(lpm);
 	rte_free(te);
 }

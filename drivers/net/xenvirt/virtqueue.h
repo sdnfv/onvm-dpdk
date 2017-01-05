@@ -50,13 +50,6 @@ struct rte_mbuf;
 /* The alignment to use between consumer and producer parts of vring. */
 #define VIRTIO_PCI_VRING_ALIGN 4096
 
-/*
- * Address translatio is between gva<->hva,
- * rather than gpa<->hva in virito spec.
- */
-#define RTE_MBUF_DATA_DMA_ADDR(mb) \
-	((uint64_t)(uintptr_t)rte_pktmbuf_mtod(mb, void *))
-
 enum { VTNET_RQ = 0, VTNET_TQ = 1, VTNET_CQ = 2 };
 
 /**
@@ -133,7 +126,7 @@ struct rte_mbuf * virtqueue_detatch_unused(struct virtqueue *vq);
 static inline int __attribute__((always_inline))
 virtqueue_full(const struct virtqueue *vq)
 {
-	return (vq->vq_free_cnt == 0);
+	return vq->vq_free_cnt == 0;
 }
 
 #define VIRTQUEUE_NUSED(vq) ((uint16_t)((vq)->vq_ring.used->idx - (vq)->vq_used_cons_idx))
@@ -238,7 +231,7 @@ virtqueue_enqueue_xmit(struct virtqueue *txvq, struct rte_mbuf *cookie)
 	start_dp[idx].flags = VRING_DESC_F_NEXT;
 	start_dp[idx].addr  = (uintptr_t)NULL;
 	idx = start_dp[idx].next;
-	start_dp[idx].addr  = RTE_MBUF_DATA_DMA_ADDR(cookie);
+	start_dp[idx].addr  = (uint64_t)rte_pktmbuf_mtod(cookie, uintptr_t);
 	start_dp[idx].len   = cookie->data_len;
 	start_dp[idx].flags = 0;
 	idx = start_dp[idx].next;

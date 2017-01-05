@@ -236,9 +236,9 @@ int ixgbe_pf_host_configure(struct rte_eth_dev *eth_dev)
 	vfre_slot = (vf_num >> VFRE_SHIFT) > 0 ? 1 : 0;
 
 	/* Enable pools reserved to PF only */
-	IXGBE_WRITE_REG(hw, IXGBE_VFRE(vfre_slot), (~0) << vfre_offset);
+	IXGBE_WRITE_REG(hw, IXGBE_VFRE(vfre_slot), (~0U) << vfre_offset);
 	IXGBE_WRITE_REG(hw, IXGBE_VFRE(vfre_slot ^ 1), vfre_slot - 1);
-	IXGBE_WRITE_REG(hw, IXGBE_VFTE(vfre_slot), (~0) << vfre_offset);
+	IXGBE_WRITE_REG(hw, IXGBE_VFTE(vfre_slot), (~0U) << vfre_offset);
 	IXGBE_WRITE_REG(hw, IXGBE_VFTE(vfre_slot ^ 1), vfre_slot - 1);
 
 	/* PFDMA Tx General Switch Control Enables VMDQ loopback */
@@ -286,7 +286,7 @@ int ixgbe_pf_host_configure(struct rte_eth_dev *eth_dev)
 	 * enable vlan filtering and allow all vlan tags through
 	 */
         vlanctrl = IXGBE_READ_REG(hw, IXGBE_VLNCTRL);
-        vlanctrl |= IXGBE_VLNCTRL_VFE ; /* enable vlan filters */
+        vlanctrl |= IXGBE_VLNCTRL_VFE; /* enable vlan filters */
         IXGBE_WRITE_REG(hw, IXGBE_VLNCTRL, vlanctrl);
 
         /* VFTA - enable all vlan filters */
@@ -312,8 +312,7 @@ int ixgbe_pf_host_configure(struct rte_eth_dev *eth_dev)
 static void
 set_rx_mode(struct rte_eth_dev *dev)
 {
-	struct rte_eth_dev_data *dev_data =
-		(struct rte_eth_dev_data*)dev->data->dev_private;
+	struct rte_eth_dev_data *dev_data = dev->data;
 	struct ixgbe_hw *hw = IXGBE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
 	u32 fctrl, vmolr = IXGBE_VMOLR_BAM | IXGBE_VMOLR_AUPE;
 	uint16_t vfn = dev_num_vf(dev);
@@ -410,6 +409,40 @@ ixgbe_vf_reset_msg(struct rte_eth_dev *dev, uint16_t vf)
 }
 
 static int
+ixgbe_enable_vf_mc_promisc(struct rte_eth_dev *dev, uint32_t vf)
+{
+	struct ixgbe_hw *hw = IXGBE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
+	uint32_t vmolr;
+
+	vmolr = IXGBE_READ_REG(hw, IXGBE_VMOLR(vf));
+
+	RTE_LOG(INFO, PMD, "VF %u: enabling multicast promiscuous\n", vf);
+
+	vmolr |= IXGBE_VMOLR_MPE;
+
+	IXGBE_WRITE_REG(hw, IXGBE_VMOLR(vf), vmolr);
+
+	return 0;
+}
+
+static int
+ixgbe_disable_vf_mc_promisc(struct rte_eth_dev *dev, uint32_t vf)
+{
+	struct ixgbe_hw *hw = IXGBE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
+	uint32_t vmolr;
+
+	vmolr = IXGBE_READ_REG(hw, IXGBE_VMOLR(vf));
+
+	RTE_LOG(INFO, PMD, "VF %u: disabling multicast promiscuous\n", vf);
+
+	vmolr &= ~IXGBE_VMOLR_MPE;
+
+	IXGBE_WRITE_REG(hw, IXGBE_VMOLR(vf), vmolr);
+
+	return 0;
+}
+
+static int
 ixgbe_vf_reset(struct rte_eth_dev *dev, uint16_t vf, uint32_t *msgbuf)
 {
 	struct ixgbe_hw *hw = IXGBE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
@@ -422,6 +455,9 @@ ixgbe_vf_reset(struct rte_eth_dev *dev, uint16_t vf, uint32_t *msgbuf)
 	ixgbe_vf_reset_msg(dev, vf);
 
 	hw->mac.ops.set_rar(hw, rar_entry, vf_mac, vf, IXGBE_RAH_AV);
+
+	/* Disable multicast promiscuous at reset */
+	ixgbe_disable_vf_mc_promisc(dev, vf);
 
 	/* reply to reset with ack and vf mac address */
 	msgbuf[0] = IXGBE_VF_RESET | IXGBE_VT_MSGTYPE_ACK;
@@ -468,6 +504,9 @@ ixgbe_vf_set_multicast(struct rte_eth_dev *dev, __rte_unused uint32_t vf, uint32
 	const uint32_t IXGBE_MTA_BIT_MASK = (0x1 << IXGBE_MTA_BIT_SHIFT) - 1;
 	uint32_t reg_val;
 	int i;
+
+	/* Disable multicast promiscuous first */
+	ixgbe_disable_vf_mc_promisc(dev, vf);
 
 	/* only so many hash values supported */
 	nb_entries = RTE_MIN(nb_entries, IXGBE_MAX_VF_MC_ENTRIES);
@@ -520,7 +559,8 @@ ixgbe_set_vf_lpe(struct rte_eth_dev *dev, __rte_unused uint32_t vf, uint32_t *ms
 	/* X540 and X550 support jumbo frames in IOV mode */
 	if (hw->mac.type != ixgbe_mac_X540 &&
 		hw->mac.type != ixgbe_mac_X550 &&
-		hw->mac.type != ixgbe_mac_X550EM_x)
+		hw->mac.type != ixgbe_mac_X550EM_x &&
+		hw->mac.type != ixgbe_mac_X550EM_a)
 		return -1;
 
 	if ((max_frame < ETHER_MIN_LEN) || (max_frame > ETHER_MAX_JUMBO_FRAME_LEN))
@@ -546,6 +586,7 @@ ixgbe_negotiate_vf_api(struct rte_eth_dev *dev, uint32_t vf, uint32_t *msgbuf)
 	switch (api_version) {
 	case ixgbe_mbox_api_10:
 	case ixgbe_mbox_api_11:
+	case ixgbe_mbox_api_12:
 		vfinfo[vf].api_version = (uint8_t)api_version;
 		return 0;
 	default:
@@ -569,6 +610,7 @@ ixgbe_get_vf_queues(struct rte_eth_dev *dev, uint32_t vf, uint32_t *msgbuf)
 	switch (vfinfo[vf].api_version) {
 	case ixgbe_mbox_api_20:
 	case ixgbe_mbox_api_11:
+	case ixgbe_mbox_api_12:
 		break;
 	default:
 		return -1;
@@ -587,6 +629,26 @@ ixgbe_get_vf_queues(struct rte_eth_dev *dev, uint32_t vf, uint32_t *msgbuf)
 	 */
 
 	return 0;
+}
+
+static int
+ixgbe_set_vf_mc_promisc(struct rte_eth_dev *dev, uint32_t vf, uint32_t *msgbuf)
+{
+	struct ixgbe_vf_info *vfinfo =
+		*(IXGBE_DEV_PRIVATE_TO_P_VFDATA(dev->data->dev_private));
+	bool enable = !!msgbuf[1];	/* msgbuf contains the flag to enable */
+
+	switch (vfinfo[vf].api_version) {
+	case ixgbe_mbox_api_12:
+		break;
+	default:
+		return -1;
+	}
+
+	if (enable)
+		return ixgbe_enable_vf_mc_promisc(dev, vf);
+	else
+		return ixgbe_disable_vf_mc_promisc(dev, vf);
 }
 
 static int
@@ -640,6 +702,9 @@ ixgbe_rcv_msg_from_vf(struct rte_eth_dev *dev, uint16_t vf)
 	case IXGBE_VF_GET_QUEUES:
 		retval = ixgbe_get_vf_queues(dev, vf, msgbuf);
 		msg_size = IXGBE_VF_GET_QUEUE_MSG_SIZE;
+		break;
+	case IXGBE_VF_UPDATE_XCAST_MODE:
+		retval = ixgbe_set_vf_mc_promisc(dev, vf, msgbuf);
 		break;
 	default:
 		PMD_DRV_LOG(DEBUG, "Unhandled Msg %8.8x", (unsigned)msgbuf[0]);

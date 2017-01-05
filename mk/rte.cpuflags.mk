@@ -89,6 +89,10 @@ ifneq ($(filter $(AUTO_CPUFLAGS),__AVX2__),)
 CPUFLAGS += AVX2
 endif
 
+ifneq ($(filter $(AUTO_CPUFLAGS),__AVX512F__),)
+CPUFLAGS += AVX512F
+endif
+
 # IBM Power CPU flags
 ifneq ($(filter $(AUTO_CPUFLAGS),__PPC64__),)
 CPUFLAGS += PPC64
@@ -107,7 +111,7 @@ CPUFLAGS += VSX
 endif
 
 # ARM flags
-ifneq ($(filter $(AUTO_CPUFLAGS),__ARM_NEON_FP),)
+ifneq ($(filter $(AUTO_CPUFLAGS),__ARM_NEON),)
 CPUFLAGS += NEON
 endif
 
@@ -124,4 +128,4 @@ empty:=
 space:= $(empty) $(empty)
 CPUFLAGSTMP1 := $(addprefix RTE_CPUFLAG_,$(CPUFLAGS))
 CPUFLAGSTMP2 := $(subst $(space),$(comma),$(CPUFLAGSTMP1))
-MACHINE_CFLAGS += -DRTE_COMPILE_TIME_CPUFLAGS=$(CPUFLAGSTMP2)
+CPUFLAGS_LIST := -DRTE_COMPILE_TIME_CPUFLAGS=$(CPUFLAGSTMP2)

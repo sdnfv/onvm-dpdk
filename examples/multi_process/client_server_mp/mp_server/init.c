@@ -104,7 +104,7 @@ init_mbuf_pools(void)
 	pktmbuf_pool = rte_pktmbuf_pool_create(PKTMBUF_POOL_NAME, num_mbufs,
 		MBUF_CACHE_SIZE, 0, RTE_MBUF_DEFAULT_BUF_SIZE, rte_socket_id());
 
-	return (pktmbuf_pool == NULL); /* 0  on success */
+	return pktmbuf_pool == NULL; /* 0  on success */
 }
 
 /**
@@ -226,7 +226,7 @@ check_all_ports_link_status(uint8_t port_num, uint32_t port_mask)
 				continue;
 			}
 			/* clear all_ports_up flag if any link down */
-			if (link.link_status == 0) {
+			if (link.link_status == ETH_LINK_DOWN) {
 				all_ports_up = 0;
 				break;
 			}

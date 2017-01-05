@@ -91,18 +91,23 @@ POSSIBILITY OF SUCH DAMAGE.
 #define IXGBE_CS4227_GLOBAL_ID_LSB	0
 #define IXGBE_CS4227_SCRATCH		2
 #define IXGBE_CS4227_GLOBAL_ID_VALUE	0x03E5
-#define IXGBE_CS4227_SCRATCH_VALUE	0x5aa5
-#define IXGBE_CS4227_RETRIES		5
+#define IXGBE_CS4227_RESET_PENDING	0x1357
+#define IXGBE_CS4227_RESET_COMPLETE	0x5AA5
+#define IXGBE_CS4227_RETRIES		15
+#define IXGBE_CS4227_EFUSE_STATUS	0x0181
 #define IXGBE_CS4227_LINE_SPARE22_MSB	0x12AD	/* Reg to program speed */
 #define IXGBE_CS4227_LINE_SPARE24_LSB	0x12B0	/* Reg to program EDC */
 #define IXGBE_CS4227_HOST_SPARE22_MSB	0x1AAD	/* Reg to program speed */
 #define IXGBE_CS4227_HOST_SPARE24_LSB	0x1AB0	/* Reg to program EDC */
+#define IXGBE_CS4227_EEPROM_STATUS	0x5001
+#define IXGBE_CS4227_EEPROM_LOAD_OK	0x0001
 #define IXGBE_CS4227_SPEED_1G		0x8000
 #define IXGBE_CS4227_SPEED_10G		0
 #define IXGBE_CS4227_EDC_MODE_CX1	0x0002
 #define IXGBE_CS4227_EDC_MODE_SR	0x0004
+#define IXGBE_CS4227_EDC_MODE_DIAG	0x0008
 #define IXGBE_CS4227_RESET_HOLD		500	/* microseconds */
-#define IXGBE_CS4227_RESET_DELAY	500	/* milliseconds */
+#define IXGBE_CS4227_RESET_DELAY	450	/* milliseconds */
 #define IXGBE_CS4227_CHECK_DELAY	30	/* milliseconds */
 #define IXGBE_PE			0xE0	/* Port expander address */
 #define IXGBE_PE_OUTPUT			1	/* Output register offset */
@@ -145,8 +150,6 @@ POSSIBILITY OF SUCH DAMAGE.
 
 /* SFP+ SFF-8472 Compliance */
 #define IXGBE_SFF_SFF_8472_UNSUP	0x00
-
-#ident "$Id: ixgbe_phy.h,v 1.56 2013/09/05 23:59:49 jtkirshe Exp $"
 
 s32 ixgbe_init_phy_ops_generic(struct ixgbe_hw *hw);
 bool ixgbe_validate_phy_addr(struct ixgbe_hw *hw, u32 phy_addr);
@@ -204,4 +207,8 @@ s32 ixgbe_read_i2c_eeprom_generic(struct ixgbe_hw *hw, u8 byte_offset,
 s32 ixgbe_write_i2c_eeprom_generic(struct ixgbe_hw *hw, u8 byte_offset,
 				   u8 eeprom_data);
 void ixgbe_i2c_bus_clear(struct ixgbe_hw *hw);
+s32 ixgbe_read_i2c_combined_generic_int(struct ixgbe_hw *, u8 addr, u16 reg,
+					u16 *val, bool lock);
+s32 ixgbe_write_i2c_combined_generic_int(struct ixgbe_hw *, u8 addr, u16 reg,
+					 u16 val, bool lock);
 #endif /* _IXGBE_PHY_H_ */

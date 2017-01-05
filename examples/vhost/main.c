@@ -50,6 +50,8 @@
 #include <rte_string_fns.h>
 #include <rte_malloc.h>
 #include <rte_virtio_net.h>
+#include <rte_ip.h>
+#include <rte_tcp.h>
 
 #include "main.h"
 
@@ -66,7 +68,7 @@
 #define NUM_MBUFS_PER_PORT ((MAX_QUEUES*RTE_TEST_RX_DESC_DEFAULT) +		\
 							(num_switching_cores*MAX_PKT_BURST) +  			\
 							(num_switching_cores*RTE_TEST_TX_DESC_DEFAULT) +\
-							(num_switching_cores*MBUF_CACHE_SIZE))
+							((num_switching_cores+1)*MBUF_CACHE_SIZE))
 
 #define MBUF_CACHE_SIZE	128
 #define MBUF_DATA_SIZE	RTE_MBUF_DEFAULT_BUF_SIZE
@@ -199,6 +201,13 @@ typedef enum {
 static uint32_t enable_stats = 0;
 /* Enable retries on RX. */
 static uint32_t enable_retry = 1;
+
+/* Disable TX checksum offload */
+static uint32_t enable_tx_csum;
+
+/* Disable TSO offload */
+static uint32_t enable_tso;
+
 /* Specify timeout (in useconds) between retries on RX. */
 static uint32_t burst_rx_delay_time = BURST_RX_WAIT_US;
 /* Specify the number of retries on RX. */
@@ -293,20 +302,6 @@ struct vlan_ethhdr {
 	__be16          h_vlan_TCI;
 	__be16          h_vlan_encapsulated_proto;
 };
-
-/* IPv4 Header */
-struct ipv4_hdr {
-	uint8_t  version_ihl;		/**< version and header length */
-	uint8_t  type_of_service;	/**< type of service */
-	uint16_t total_length;		/**< length of packet */
-	uint16_t packet_id;		/**< packet ID */
-	uint16_t fragment_offset;	/**< fragmentation offset */
-	uint8_t  time_to_live;		/**< time to live */
-	uint8_t  next_proto_id;		/**< protocol ID */
-	uint16_t hdr_checksum;		/**< header checksum */
-	uint32_t src_addr;		/**< source address */
-	uint32_t dst_addr;		/**< destination address */
-} __attribute__((__packed__));
 
 /* Header lengths. */
 #define VLAN_HLEN       4
@@ -443,6 +438,14 @@ port_init(uint8_t port)
 
 	if (port >= rte_eth_dev_count()) return -1;
 
+	if (enable_tx_csum == 0)
+		rte_vhost_feature_disable(1ULL << VIRTIO_NET_F_CSUM);
+
+	if (enable_tso == 0) {
+		rte_vhost_feature_disable(1ULL << VIRTIO_NET_F_HOST_TSO4);
+		rte_vhost_feature_disable(1ULL << VIRTIO_NET_F_HOST_TSO6);
+	}
+
 	rx_rings = (uint16_t)dev_info.max_rx_queues;
 	/* Configure ethernet device. */
 	retval = rte_eth_dev_configure(port, rx_rings, tx_rings, &port_conf);
@@ -578,7 +581,9 @@ us_vhost_usage(const char *prgname)
 	"		--rx-desc-num [0-N]: the number of descriptors on rx, "
 			"used only when zero copy is enabled.\n"
 	"		--tx-desc-num [0-N]: the number of descriptors on tx, "
-			"used only when zero copy is enabled.\n",
+			"used only when zero copy is enabled.\n"
+	"		--tx-csum [0|1] disable/enable TX checksum offload.\n"
+	"		--tso [0|1] disable/enable TCP segment offload.\n",
 	       prgname);
 }
 
@@ -604,6 +609,8 @@ us_vhost_parse_args(int argc, char **argv)
 		{"zero-copy", required_argument, NULL, 0},
 		{"rx-desc-num", required_argument, NULL, 0},
 		{"tx-desc-num", required_argument, NULL, 0},
+		{"tx-csum", required_argument, NULL, 0},
+		{"tso", required_argument, NULL, 0},
 		{NULL, 0, 0, 0},
 	};
 
@@ -656,6 +663,28 @@ us_vhost_parse_args(int argc, char **argv)
 				} else {
 					enable_retry = ret;
 				}
+			}
+
+			/* Enable/disable TX checksum offload. */
+			if (!strncmp(long_option[option_index].name, "tx-csum", MAX_LONG_OPT_SZ)) {
+				ret = parse_num_opt(optarg, 1);
+				if (ret == -1) {
+					RTE_LOG(INFO, VHOST_CONFIG, "Invalid argument for tx-csum [0|1]\n");
+					us_vhost_usage(prgname);
+					return -1;
+				} else
+					enable_tx_csum = ret;
+			}
+
+			/* Enable/disable TSO offload. */
+			if (!strncmp(long_option[option_index].name, "tso", MAX_LONG_OPT_SZ)) {
+				ret = parse_num_opt(optarg, 1);
+				if (ret == -1) {
+					RTE_LOG(INFO, VHOST_CONFIG, "Invalid argument for tso [0|1]\n");
+					us_vhost_usage(prgname);
+					return -1;
+				} else
+					enable_tso = ret;
 			}
 
 			/* Specify the retries delay time (in useconds) on RX. */
@@ -911,7 +940,7 @@ gpa_to_hpa(struct vhost_dev  *vdev, uint64_t guest_pa,
 static inline int __attribute__((always_inline))
 ether_addr_cmp(struct ether_addr *ea, struct ether_addr *eb)
 {
-	return (((*(uint64_t *)ea ^ *(uint64_t *)eb) & MAC_ADDR_CMP) == 0);
+	return ((*(uint64_t *)ea ^ *(uint64_t *)eb) & MAC_ADDR_CMP) == 0;
 }
 
 /*
@@ -1116,6 +1145,34 @@ find_local_dest(struct virtio_net *dev, struct rte_mbuf *m,
 	return 0;
 }
 
+static uint16_t
+get_psd_sum(void *l3_hdr, uint64_t ol_flags)
+{
+	if (ol_flags & PKT_TX_IPV4)
+		return rte_ipv4_phdr_cksum(l3_hdr, ol_flags);
+	else /* assume ethertype == ETHER_TYPE_IPv6 */
+		return rte_ipv6_phdr_cksum(l3_hdr, ol_flags);
+}
+
+static void virtio_tx_offload(struct rte_mbuf *m)
+{
+	void *l3_hdr;
+	struct ipv4_hdr *ipv4_hdr = NULL;
+	struct tcp_hdr *tcp_hdr = NULL;
+	struct ether_hdr *eth_hdr = rte_pktmbuf_mtod(m, struct ether_hdr *);
+
+	l3_hdr = (char *)eth_hdr + m->l2_len;
+
+	if (m->ol_flags & PKT_TX_IPV4) {
+		ipv4_hdr = l3_hdr;
+		ipv4_hdr->hdr_checksum = 0;
+		m->ol_flags |= PKT_TX_IP_CKSUM;
+	}
+
+	tcp_hdr = (struct tcp_hdr *)((char *)l3_hdr + m->l3_len);
+	tcp_hdr->cksum = get_psd_sum(l3_hdr, m->ol_flags);
+}
+
 /*
  * This function routes the TX packet to the correct interface. This may be a local device
  * or the physical port.
@@ -1158,7 +1215,7 @@ virtio_tx_route(struct vhost_dev *vdev, struct rte_mbuf *m, uint16_t vlan_tag)
 			(vh->vlan_tci != vlan_tag_be))
 			vh->vlan_tci = vlan_tag_be;
 	} else {
-		m->ol_flags = PKT_TX_VLAN_PKT;
+		m->ol_flags |= PKT_TX_VLAN_PKT;
 
 		/*
 		 * Find the right seg to adjust the data len when offset is
@@ -1181,6 +1238,9 @@ virtio_tx_route(struct vhost_dev *vdev, struct rte_mbuf *m, uint16_t vlan_tag)
 
 		m->vlan_tci = vlan_tag;
 	}
+
+	if (m->ol_flags & PKT_TX_TCP_SEG)
+		virtio_tx_offload(m);
 
 	tx_q->m_table[len] = m;
 	len++;
@@ -1336,8 +1396,10 @@ switch_worker(__attribute__((unused)) void *arg)
 							rte_pktmbuf_free(pkts_burst[--tx_count]);
 					}
 				}
-				while (tx_count)
-					virtio_tx_route(vdev, pkts_burst[--tx_count], (uint16_t)dev->device_fh);
+				for (i = 0; i < tx_count; ++i) {
+					virtio_tx_route(vdev, pkts_burst[i],
+						vlan_tags[(uint16_t)dev->device_fh]);
+				}
 			}
 
 			/*move to the next device in the list*/
@@ -1847,7 +1909,7 @@ virtio_tx_route_zcp(struct virtio_net *dev, struct rte_mbuf *m,
 		mbuf->buf_physaddr = m->buf_physaddr;
 		mbuf->buf_addr = m->buf_addr;
 	}
-	mbuf->ol_flags = PKT_TX_VLAN_PKT;
+	mbuf->ol_flags |= PKT_TX_VLAN_PKT;
 	mbuf->vlan_tci = vlan_tag;
 	mbuf->l2_len = sizeof(struct ether_hdr);
 	mbuf->l3_len = sizeof(struct ipv4_hdr);
@@ -2281,7 +2343,7 @@ alloc_data_ll(uint32_t size)
 	}
 	ll_new[i].next = NULL;
 
-	return (ll_new);
+	return ll_new;
 }
 
 /*

@@ -35,11 +35,14 @@ Network Interface Controller Drivers
     :maxdepth: 3
     :numbered:
 
+    overview
     bnx2x
     cxgbe
     e1000em
+    ena
     enic
     fm10k
+    i40e
     ixgbe
     intel_vf
     mlx4
@@ -47,6 +50,7 @@ Network Interface Controller Drivers
     nfp
     szedata2
     virtio
+    vhost
     vmxnet3
     pcap_ring
 

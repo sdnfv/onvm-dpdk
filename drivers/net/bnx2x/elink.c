@@ -1234,7 +1234,7 @@ static uint8_t elink_is_4_port_mode(struct bnx2x_softc *sc)
 	port4mode_ovwr_val = REG_RD(sc, MISC_REG_PORT4MODE_EN_OVWR);
 	if (port4mode_ovwr_val & (1 << 0)) {
 		/* Return 4-port mode override value */
-		return ((port4mode_ovwr_val & (1 << 1)) == (1 << 1));
+		return (port4mode_ovwr_val & (1 << 1)) == (1 << 1);
 	}
 	/* Return 4-port mode from input pin */
 	return (uint8_t) REG_RD(sc, MISC_REG_PORT4MODE_EN);
@@ -6312,7 +6312,7 @@ elink_status_t elink_link_update(struct elink_params * params,
 	for (phy_index = ELINK_INT_PHY; phy_index < params->num_phys;
 	     phy_index++) {
 		phy_vars[phy_index].flow_ctrl = 0;
-		phy_vars[phy_index].link_status = 0;
+		phy_vars[phy_index].link_status = ETH_LINK_DOWN;
 		phy_vars[phy_index].line_speed = 0;
 		phy_vars[phy_index].duplex = DUPLEX_FULL;
 		phy_vars[phy_index].phy_link_up = 0;

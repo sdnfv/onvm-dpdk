@@ -109,8 +109,8 @@ STATIC u8 ixgbe_ones_comp_byte_add(u8 add1, u8 add2)
  *
  * Returns an error code on error.
  */
-STATIC s32 ixgbe_read_i2c_combined_generic_int(struct ixgbe_hw *hw, u8 addr,
-					       u16 reg, u16 *val, bool lock)
+s32 ixgbe_read_i2c_combined_generic_int(struct ixgbe_hw *hw, u8 addr, u16 reg,
+					u16 *val, bool lock)
 {
 	u32 swfw_mask = hw->phy.phy_semaphore_mask;
 	int max_retry = 10;
@@ -180,37 +180,6 @@ fail:
 }
 
 /**
- * ixgbe_read_i2c_combined_generic - Perform I2C read combined operation
- * @hw: pointer to the hardware structure
- * @addr: I2C bus address to read from
- * @reg: I2C device register to read from
- * @val: pointer to location to receive read value
- *
- * Returns an error code on error.
- **/
-STATIC s32 ixgbe_read_i2c_combined_generic(struct ixgbe_hw *hw, u8 addr,
-					   u16 reg, u16 *val)
-{
-	return ixgbe_read_i2c_combined_generic_int(hw, addr, reg, val, true);
-}
-
-/**
- * ixgbe_read_i2c_combined_generic_unlocked - Do I2C read combined operation
- * @hw: pointer to the hardware structure
- * @addr: I2C bus address to read from
- * @reg: I2C device register to read from
- * @val: pointer to location to receive read value
- *
- * Returns an error code on error.
- **/
-STATIC s32
-ixgbe_read_i2c_combined_generic_unlocked(struct ixgbe_hw *hw, u8 addr,
-					 u16 reg, u16 *val)
-{
-	return ixgbe_read_i2c_combined_generic_int(hw, addr, reg, val, false);
-}
-
-/**
  * ixgbe_write_i2c_combined_generic_int - Perform I2C write combined operation
  * @hw: pointer to the hardware structure
  * @addr: I2C bus address to write to
@@ -220,8 +189,8 @@ ixgbe_read_i2c_combined_generic_unlocked(struct ixgbe_hw *hw, u8 addr,
  *
  * Returns an error code on error.
  */
-STATIC s32 ixgbe_write_i2c_combined_generic_int(struct ixgbe_hw *hw, u8 addr,
-						u16 reg, u16 val, bool lock)
+s32 ixgbe_write_i2c_combined_generic_int(struct ixgbe_hw *hw, u8 addr, u16 reg,
+					 u16 val, bool lock)
 {
 	u32 swfw_mask = hw->phy.phy_semaphore_mask;
 	int max_retry = 1;
@@ -276,37 +245,6 @@ fail:
 }
 
 /**
- * ixgbe_write_i2c_combined_generic - Perform I2C write combined operation
- * @hw: pointer to the hardware structure
- * @addr: I2C bus address to write to
- * @reg: I2C device register to write to
- * @val: value to write
- *
- * Returns an error code on error.
- **/
-STATIC s32 ixgbe_write_i2c_combined_generic(struct ixgbe_hw *hw,
-					    u8 addr, u16 reg, u16 val)
-{
-	return ixgbe_write_i2c_combined_generic_int(hw, addr, reg, val, true);
-}
-
-/**
- * ixgbe_write_i2c_combined_generic_unlocked - Do I2C write combined operation
- * @hw: pointer to the hardware structure
- * @addr: I2C bus address to write to
- * @reg: I2C device register to write to
- * @val: value to write
- *
- * Returns an error code on error.
- **/
-STATIC s32
-ixgbe_write_i2c_combined_generic_unlocked(struct ixgbe_hw *hw,
-					  u8 addr, u16 reg, u16 val)
-{
-	return ixgbe_write_i2c_combined_generic_int(hw, addr, reg, val, false);
-}
-
-/**
  *  ixgbe_init_phy_ops_generic - Inits PHY function ptrs
  *  @hw: pointer to the hardware structure
  *
@@ -337,12 +275,6 @@ s32 ixgbe_init_phy_ops_generic(struct ixgbe_hw *hw)
 	phy->ops.i2c_bus_clear = ixgbe_i2c_bus_clear;
 	phy->ops.identify_sfp = ixgbe_identify_module_generic;
 	phy->sfp_type = ixgbe_sfp_type_unknown;
-	phy->ops.read_i2c_combined = ixgbe_read_i2c_combined_generic;
-	phy->ops.write_i2c_combined = ixgbe_write_i2c_combined_generic;
-	phy->ops.read_i2c_combined_unlocked =
-				ixgbe_read_i2c_combined_generic_unlocked;
-	phy->ops.write_i2c_combined_unlocked =
-				ixgbe_write_i2c_combined_generic_unlocked;
 	phy->ops.read_i2c_byte_unlocked = ixgbe_read_i2c_byte_generic_unlocked;
 	phy->ops.write_i2c_byte_unlocked =
 				ixgbe_write_i2c_byte_generic_unlocked;
@@ -494,7 +426,7 @@ s32 ixgbe_get_phy_id(struct ixgbe_hw *hw)
 
 /**
  *  ixgbe_get_phy_type_from_id - Get the phy type
- *  @hw: pointer to hardware structure
+ *  @phy_id: PHY ID information
  *
  **/
 enum ixgbe_phy_type ixgbe_get_phy_type_from_id(u32 phy_id)
@@ -526,8 +458,6 @@ enum ixgbe_phy_type ixgbe_get_phy_type_from_id(u32 phy_id)
 		phy_type = ixgbe_phy_unknown;
 		break;
 	}
-
-	DEBUGOUT1("phy type found is %d\n", phy_type);
 	return phy_type;
 }
 
@@ -951,9 +881,49 @@ s32 ixgbe_setup_phy_link_speed_generic(struct ixgbe_hw *hw,
 		hw->phy.autoneg_advertised |= IXGBE_LINK_SPEED_100_FULL;
 
 	/* Setup link based on the new speed settings */
-	hw->phy.ops.setup_link(hw);
+	ixgbe_setup_phy_link(hw);
 
 	return IXGBE_SUCCESS;
+}
+
+/**
+ * ixgbe_get_copper_speeds_supported - Get copper link speeds from phy
+ * @hw: pointer to hardware structure
+ *
+ * Determines the supported link capabilities by reading the PHY auto
+ * negotiation register.
+ **/
+static s32 ixgbe_get_copper_speeds_supported(struct ixgbe_hw *hw)
+{
+	s32 status;
+	u16 speed_ability;
+
+	status = hw->phy.ops.read_reg(hw, IXGBE_MDIO_PHY_SPEED_ABILITY,
+				      IXGBE_MDIO_PMA_PMD_DEV_TYPE,
+				      &speed_ability);
+	if (status)
+		return status;
+
+	if (speed_ability & IXGBE_MDIO_PHY_SPEED_10G)
+		hw->phy.speeds_supported |= IXGBE_LINK_SPEED_10GB_FULL;
+	if (speed_ability & IXGBE_MDIO_PHY_SPEED_1G)
+		hw->phy.speeds_supported |= IXGBE_LINK_SPEED_1GB_FULL;
+	if (speed_ability & IXGBE_MDIO_PHY_SPEED_100M)
+		hw->phy.speeds_supported |= IXGBE_LINK_SPEED_100_FULL;
+
+	switch (hw->mac.type) {
+	case ixgbe_mac_X550:
+		hw->phy.speeds_supported |= IXGBE_LINK_SPEED_2_5GB_FULL;
+		hw->phy.speeds_supported |= IXGBE_LINK_SPEED_5GB_FULL;
+		break;
+	case ixgbe_mac_X550EM_x:
+		hw->phy.speeds_supported &= ~IXGBE_LINK_SPEED_100_FULL;
+		break;
+	default:
+		break;
+	}
+
+	return status;
 }
 
 /**
@@ -961,44 +931,20 @@ s32 ixgbe_setup_phy_link_speed_generic(struct ixgbe_hw *hw,
  *  @hw: pointer to hardware structure
  *  @speed: pointer to link speed
  *  @autoneg: boolean auto-negotiation value
- *
- *  Determines the supported link capabilities by reading the PHY auto
- *  negotiation register.
  **/
 s32 ixgbe_get_copper_link_capabilities_generic(struct ixgbe_hw *hw,
 					       ixgbe_link_speed *speed,
 					       bool *autoneg)
 {
-	s32 status;
-	u16 speed_ability;
+	s32 status = IXGBE_SUCCESS;
 
 	DEBUGFUNC("ixgbe_get_copper_link_capabilities_generic");
 
-	*speed = 0;
 	*autoneg = true;
+	if (!hw->phy.speeds_supported)
+		status = ixgbe_get_copper_speeds_supported(hw);
 
-	status = hw->phy.ops.read_reg(hw, IXGBE_MDIO_PHY_SPEED_ABILITY,
-				      IXGBE_MDIO_PMA_PMD_DEV_TYPE,
-				      &speed_ability);
-
-	if (status == IXGBE_SUCCESS) {
-		if (speed_ability & IXGBE_MDIO_PHY_SPEED_10G)
-			*speed |= IXGBE_LINK_SPEED_10GB_FULL;
-		if (speed_ability & IXGBE_MDIO_PHY_SPEED_1G)
-			*speed |= IXGBE_LINK_SPEED_1GB_FULL;
-		if (speed_ability & IXGBE_MDIO_PHY_SPEED_100M)
-			*speed |= IXGBE_LINK_SPEED_100_FULL;
-	}
-
-	/* Internal PHY does not support 100 Mbps */
-	if (hw->mac.type == ixgbe_mac_X550EM_x)
-		*speed &= ~IXGBE_LINK_SPEED_100_FULL;
-
-	if (hw->mac.type == ixgbe_mac_X550) {
-		*speed |= IXGBE_LINK_SPEED_2_5GB_FULL;
-		*speed |= IXGBE_LINK_SPEED_5GB_FULL;
-	}
-
+	*speed = hw->phy.speeds_supported;
 	return status;
 }
 
@@ -2716,6 +2662,9 @@ s32 ixgbe_set_copper_phy_power(struct ixgbe_hw *hw, bool on)
 {
 	u32 status;
 	u16 reg;
+
+	if (!on && ixgbe_mng_present(hw))
+		return 0;
 
 	status = hw->phy.ops.read_reg(hw, IXGBE_MDIO_VENDOR_SPECIFIC_1_CONTROL,
 				      IXGBE_MDIO_VENDOR_SPECIFIC_1_DEV_TYPE,

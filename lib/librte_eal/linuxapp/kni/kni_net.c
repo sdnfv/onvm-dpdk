@@ -36,7 +36,6 @@
 #include <linux/kthread.h>
 #include <linux/delay.h>
 
-#include <rte_config.h>
 #include <exec-env/rte_kni_common.h>
 #include <kni_fifo.h>
 #include "kni_dev.h"
@@ -176,7 +175,7 @@ kni_net_rx_normal(struct kni_dev *kni)
 			skb->ip_summed = CHECKSUM_UNNECESSARY;
 
 			/* Call netif interface */
-			netif_rx(skb);
+			netif_rx_ni(skb);
 
 			/* Update statistics */
 			kni->stats.rx_bytes += len;

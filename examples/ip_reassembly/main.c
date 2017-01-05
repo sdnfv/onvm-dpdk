@@ -304,7 +304,7 @@ send_burst(struct lcore_queue_conf *qconf, uint32_t thresh, uint8_t port)
 			txmb->tail = 0;
 	}
 
-	return (fill);
+	return fill;
 }
 
 /* Enqueue a single packet, and send burst if queue is filled */
@@ -335,7 +335,7 @@ send_single_packet(struct rte_mbuf *m, uint8_t port)
 	if(++txmb->head == len)
 		txmb->head = 0;
 
-	return (0);
+	return 0;
 }
 
 static inline void
@@ -347,7 +347,8 @@ reassemble(struct rte_mbuf *m, uint8_t portid, uint32_t queue,
 	struct rte_ip_frag_death_row *dr;
 	struct rx_queue *rxq;
 	void *d_addr_bytes;
-	uint8_t next_hop, dst_port;
+	uint32_t next_hop_ipv4;
+	uint8_t next_hop_ipv6, dst_port;
 
 	rxq = &qconf->rx_queue_list[queue];
 
@@ -390,9 +391,9 @@ reassemble(struct rte_mbuf *m, uint8_t portid, uint32_t queue,
 		ip_dst = rte_be_to_cpu_32(ip_hdr->dst_addr);
 
 		/* Find destination port */
-		if (rte_lpm_lookup(rxq->lpm, ip_dst, &next_hop) == 0 &&
-				(enabled_port_mask & 1 << next_hop) != 0) {
-			dst_port = next_hop;
+		if (rte_lpm_lookup(rxq->lpm, ip_dst, &next_hop_ipv4) == 0 &&
+				(enabled_port_mask & 1 << next_hop_ipv4) != 0) {
+			dst_port = next_hop_ipv4;
 		}
 
 		eth_hdr->ether_type = rte_be_to_cpu_16(ETHER_TYPE_IPv4);
@@ -427,9 +428,9 @@ reassemble(struct rte_mbuf *m, uint8_t portid, uint32_t queue,
 		}
 
 		/* Find destination port */
-		if (rte_lpm6_lookup(rxq->lpm6, ip_hdr->dst_addr, &next_hop) == 0 &&
-				(enabled_port_mask & 1 << next_hop) != 0) {
-			dst_port = next_hop;
+		if (rte_lpm6_lookup(rxq->lpm6, ip_hdr->dst_addr, &next_hop_ipv6) == 0 &&
+				(enabled_port_mask & 1 << next_hop_ipv6) != 0) {
+			dst_port = next_hop_ipv6;
 		}
 
 		eth_hdr->ether_type = rte_be_to_cpu_16(ETHER_TYPE_IPv6);
@@ -561,13 +562,13 @@ parse_flow_num(const char *str, uint32_t min, uint32_t max, uint32_t *val)
 	errno = 0;
 	v = strtoul(str, &end, 10);
 	if (errno != 0 || *end != '\0')
-		return (-EINVAL);
+		return -EINVAL;
 
 	if (v < min || v > max)
-		return (-EINVAL);
+		return -EINVAL;
 
 	*val = (uint32_t)v;
-	return (0);
+	return 0;
 }
 
 static int
@@ -583,20 +584,20 @@ parse_flow_ttl(const char *str, uint32_t min, uint32_t max, uint32_t *val)
 	errno = 0;
 	v = strtoul(str, &end, 10);
 	if (errno != 0)
-		return (-EINVAL);
+		return -EINVAL;
 
 	if (*end != '\0') {
 		if (strncmp(frmt_sec, end, sizeof(frmt_sec)) == 0)
 			v *= MS_PER_S;
 		else if (strncmp(frmt_msec, end, sizeof (frmt_msec)) != 0)
-			return (-EINVAL);
+			return -EINVAL;
 	}
 
 	if (v < min || v > max)
-		return (-EINVAL);
+		return -EINVAL;
 
 	*val = (uint32_t)v;
-	return (0);
+	return 0;
 }
 
 static int
@@ -689,7 +690,7 @@ parse_args(int argc, char **argv)
 						optarg,
 						lgopts[option_index].name);
 					print_usage(prgname);
-					return (ret);
+					return ret;
 				}
 			}
 
@@ -702,7 +703,7 @@ parse_args(int argc, char **argv)
 						optarg,
 						lgopts[option_index].name);
 					print_usage(prgname);
-					return (ret);
+					return ret;
 				}
 			}
 
@@ -762,7 +763,7 @@ check_all_ports_link_status(uint8_t port_num, uint32_t port_mask)
 				continue;
 			}
 			/* clear all_ports_up flag if any link down */
-			if (link.link_status == 0) {
+			if (link.link_status == ETH_LINK_DOWN) {
 				all_ports_up = 0;
 				break;
 			}
@@ -926,6 +927,7 @@ init_mem(void)
 	char buf[PATH_MAX];
 	struct rte_lpm *lpm;
 	struct rte_lpm6 *lpm6;
+	struct rte_lpm_config lpm_config;
 	int socket;
 	unsigned lcore_id;
 
@@ -945,7 +947,11 @@ init_mem(void)
 			RTE_LOG(INFO, IP_RSMBL, "Creating LPM table on socket %i\n", socket);
 			snprintf(buf, sizeof(buf), "IP_RSMBL_LPM_%i", socket);
 
-			lpm = rte_lpm_create(buf, socket, LPM_MAX_RULES, 0);
+			lpm_config.max_rules = LPM_MAX_RULES;
+			lpm_config.number_tbl8s = 256;
+			lpm_config.flags = 0;
+
+			lpm = rte_lpm_create(buf, socket, &lpm_config);
 			if (lpm == NULL) {
 				RTE_LOG(ERR, IP_RSMBL, "Cannot create LPM table\n");
 				return -1;

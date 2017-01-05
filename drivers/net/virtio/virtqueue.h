@@ -66,9 +66,6 @@ struct rte_mbuf;
 
 #define VIRTQUEUE_MAX_NAME_SZ 32
 
-#define RTE_MBUF_DATA_DMA_ADDR(mb) \
-	(uint64_t) ((mb)->buf_physaddr + (mb)->data_off)
-
 #define VTNET_SQ_RQ_QUEUE_IDX 0
 #define VTNET_SQ_TQ_QUEUE_IDX 1
 #define VTNET_SQ_CQ_QUEUE_IDX 2
@@ -202,6 +199,8 @@ struct virtqueue {
 	/* Size bins in array as RFC 2819, undersized [0], 64 [1], etc */
 	uint64_t	size_bins[8];
 
+	uint16_t	*notify_addr;
+
 	struct vq_desc_extra {
 		void              *cookie;
 		uint16_t          ndescs;
@@ -243,6 +242,25 @@ struct virtio_net_hdr_mrg_rxbuf {
 	struct   virtio_net_hdr hdr;
 	uint16_t num_buffers; /**< Number of merged rx buffers */
 };
+
+/* Region reserved to allow for transmit header and indirect ring */
+#define VIRTIO_MAX_TX_INDIRECT 8
+struct virtio_tx_region {
+	struct virtio_net_hdr_mrg_rxbuf tx_hdr;
+	struct vring_desc tx_indir[VIRTIO_MAX_TX_INDIRECT]
+			   __attribute__((__aligned__(16)));
+};
+
+/* Chain all the descriptors in the ring with an END */
+static inline void
+vring_desc_init(struct vring_desc *dp, uint16_t n)
+{
+	uint16_t i;
+
+	for (i = 0; i < n - 1; i++)
+		dp[i].next = (uint16_t)(i + 1);
+	dp[i].next = VQ_RING_DESC_CHAIN_END;
+}
 
 /**
  * Tell the backend not to interrupt us.
@@ -302,7 +320,7 @@ virtqueue_notify(struct virtqueue *vq)
 	 * For virtio on IA, the notificaiton is through io port operation
 	 * which is a serialization instruction itself.
 	 */
-	VIRTIO_WRITE_REG_2(vq->hw, VIRTIO_PCI_QUEUE_NOTIFY, vq->vq_queue_index);
+	vq->hw->vtpci_ops->notify_queue(vq->hw, vq);
 }
 
 #ifdef RTE_LIBRTE_VIRTIO_DEBUG_DUMP

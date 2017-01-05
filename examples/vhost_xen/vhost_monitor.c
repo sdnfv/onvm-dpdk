@@ -97,14 +97,14 @@ init_watch(void)
 	xs = xs_daemon_open();
 	if (xs == NULL) {
 		RTE_LOG(ERR, XENHOST, "xs_daemon_open failed\n");
-		return (-1);
+		return -1;
 	}
 
 	ret = xs_watch(xs, "/local/domain", "mytoken");
 	if (ret == 0) {
 		RTE_LOG(ERR, XENHOST, "%s: xs_watch failed\n", __func__);
 		xs_daemon_close(xs);
-		return (-1);
+		return -1;
 	}
 
 	/* We are notified of read availability on the watch via the file descriptor. */
@@ -126,7 +126,7 @@ get_xen_guest(int dom_id)
 			return guest;
 	}
 
-	return (NULL);
+	return NULL;
 }
 
 
@@ -285,9 +285,13 @@ virtio_net_config_ll *new_device(unsigned int virtio_idx, struct xen_guest *gues
 	new_ll_dev->dev.mem = malloc(sizeof(struct virtio_memory) + sizeof(struct virtio_memory_regions) * MAX_XENVIRT_MEMPOOL);
 	new_ll_dev->dev.mem->nregions = guest->pool_num;
 	for (i = 0; i < guest->pool_num; i++) {
-		gpa = new_ll_dev->dev.mem->regions[i].guest_phys_address = (uint64_t)guest->mempool[i].gva;
-		new_ll_dev->dev.mem->regions[i].guest_phys_address_end = gpa + guest->mempool[i].mempfn_num * getpagesize();
-		new_ll_dev->dev.mem->regions[i].address_offset = (uint64_t)guest->mempool[i].hva - gpa;
+		gpa = new_ll_dev->dev.mem->regions[i].guest_phys_address =
+				(uint64_t)((uintptr_t)guest->mempool[i].gva);
+		new_ll_dev->dev.mem->regions[i].guest_phys_address_end =
+				gpa + guest->mempool[i].mempfn_num * getpagesize();
+		new_ll_dev->dev.mem->regions[i].address_offset =
+				(uint64_t)((uintptr_t)guest->mempool[i].hva -
+					(uintptr_t)gpa);
 	}
 
 	new_ll_dev->next = NULL;
@@ -296,8 +300,7 @@ virtio_net_config_ll *new_device(unsigned int virtio_idx, struct xen_guest *gues
 	add_config_ll_entry(new_ll_dev);
 	return new_ll_dev;
 err:
-	if (new_ll_dev)
-		free(new_ll_dev);
+	free(new_ll_dev);
 	rte_free(virtqueue_rx);
 	rte_free(virtqueue_tx);
 

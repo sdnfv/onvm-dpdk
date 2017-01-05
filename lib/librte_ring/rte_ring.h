@@ -431,6 +431,11 @@ __rte_ring_mp_do_enqueue(struct rte_ring *r, void * const *obj_table,
 	uint32_t mask = r->prod.mask;
 	int ret;
 
+	/* Avoid the unnecessary cmpset operation below, which is also
+	 * potentially harmful when n equals 0. */
+	if (n == 0)
+		return 0;
+
 	/* move prod.head atomically */
 	do {
 		/* Reset n to the initial burst count */
@@ -617,6 +622,11 @@ __rte_ring_mc_do_dequeue(struct rte_ring *r, void **obj_table,
 	int success;
 	unsigned i, rep = 0;
 	uint32_t mask = r->prod.mask;
+
+	/* Avoid the unnecessary cmpset operation below, which is also
+	 * potentially harmful when n equals 0. */
+	if (n == 0)
+		return 0;
 
 	/* move cons.head atomically */
 	do {
@@ -1037,7 +1047,7 @@ rte_ring_full(const struct rte_ring *r)
 {
 	uint32_t prod_tail = r->prod.tail;
 	uint32_t cons_tail = r->cons.tail;
-	return (((cons_tail - prod_tail - 1) & r->prod.mask) == 0);
+	return ((cons_tail - prod_tail - 1) & r->prod.mask) == 0;
 }
 
 /**
@@ -1070,7 +1080,7 @@ rte_ring_count(const struct rte_ring *r)
 {
 	uint32_t prod_tail = r->prod.tail;
 	uint32_t cons_tail = r->cons.tail;
-	return ((prod_tail - cons_tail) & r->prod.mask);
+	return (prod_tail - cons_tail) & r->prod.mask;
 }
 
 /**
@@ -1086,7 +1096,7 @@ rte_ring_free_count(const struct rte_ring *r)
 {
 	uint32_t prod_tail = r->prod.tail;
 	uint32_t cons_tail = r->cons.tail;
-	return ((cons_tail - prod_tail - 1) & r->prod.mask);
+	return (cons_tail - prod_tail - 1) & r->prod.mask;
 }
 
 /**

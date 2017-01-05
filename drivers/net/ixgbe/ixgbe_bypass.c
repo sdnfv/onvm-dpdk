@@ -46,7 +46,7 @@
 			    __func__, __LINE__);            \
 		return retval;                            \
 	}                                                   \
-} while(0)
+} while (0)
 
 #define	FUNC_PTR_OR_RET(func) do {                          \
 	if ((func) == NULL) {                               \
@@ -54,7 +54,7 @@
 			    __func__, __LINE__);            \
 		return;                                     \
 	}                                                   \
-} while(0)
+} while (0)
 
 
 /**
@@ -153,7 +153,7 @@ ixgbe_bypass_state_show(struct rte_eth_dev *dev, u32 *state)
 	 */
 	*state = (by_ctl >> BYPASS_STATUS_OFF_SHIFT) &  BYPASS_STATUS_OFF_MASK;
 
-	return (ret_val);
+	return ret_val;
 }
 
 

@@ -70,9 +70,10 @@ static int virtio_idx = 0;
 static const char *drivername = "xen virtio PMD";
 
 static struct rte_eth_link pmd_link = {
-		.link_speed = 10000,
+		.link_speed = ETH_SPEED_NUM_10G,
 		.link_duplex = ETH_LINK_FULL_DUPLEX,
-		.link_status = 0
+		.link_status = ETH_LINK_DOWN,
+		.link_autoneg = ETH_LINK_SPEED_FIXED
 };
 
 static void
@@ -290,7 +291,7 @@ eth_dev_start(struct rte_eth_dev *dev)
 	struct pmd_internals *pi = (struct pmd_internals *)dev->data->dev_private;
 	int rv;
 
-	dev->data->dev_link.link_status = 1;
+	dev->data->dev_link.link_status = ETH_LINK_UP;
 	while (!virtqueue_full(rxvq)) {
 		m = rte_rxmbuf_alloc(rxvq->mpool);
 		if (m == NULL)
@@ -318,7 +319,7 @@ eth_dev_stop(struct rte_eth_dev *dev)
 {
 	struct pmd_internals *pi = (struct pmd_internals *)dev->data->dev_private;
 
-	dev->data->dev_link.link_status = 0;
+	dev->data->dev_link.link_status = ETH_LINK_DOWN;
 	dev_stop_notify(pi->virtio_idx);
 }
 
@@ -431,10 +432,8 @@ gntalloc_vring_create(int queue_type, uint32_t size, int vtidx)
 		va = NULL;
 	}
 out:
-	if (pa_arr)
-		free(pa_arr);
-	if (gref_arr)
-		free(gref_arr);
+	free(pa_arr);
+	free(gref_arr);
 
 	return va;
 }

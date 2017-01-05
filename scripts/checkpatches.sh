@@ -33,11 +33,7 @@
 # Load config options:
 # - DPDK_CHECKPATCH_PATH
 # - DPDK_CHECKPATCH_LINE_LENGTH
-. scripts/load-devel-config.sh
-if [ ! -x "$DPDK_CHECKPATCH_PATH" ] ; then
-	echo 'Cannot execute DPDK_CHECKPATCH_PATH' >&2
-	exit 1
-fi
+. $(dirname $(readlink -e $0))/load-devel-config.sh
 
 length=${DPDK_CHECKPATCH_LINE_LENGTH:-80}
 
@@ -51,20 +47,32 @@ SPLIT_STRING,LINE_SPACING,PARENTHESIS_ALIGNMENT,NETWORKING_BLOCK_COMMENT_STYLE,\
 NEW_TYPEDEFS,COMPARISON_TO_NULL"
 
 print_usage () {
-	echo "usage: $(basename $0) [-q] [-v] [patch1 [patch2] ...]]"
+	cat <<- END_OF_HELP
+	usage: $(basename $0) [-q] [-v] [patch1 [patch2] ...]]
+
+	Run Linux kernel checkpatch.pl with DPDK options.
+	The environment variable DPDK_CHECKPATCH_PATH must be set.
+	END_OF_HELP
 }
 
 quiet=false
 verbose=false
 while getopts hqv ARG ; do
 	case $ARG in
-		q ) quiet=true ;;
+		q ) quiet=true && options="$options --no-summary" ;;
 		v ) verbose=true ;;
 		h ) print_usage ; exit 0 ;;
 		? ) print_usage ; exit 1 ;;
 	esac
 done
 shift $(($OPTIND - 1))
+
+if [ ! -x "$DPDK_CHECKPATCH_PATH" ] ; then
+	print_usage >&2
+	echo
+	echo 'Cannot execute DPDK_CHECKPATCH_PATH' >&2
+	exit 1
+fi
 
 status=0
 for p in "$@" ; do
