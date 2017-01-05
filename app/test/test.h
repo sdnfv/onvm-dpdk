@@ -33,9 +33,12 @@
 
 #ifndef _TEST_H_
 #define _TEST_H_
+
 #include <stddef.h>
 #include <sys/queue.h>
-#include "rte_log.h"
+
+#include <rte_common.h>
+#include <rte_log.h>
 
 #define TEST_SUCCESS  (0)
 #define TEST_FAILED  (-1)
@@ -235,7 +238,6 @@ int test_pci_run;
 
 int test_mp_secondary(void);
 
-int test_ivshmem(void);
 int test_set_rxtx_conf(cmdline_fixed_string_t mode);
 int test_set_rxtx_anchor(cmdline_fixed_string_t type);
 int test_set_rxtx_sc(cmdline_fixed_string_t type);

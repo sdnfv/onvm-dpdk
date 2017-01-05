@@ -43,16 +43,16 @@
 /* Verbs header. */
 /* ISO C doesn't support unnamed structs/unions, disabling -pedantic. */
 #ifdef PEDANTIC
-#pragma GCC diagnostic ignored "-pedantic"
+#pragma GCC diagnostic ignored "-Wpedantic"
 #endif
 #include <infiniband/verbs.h>
 #ifdef PEDANTIC
-#pragma GCC diagnostic error "-pedantic"
+#pragma GCC diagnostic error "-Wpedantic"
 #endif
 
 /* DPDK headers don't like -pedantic. */
 #ifdef PEDANTIC
-#pragma GCC diagnostic ignored "-pedantic"
+#pragma GCC diagnostic ignored "-Wpedantic"
 #endif
 #include <rte_ether.h>
 #include <rte_ethdev.h>
@@ -60,7 +60,7 @@
 #include <rte_interrupts.h>
 #include <rte_errno.h>
 #ifdef PEDANTIC
-#pragma GCC diagnostic error "-pedantic"
+#pragma GCC diagnostic error "-Wpedantic"
 #endif
 
 #include "mlx5_utils.h"
@@ -134,6 +134,8 @@ struct priv {
 	unsigned int (*reta_idx)[]; /* RETA index table. */
 	unsigned int reta_idx_n; /* RETA index size. */
 	struct fdir_filter_list *fdir_filter_list; /* Flow director rules. */
+	struct fdir_queue *fdir_drop_queue; /* Flow director drop queue. */
+	uint32_t link_speed_capa; /* Link speed capabilities. */
 	rte_spinlock_t lock; /* Lock for control functions. */
 };
 
@@ -186,6 +188,7 @@ int priv_set_flags(struct priv *, unsigned int, unsigned int);
 int mlx5_dev_configure(struct rte_eth_dev *);
 void mlx5_dev_infos_get(struct rte_eth_dev *, struct rte_eth_dev_info *);
 const uint32_t *mlx5_dev_supported_ptypes_get(struct rte_eth_dev *dev);
+int mlx5_link_update_unlocked(struct rte_eth_dev *, int);
 int mlx5_link_update(struct rte_eth_dev *, int);
 int mlx5_dev_set_mtu(struct rte_eth_dev *, uint16_t);
 int mlx5_dev_get_flow_ctrl(struct rte_eth_dev *, struct rte_eth_fc_conf *);
@@ -257,6 +260,7 @@ void mlx5_dev_stop(struct rte_eth_dev *);
 
 /* mlx5_fdir.c */
 
+void priv_fdir_queue_destroy(struct priv *, struct fdir_queue *);
 int fdir_init_filters_list(struct priv *);
 void priv_fdir_delete_filters_list(struct priv *);
 void priv_fdir_disable(struct priv *);

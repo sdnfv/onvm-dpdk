@@ -1,7 +1,7 @@
 /*-
  *   BSD LICENSE
  *
- *   Copyright(c) 2010-2014 Intel Corporation. All rights reserved.
+ *   Copyright(c) 2010-2016 Intel Corporation. All rights reserved.
  *   All rights reserved.
  *
  *   Redistribution and use in source and binary forms, with or without
@@ -63,7 +63,6 @@
 #include <rte_debug.h>
 #include <rte_ether.h>
 #include <rte_ethdev.h>
-#include <rte_ring.h>
 #include <rte_mempool.h>
 #include <rte_mbuf.h>
 #include <rte_ip.h>
@@ -140,6 +139,15 @@ struct {
 	{"acl", e_APP_PIPELINE_ACL},
 	{"lpm", e_APP_PIPELINE_LPM},
 	{"lpm-ipv6", e_APP_PIPELINE_LPM_IPV6},
+	{"hash-cuckoo-8", e_APP_PIPELINE_HASH_CUCKOO_KEY8},
+	{"hash-cuckoo-16", e_APP_PIPELINE_HASH_CUCKOO_KEY16},
+	{"hash-cuckoo-32", e_APP_PIPELINE_HASH_CUCKOO_KEY32},
+	{"hash-cuckoo-48", e_APP_PIPELINE_HASH_CUCKOO_KEY48},
+	{"hash-cuckoo-64", e_APP_PIPELINE_HASH_CUCKOO_KEY64},
+	{"hash-cuckoo-80", e_APP_PIPELINE_HASH_CUCKOO_KEY80},
+	{"hash-cuckoo-96", e_APP_PIPELINE_HASH_CUCKOO_KEY96},
+	{"hash-cuckoo-112", e_APP_PIPELINE_HASH_CUCKOO_KEY112},
+	{"hash-cuckoo-128", e_APP_PIPELINE_HASH_CUCKOO_KEY128},
 };
 
 int
@@ -167,6 +175,15 @@ app_parse_args(int argc, char **argv)
 		{"acl", 0, 0, 0},
 		{"lpm", 0, 0, 0},
 		{"lpm-ipv6", 0, 0, 0},
+		{"hash-cuckoo-8", 0, 0, 0},
+		{"hash-cuckoo-16", 0, 0, 0},
+		{"hash-cuckoo-32", 0, 0, 0},
+		{"hash-cuckoo-48", 0, 0, 0},
+		{"hash-cuckoo-64", 0, 0, 0},
+		{"hash-cuckoo-80", 0, 0, 0},
+		{"hash-cuckoo-96", 0, 0, 0},
+		{"hash-cuckoo-112", 0, 0, 0},
+		{"hash-cuckoo-128", 0, 0, 0},
 		{NULL, 0, 0, 0}
 	};
 	uint32_t lcores[3], n_lcores, lcore_id, pipeline_type_provided;

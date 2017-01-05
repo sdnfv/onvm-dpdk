@@ -485,7 +485,7 @@ virtual_ethdev_simulate_link_status_interrupt(uint8_t port_id,
 
 	vrtl_eth_dev->data->dev_link.link_status = link_status;
 
-	_rte_eth_dev_callback_process(vrtl_eth_dev, RTE_ETH_EVENT_INTR_LSC);
+	_rte_eth_dev_callback_process(vrtl_eth_dev, RTE_ETH_EVENT_INTR_LSC, NULL);
 }
 
 int
@@ -581,12 +581,12 @@ virtual_ethdev_create(const char *name, struct ether_addr *mac_addr,
 		goto err;
 
 	/* reserve an ethdev entry */
-	eth_dev = rte_eth_dev_allocate(name, RTE_ETH_DEV_PCI);
+	eth_dev = rte_eth_dev_allocate(name);
 	if (eth_dev == NULL)
 		goto err;
 
-	pci_dev->numa_node = socket_id;
-	pci_drv->name = virtual_ethdev_driver_name;
+	pci_dev->device.numa_node = socket_id;
+	pci_drv->driver.name = virtual_ethdev_driver_name;
 	pci_drv->id_table = id_table;
 
 	if (isr_support)
@@ -626,7 +626,7 @@ virtual_ethdev_create(const char *name, struct ether_addr *mac_addr,
 	eth_dev->dev_ops = &dev_private->dev_ops;
 
 	eth_dev->pci_dev = pci_dev;
-	eth_dev->pci_dev->driver = &eth_drv->pci_drv;
+	eth_dev->pci_dev->device.driver = &eth_drv->pci_drv.driver;
 
 	eth_dev->rx_pkt_burst = virtual_ethdev_rx_burst_success;
 	eth_dev->tx_pkt_burst = virtual_ethdev_tx_burst_success;

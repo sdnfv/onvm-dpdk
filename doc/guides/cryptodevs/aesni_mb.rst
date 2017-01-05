@@ -45,18 +45,18 @@ AESNI MB PMD has support for:
 
 Cipher algorithms:
 
-* RTE_CRYPTO_SYM_CIPHER_AES128_CBC
-* RTE_CRYPTO_SYM_CIPHER_AES192_CBC
-* RTE_CRYPTO_SYM_CIPHER_AES256_CBC
-* RTE_CRYPTO_SYM_CIPHER_AES128_CTR
-* RTE_CRYPTO_SYM_CIPHER_AES192_CTR
-* RTE_CRYPTO_SYM_CIPHER_AES256_CTR
+* RTE_CRYPTO_CIPHER_AES128_CBC
+* RTE_CRYPTO_CIPHER_AES192_CBC
+* RTE_CRYPTO_CIPHER_AES256_CBC
+* RTE_CRYPTO_CIPHER_AES128_CTR
+* RTE_CRYPTO_CIPHER_AES192_CTR
+* RTE_CRYPTO_CIPHER_AES256_CTR
 
 Hash algorithms:
 
-* RTE_CRYPTO_SYM_HASH_SHA1_HMAC
-* RTE_CRYPTO_SYM_HASH_SHA256_HMAC
-* RTE_CRYPTO_SYM_HASH_SHA512_HMAC
+* RTE_CRYPTO_HASH_SHA1_HMAC
+* RTE_CRYPTO_HASH_SHA256_HMAC
+* RTE_CRYPTO_HASH_SHA512_HMAC
 
 Limitations
 -----------
@@ -96,9 +96,9 @@ In order to enable this virtual crypto PMD, user must:
 
 To use the PMD in an application, user must:
 
-* Call rte_eal_vdev_init("cryptodev_aesni_mb_pmd") within the application.
+* Call rte_eal_vdev_init("crypto_aesni_mb") within the application.
 
-* Use --vdev="cryptodev_aesni_mb_pmd" in the EAL options, which will call rte_eal_vdev_init() internally.
+* Use --vdev="crypto_aesni_mb" in the EAL options, which will call rte_eal_vdev_init() internally.
 
 The following parameters (all optional) can be provided in the previous two calls:
 
@@ -113,4 +113,4 @@ Example:
 
 .. code-block:: console
 
-    ./l2fwd-crypto -c 40 -n 4 --vdev="cryptodev_aesni_mb_pmd,socket_id=1,max_nb_sessions=128"
+    ./l2fwd-crypto -c 40 -n 4 --vdev="crypto_aesni_mb,socket_id=1,max_nb_sessions=128"

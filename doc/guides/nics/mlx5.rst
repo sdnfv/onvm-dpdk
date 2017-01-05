@@ -84,9 +84,11 @@ Features
 - Promiscuous mode.
 - Multicast promiscuous mode.
 - Hardware checksum offloads.
-- Flow director (RTE_FDIR_MODE_PERFECT and RTE_FDIR_MODE_PERFECT_MAC_VLAN).
+- Flow director (RTE_FDIR_MODE_PERFECT, RTE_FDIR_MODE_PERFECT_MAC_VLAN and
+  RTE_ETH_FDIR_REJECT).
 - Secondary process TX is supported.
 - KVM and VMware ESX SR-IOV modes are supported.
+- RSS hash result is supported.
 
 Limitations
 -----------
@@ -239,12 +241,12 @@ DPDK and must be installed separately:
 
 Currently supported by DPDK:
 
-- Mellanox OFED **3.3-1.0.0.0** and **3.3-2.0.0.0**.
+- Mellanox OFED **3.4-1.0.0.0**.
 
-- Minimum firmware version:
+- firmware version:
 
-  - ConnectX-4: **12.16.1006**
-  - ConnectX-4 Lx: **14.16.1006**
+  - ConnectX-4: **12.17.1010**
+  - ConnectX-4 Lx: **14.17.1010**
 
 Getting Mellanox OFED
 ~~~~~~~~~~~~~~~~~~~~~

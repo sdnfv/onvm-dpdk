@@ -34,26 +34,25 @@ include $(RTE_SDK)/mk/rte.vars.mk
 #
 # library name
 #
-LIB = libethdev.a
+LIB = librte_ethdev.a
 
 CFLAGS += -O3
 CFLAGS += $(WERROR_FLAGS)
 
 EXPORT_MAP := rte_ether_version.map
 
-LIBABIVER := 4
+LIBABIVER := 5
 
 SRCS-y += rte_ethdev.c
 
 #
 # Export include files
 #
-SYMLINK-y-include += rte_ether.h
 SYMLINK-y-include += rte_ethdev.h
 SYMLINK-y-include += rte_eth_ctrl.h
 SYMLINK-y-include += rte_dev_info.h
 
 # this lib depends upon:
-DEPDIRS-y += lib/librte_eal lib/librte_mempool lib/librte_ring lib/librte_mbuf
+DEPDIRS-y += lib/librte_net lib/librte_eal lib/librte_mempool lib/librte_ring lib/librte_mbuf
 
 include $(RTE_SDK)/mk/rte.lib.mk

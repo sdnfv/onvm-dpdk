@@ -10,6 +10,8 @@
 #ifndef _QEDE_ETHDEV_H_
 #define _QEDE_ETHDEV_H_
 
+#include <sys/queue.h>
+
 #include <rte_ether.h>
 #include <rte_ethdev.h>
 #include <rte_dev.h>
@@ -27,6 +29,8 @@
 #include "base/ecore_hsi_eth.h"
 #include "base/ecore_dev_api.h"
 #include "base/ecore_iov_api.h"
+#include "base/ecore_cxt.h"
+#include "base/nvm_cfg.h"
 
 #include "qede_logs.h"
 #include "qede_if.h"
@@ -40,19 +44,18 @@
 /* Driver versions */
 #define QEDE_PMD_VER_PREFIX		"QEDE PMD"
 #define QEDE_PMD_VERSION_MAJOR		1
-#define QEDE_PMD_VERSION_MINOR	        1
+#define QEDE_PMD_VERSION_MINOR	        2
 #define QEDE_PMD_VERSION_REVISION       0
 #define QEDE_PMD_VERSION_PATCH	        1
 
-#define QEDE_MAJOR_VERSION		8
-#define QEDE_MINOR_VERSION		7
-#define QEDE_REVISION_VERSION		9
-#define QEDE_ENGINEERING_VERSION	0
+#define QEDE_PMD_VERSION qede_stringify(QEDE_PMD_VERSION_MAJOR) "."     \
+			 qede_stringify(QEDE_PMD_VERSION_MINOR) "."     \
+			 qede_stringify(QEDE_PMD_VERSION_REVISION) "."  \
+			 qede_stringify(QEDE_PMD_VERSION_PATCH)
 
-#define QEDE_DRV_MODULE_VERSION qede_stringify(QEDE_MAJOR_VERSION) "."	\
-		qede_stringify(QEDE_MINOR_VERSION) "."			\
-		qede_stringify(QEDE_REVISION_VERSION) "."		\
-		qede_stringify(QEDE_ENGINEERING_VERSION)
+#define QEDE_PMD_DRV_VER_STR_SIZE NAME_SIZE
+#define QEDE_PMD_VER_PREFIX "QEDE PMD"
+
 
 #define QEDE_RSS_INDIR_INITED     (1 << 0)
 #define QEDE_RSS_KEY_INITED       (1 << 1)
@@ -62,8 +65,13 @@
 #define QEDE_MAX_TSS_CNT(edev)  ((edev)->dev_info.num_queues * \
 					(edev)->dev_info.num_tc)
 
-#define QEDE_RSS_CNT(edev)	((edev)->num_rss)
-#define QEDE_TSS_CNT(edev)	((edev)->num_rss * (edev)->num_tc)
+#define QEDE_QUEUE_CNT(qdev) ((qdev)->num_queues)
+#define QEDE_RSS_COUNT(qdev) ((qdev)->num_queues - (qdev)->fp_num_tx)
+#define QEDE_TSS_COUNT(qdev) (((qdev)->num_queues - (qdev)->fp_num_rx) * \
+					(qdev)->num_tc)
+
+#define QEDE_FASTPATH_TX        (1 << 0)
+#define QEDE_FASTPATH_RX        (1 << 1)
 
 #define QEDE_DUPLEX_FULL	1
 #define QEDE_DUPLEX_HALF	2
@@ -103,22 +111,16 @@
 extern char fw_file[];
 
 /* Port/function states */
-enum dev_state {
-	QEDE_START,
-	QEDE_STOP,
-	QEDE_CLOSE
+enum qede_dev_state {
+	QEDE_DEV_INIT, /* Init the chip and Slowpath */
+	QEDE_DEV_CONFIG, /* Create Vport/Fastpath resources */
+	QEDE_DEV_START, /* Start RX/TX queues, enable traffic */
+	QEDE_DEV_STOP, /* Deactivate vport and stop traffic */
 };
 
-struct qed_int_param {
-	uint32_t int_mode;
-	uint8_t num_vectors;
-	uint8_t min_msix_cnt;
-};
-
-struct qed_int_params {
-	struct qed_int_param in;
-	struct qed_int_param out;
-	bool fp_initialized;
+struct qede_vlan_entry {
+	SLIST_ENTRY(qede_vlan_entry) list;
+	uint16_t vid;
 };
 
 /*
@@ -131,32 +133,40 @@ struct qede_dev {
 	struct qed_dev_eth_info dev_info;
 	struct ecore_sb_info *sb_array;
 	struct qede_fastpath *fp_array;
-	uint16_t num_rss;
 	uint8_t num_tc;
 	uint16_t mtu;
 	bool rss_enabled;
 	struct qed_update_vport_rss_params rss_params;
 	uint32_t flags;
 	bool gro_disable;
-	struct qede_rx_queue **rx_queues;
-	struct qede_tx_queue **tx_queues;
-	enum dev_state state;
-
-	/* Vlans */
-	osal_list_t vlan_list;
+	uint16_t num_queues;
+	uint8_t fp_num_tx;
+	uint8_t fp_num_rx;
+	enum qede_dev_state state;
+	SLIST_HEAD(vlan_list_head, qede_vlan_entry)vlan_list_head;
 	uint16_t configured_vlans;
-	uint16_t non_configured_vlans;
 	bool accept_any_vlan;
-	uint16_t vxlan_dst_port;
-
 	struct ether_addr primary_mac;
 	bool handle_hw_err;
-	char drv_ver[QED_DRV_VER_STR_SIZE];
+	char drv_ver[QEDE_PMD_DRV_VER_STR_SIZE];
 };
+
+/* Static functions */
+static int qede_vlan_filter_set(struct rte_eth_dev *eth_dev,
+				uint16_t vlan_id, int on);
+
+static int qede_rss_hash_update(struct rte_eth_dev *eth_dev,
+				struct rte_eth_rss_conf *rss_conf);
+
+static int qede_rss_reta_update(struct rte_eth_dev *eth_dev,
+				struct rte_eth_rss_reta_entry64 *reta_conf,
+				uint16_t reta_size);
+
+/* Non-static functions */
+void qede_init_rss_caps(uint8_t *rss_caps, uint64_t hf);
 
 int qed_fill_eth_dev_info(struct ecore_dev *edev,
 				 struct qed_dev_eth_info *info);
 int qede_dev_set_link_state(struct rte_eth_dev *eth_dev, bool link_up);
-void qede_config_rx_mode(struct rte_eth_dev *eth_dev);
 
 #endif /* _QEDE_ETHDEV_H_ */

@@ -46,7 +46,7 @@ struct qed_dev_eth_info {
 	uint8_t num_tc;
 
 	struct ether_addr port_mac;
-	uint8_t num_vlan_filters;
+	uint16_t num_vlan_filters;
 	uint32_t num_mac_addrs;
 };
 
@@ -75,6 +75,7 @@ struct qed_update_vport_params {
 	uint8_t accept_any_vlan;
 	uint8_t update_rss_flg;
 	struct qed_update_vport_rss_params rss_params;
+	uint16_t mtu;
 };
 
 struct qed_start_vport_params {
@@ -132,9 +133,9 @@ struct qed_eth_ops {
 			    struct qed_update_vport_params *params);
 
 	int (*q_rx_start)(struct ecore_dev *cdev,
-			  uint8_t rss_id, uint8_t rx_queue_id,
-			  uint8_t vport_id, uint16_t sb,
-			  uint8_t sb_index, uint16_t bd_max_bytes,
+			  uint8_t rss_num,
+			  struct ecore_queue_start_common_params *p_params,
+			  uint16_t bd_max_bytes,
 			  dma_addr_t bd_chain_phys_addr,
 			  dma_addr_t cqe_pbl_addr,
 			  uint16_t cqe_pbl_size, void OSAL_IOMEM * *pp_prod);
@@ -143,9 +144,8 @@ struct qed_eth_ops {
 			 struct qed_stop_rxq_params *params);
 
 	int (*q_tx_start)(struct ecore_dev *edev,
-			  uint8_t rss_id, uint16_t tx_queue_id,
-			  uint8_t vport_id, uint16_t sb,
-			  uint8_t sb_index,
+			  uint8_t rss_num,
+			  struct ecore_queue_start_common_params *p_params,
 			  dma_addr_t pbl_addr,
 			  uint16_t pbl_size, void OSAL_IOMEM * *pp_doorbell);
 
@@ -157,6 +157,8 @@ struct qed_eth_ops {
 				  struct eth_slow_path_rx_cqe *cqe);
 
 	int (*fastpath_stop)(struct ecore_dev *edev);
+
+	void (*fastpath_start)(struct ecore_dev *edev);
 
 	void (*get_vport_stats)(struct ecore_dev *edev,
 				struct ecore_eth_stats *stats);

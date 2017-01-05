@@ -70,6 +70,7 @@
 #include <rte_cpuflags.h>
 #include <rte_interrupts.h>
 #include <rte_pci.h>
+#include <rte_dev.h>
 #include <rte_devargs.h>
 #include <rte_common.h>
 #include <rte_version.h>
@@ -238,7 +239,8 @@ rte_eal_config_attach(void)
 	mem_config = (struct rte_mem_config *) mmap(NULL, sizeof(*mem_config),
 			PROT_READ, MAP_SHARED, mem_cfg_fd, 0);
 	if (mem_config == MAP_FAILED)
-		rte_panic("Cannot mmap memory for rte_config\n");
+		rte_panic("Cannot mmap memory for rte_config! error %i (%s)\n",
+			  errno, strerror(errno));
 
 	rte_config.mem_config = mem_config;
 }
@@ -263,9 +265,17 @@ rte_eal_config_reattach(void)
 	mem_config = (struct rte_mem_config *) mmap(rte_mem_cfg_addr,
 			sizeof(*mem_config), PROT_READ | PROT_WRITE, MAP_SHARED,
 			mem_cfg_fd, 0);
+	if (mem_config == MAP_FAILED || mem_config != rte_mem_cfg_addr) {
+		if (mem_config != MAP_FAILED)
+			/* errno is stale, don't use */
+			rte_panic("Cannot mmap memory for rte_config at [%p], got [%p]"
+				  " - please use '--base-virtaddr' option\n",
+				  rte_mem_cfg_addr, mem_config);
+		else
+			rte_panic("Cannot mmap memory for rte_config! error %i (%s)\n",
+				  errno, strerror(errno));
+	}
 	close(mem_cfg_fd);
-	if (mem_config == MAP_FAILED || mem_config != rte_mem_cfg_addr)
-		rte_panic("Cannot mmap memory for rte_config\n");
 
 	rte_config.mem_config = mem_config;
 }
@@ -740,6 +750,9 @@ rte_eal_init(int argc, char **argv)
 	char cpuset[RTE_CPU_AFFINITY_STR_LEN];
 	char thread_name[RTE_MAX_THREAD_NAME_LEN];
 
+	/* checks if the machine is adequate */
+	rte_cpu_check_supported();
+
 	if (!rte_atomic32_test_and_set(&run_once))
 		return -1;
 
@@ -747,9 +760,6 @@ rte_eal_init(int argc, char **argv)
 	logid = strdup(logid ? logid + 1: argv[0]);
 
 	thread_id = pthread_self();
-
-	if (rte_eal_log_early_init() < 0)
-		rte_panic("Cannot init early logs\n");
 
 	eal_log_level_parse(argc, argv);
 
@@ -789,17 +799,15 @@ rte_eal_init(int argc, char **argv)
 
 	rte_config_init();
 
+	if (rte_eal_log_init(logid, internal_config.syslog_facility) < 0)
+		rte_panic("Cannot init logs\n");
+
 	if (rte_eal_pci_init() < 0)
 		rte_panic("Cannot init PCI\n");
 
 #ifdef VFIO_PRESENT
 	if (rte_eal_vfio_setup() < 0)
 		rte_panic("Cannot init VFIO\n");
-#endif
-
-#ifdef RTE_LIBRTE_IVSHMEM
-	if (rte_eal_ivshmem_init() < 0)
-		rte_panic("Cannot init IVSHMEM\n");
 #endif
 
 	if (rte_eal_memory_init() < 0)
@@ -813,14 +821,6 @@ rte_eal_init(int argc, char **argv)
 
 	if (rte_eal_tailqs_init() < 0)
 		rte_panic("Cannot init tail queues for objects\n");
-
-#ifdef RTE_LIBRTE_IVSHMEM
-	if (rte_eal_ivshmem_obj_init() < 0)
-		rte_panic("Cannot init IVSHMEM objects\n");
-#endif
-
-	if (rte_eal_log_init(logid, internal_config.syslog_facility) < 0)
-		rte_panic("Cannot init logs\n");
 
 	if (rte_eal_alarm_init() < 0)
 		rte_panic("Cannot init interrupt-handling thread\n");

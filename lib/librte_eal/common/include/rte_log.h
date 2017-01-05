@@ -42,8 +42,6 @@
  * This file provides a log API to RTE applications.
  */
 
-#include "rte_common.h" /* for __rte_deprecated macro */
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -56,7 +54,7 @@ extern "C" {
 struct rte_logs {
 	uint32_t type;  /**< Bitfield with enabled logs. */
 	uint32_t level; /**< Log level. */
-	FILE *file;     /**< Pointer to current FILE* for logs. */
+	FILE *file;     /**< Output file set by rte_openlog_stream, or NULL. */
 };
 
 /** Global log informations */
@@ -101,9 +99,6 @@ extern struct rte_logs rte_logs;
 #define RTE_LOG_NOTICE   6U  /**< Normal but significant condition. */
 #define RTE_LOG_INFO     7U  /**< Informational.                    */
 #define RTE_LOG_DEBUG    8U  /**< Debug-level messages.             */
-
-/** The default log stream. */
-extern FILE *eal_default_log_stream;
 
 /**
  * Change the stream that will be used by the logging system.
@@ -179,45 +174,6 @@ int rte_log_cur_msg_loglevel(void);
  *   The logtype of the message being processed.
  */
 int rte_log_cur_msg_logtype(void);
-
-/**
- * @deprecated
- * Enable or disable the history (enabled by default)
- *
- * @param enable
- *   true to enable, or 0 to disable history.
- */
-__rte_deprecated
-void rte_log_set_history(int enable);
-
-/**
- * @deprecated
- * Dump the log history to a file
- *
- * @param f
- *   A pointer to a file for output
- */
-__rte_deprecated
-void rte_log_dump_history(FILE *f);
-
-/**
- * @deprecated
- * Add a log message to the history.
- *
- * This function can be called from a user-defined log stream. It adds
- * the given message in the history that can be dumped using
- * rte_log_dump_history().
- *
- * @param buf
- *   A data buffer containing the message to be saved in the history.
- * @param size
- *   The length of the data buffer.
- * @return
- *   - 0: Success.
- *   - (-ENOBUFS) if there is no room to store the message.
- */
-__rte_deprecated
-int rte_log_add_in_history(const char *buf, size_t size);
 
 /**
  * Generates a log message.

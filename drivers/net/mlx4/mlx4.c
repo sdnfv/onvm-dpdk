@@ -61,16 +61,16 @@
 /* Verbs header. */
 /* ISO C doesn't support unnamed structs/unions, disabling -pedantic. */
 #ifdef PEDANTIC
-#pragma GCC diagnostic ignored "-pedantic"
+#pragma GCC diagnostic ignored "-Wpedantic"
 #endif
 #include <infiniband/verbs.h>
 #ifdef PEDANTIC
-#pragma GCC diagnostic error "-pedantic"
+#pragma GCC diagnostic error "-Wpedantic"
 #endif
 
 /* DPDK headers don't like -pedantic. */
 #ifdef PEDANTIC
-#pragma GCC diagnostic ignored "-pedantic"
+#pragma GCC diagnostic ignored "-Wpedantic"
 #endif
 #include <rte_ether.h>
 #include <rte_ethdev.h>
@@ -87,7 +87,7 @@
 #include <rte_alarm.h>
 #include <rte_memory.h>
 #ifdef PEDANTIC
-#pragma GCC diagnostic error "-pedantic"
+#pragma GCC diagnostic error "-Wpedantic"
 #endif
 
 /* Generated configuration header. */
@@ -2995,25 +2995,20 @@ rxq_cq_to_ol_flags(const struct rxq *rxq, uint32_t flags)
 
 	if (rxq->csum)
 		ol_flags |=
-			TRANSPOSE(~flags,
+			TRANSPOSE(flags,
 				  IBV_EXP_CQ_RX_IP_CSUM_OK,
-				  PKT_RX_IP_CKSUM_BAD) |
-			TRANSPOSE(~flags,
+				  PKT_RX_IP_CKSUM_GOOD) |
+			TRANSPOSE(flags,
 				  IBV_EXP_CQ_RX_TCP_UDP_CSUM_OK,
-				  PKT_RX_L4_CKSUM_BAD);
-	/*
-	 * PKT_RX_IP_CKSUM_BAD and PKT_RX_L4_CKSUM_BAD are used in place
-	 * of PKT_RX_EIP_CKSUM_BAD because the latter is not functional
-	 * (its value is 0).
-	 */
+				  PKT_RX_L4_CKSUM_GOOD);
 	if ((flags & IBV_EXP_CQ_RX_TUNNEL_PACKET) && (rxq->csum_l2tun))
 		ol_flags |=
-			TRANSPOSE(~flags,
+			TRANSPOSE(flags,
 				  IBV_EXP_CQ_RX_OUTER_IP_CSUM_OK,
-				  PKT_RX_IP_CKSUM_BAD) |
-			TRANSPOSE(~flags,
+				  PKT_RX_IP_CKSUM_GOOD) |
+			TRANSPOSE(flags,
 				  IBV_EXP_CQ_RX_OUTER_TCP_UDP_CSUM_OK,
-				  PKT_RX_L4_CKSUM_BAD);
+				  PKT_RX_L4_CKSUM_GOOD);
 	return ol_flags;
 }
 
@@ -5448,7 +5443,7 @@ mlx4_dev_link_status_handler(void *arg)
 	ret = priv_dev_link_status_handler(priv, dev);
 	priv_unlock(priv);
 	if (ret)
-		_rte_eth_dev_callback_process(dev, RTE_ETH_EVENT_INTR_LSC);
+		_rte_eth_dev_callback_process(dev, RTE_ETH_EVENT_INTR_LSC, NULL);
 }
 
 /**
@@ -5471,7 +5466,7 @@ mlx4_dev_interrupt_handler(struct rte_intr_handle *intr_handle, void *cb_arg)
 	ret = priv_dev_link_status_handler(priv, dev);
 	priv_unlock(priv);
 	if (ret)
-		_rte_eth_dev_callback_process(dev, RTE_ETH_EVENT_INTR_LSC);
+		_rte_eth_dev_callback_process(dev, RTE_ETH_EVENT_INTR_LSC, NULL);
 }
 
 /**
@@ -5544,7 +5539,7 @@ static struct eth_driver mlx4_driver;
  *   0 on success, negative errno value on failure.
  */
 static int
-mlx4_pci_devinit(struct rte_pci_driver *pci_drv, struct rte_pci_device *pci_dev)
+mlx4_pci_probe(struct rte_pci_driver *pci_drv, struct rte_pci_device *pci_dev)
 {
 	struct ibv_device **list;
 	struct ibv_device *ibv_dev;
@@ -5803,7 +5798,7 @@ mlx4_pci_devinit(struct rte_pci_driver *pci_drv, struct rte_pci_device *pci_dev)
 
 			snprintf(name, sizeof(name), "%s port %u",
 				 ibv_get_device_name(ibv_dev), port);
-			eth_dev = rte_eth_dev_allocate(name, RTE_ETH_DEV_PCI);
+			eth_dev = rte_eth_dev_allocate(name);
 		}
 		if (eth_dev == NULL) {
 			ERROR("can not allocate rte ethdev");
@@ -5911,9 +5906,11 @@ static const struct rte_pci_id mlx4_pci_id_map[] = {
 
 static struct eth_driver mlx4_driver = {
 	.pci_drv = {
-		.name = MLX4_DRIVER_NAME,
+		.driver = {
+			.name = MLX4_DRIVER_NAME
+		},
 		.id_table = mlx4_pci_id_map,
-		.devinit = mlx4_pci_devinit,
+		.probe = mlx4_pci_probe,
 		.drv_flags = RTE_PCI_DRV_INTR_LSC,
 	},
 	.dev_private_size = sizeof(struct priv)
@@ -5922,12 +5919,10 @@ static struct eth_driver mlx4_driver = {
 /**
  * Driver initialization routine.
  */
-static int
-rte_mlx4_pmd_init(const char *name, const char *args)
+RTE_INIT(rte_mlx4_pmd_init);
+static void
+rte_mlx4_pmd_init(void)
 {
-	(void)name;
-	(void)args;
-
 	RTE_BUILD_BUG_ON(sizeof(wr_id_t) != sizeof(uint64_t));
 	/*
 	 * RDMAV_HUGEPAGES_SAFE tells ibv_fork_init() we intend to use
@@ -5938,13 +5933,7 @@ rte_mlx4_pmd_init(const char *name, const char *args)
 	setenv("RDMAV_HUGEPAGES_SAFE", "1", 1);
 	ibv_fork_init();
 	rte_eal_pci_register(&mlx4_driver.pci_drv);
-	return 0;
 }
 
-static struct rte_driver rte_mlx4_driver = {
-	.type = PMD_PDEV,
-	.init = rte_mlx4_pmd_init,
-};
-
-PMD_REGISTER_DRIVER(rte_mlx4_driver, mlx4);
-DRIVER_REGISTER_PCI_TABLE(mlx4, mlx4_pci_id_map);
+RTE_PMD_EXPORT_NAME(net_mlx4, __COUNTER__);
+RTE_PMD_REGISTER_PCI_TABLE(net_mlx4, mlx4_pci_id_map);

@@ -113,12 +113,16 @@ struct nicvf {
 	uint16_t subsystem_vendor_id;
 	struct nicvf_rbdr *rbdr;
 	struct nicvf_rss_reta_info rss_info;
-	struct rte_eth_dev *eth_dev;
 	struct rte_intr_handle intr_handle;
 	uint8_t cpi_alg;
 	uint16_t mtu;
 	bool vlan_filter_en;
 	uint8_t mac_addr[ETHER_ADDR_LEN];
+	/* secondary queue set support */
+	uint8_t sqs_id;
+	uint8_t sqs_count;
+#define MAX_SQS_PER_VF 11
+	struct nicvf *snicvf[MAX_SQS_PER_VF];
 } __rte_cache_aligned;
 
 #endif /* _THUNDERX_NICVF_STRUCT_H */

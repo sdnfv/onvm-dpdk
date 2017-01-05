@@ -1,7 +1,7 @@
 /*-
  *   BSD LICENSE
  *
- *   Copyright(c) 2010-2014 Intel Corporation. All rights reserved.
+ *   Copyright(c) 2010-2016 Intel Corporation. All rights reserved.
  *   All rights reserved.
  *
  *   Redistribution and use in source and binary forms, with or without
@@ -69,6 +69,7 @@ combined_table_test table_tests_combined[] = {
 	test_table_hash16ext,
 	test_table_hash32lru,
 	test_table_hash32ext,
+	test_table_hash_cuckoo_combined,
 };
 
 unsigned n_table_tests_combined = RTE_DIM(table_tests_combined);
@@ -110,8 +111,10 @@ test_table_type(struct rte_table_ops *table_ops, void *table_args,
 	};
 
 	if (rte_pipeline_port_in_create(pipeline, &ring_in_params,
-		&ring_in_id) != 0)
+		&ring_in_id) != 0) {
+		rte_pipeline_free(pipeline);
 		return -CHECK_TABLE_PORT_CONFIG;
+	}
 
 	/* Create table */
 	struct rte_pipeline_table_params table_params = {
@@ -123,8 +126,11 @@ test_table_type(struct rte_table_ops *table_ops, void *table_args,
 		.action_data_size = 0,
 	};
 
-	if (rte_pipeline_table_create(pipeline, &table_params, &table_id) != 0)
+	if (rte_pipeline_table_create(pipeline, &table_params,
+		&table_id) != 0) {
+		rte_pipeline_free(pipeline);
 		return -CHECK_TABLE_TABLE_CONFIG;
+	}
 
 	/* Create output ports */
 	ring_params_tx.ring = RING_TX;
@@ -136,14 +142,18 @@ test_table_type(struct rte_table_ops *table_ops, void *table_args,
 	};
 
 	if (rte_pipeline_port_out_create(pipeline, &ring_out_params,
-		&ring_out_id) != 0)
+		&ring_out_id) != 0) {
+		rte_pipeline_free(pipeline);
 		return -CHECK_TABLE_PORT_CONFIG;
+	}
 
 	ring_params_tx.ring = RING_TX_2;
 
 	if (rte_pipeline_port_out_create(pipeline, &ring_out_params,
-		&ring_out_2_id) != 0)
+		&ring_out_2_id) != 0) {
+		rte_pipeline_free(pipeline);
 		return -CHECK_TABLE_PORT_CONFIG;
+	}
 
 	/* Add entry to the table */
 	struct rte_pipeline_table_entry default_entry = {
@@ -161,24 +171,34 @@ test_table_type(struct rte_table_ops *table_ops, void *table_args,
 	int key_found;
 
 	if (rte_pipeline_table_default_entry_add(pipeline, table_id,
-		&default_entry, &default_entry_ptr) != 0)
+		&default_entry, &default_entry_ptr) != 0) {
+		rte_pipeline_free(pipeline);
 		return -CHECK_TABLE_DEFAULT_ENTRY_ADD;
+	}
 
 	if (rte_pipeline_table_entry_add(pipeline, table_id,
 		key ? key : &table_entry, &table_entry, &key_found,
-			&entry_ptr) != 0)
+			&entry_ptr) != 0) {
+		rte_pipeline_free(pipeline);
 		return -CHECK_TABLE_ENTRY_ADD;
+	}
 
 	/* Create connections and check consistency */
 	if (rte_pipeline_port_in_connect_to_table(pipeline, ring_in_id,
-		table_id) != 0)
+		table_id) != 0) {
+		rte_pipeline_free(pipeline);
 		return -CHECK_TABLE_CONNECT;
+	}
 
-	if (rte_pipeline_port_in_enable(pipeline, ring_in_id) != 0)
+	if (rte_pipeline_port_in_enable(pipeline, ring_in_id) != 0) {
+		rte_pipeline_free(pipeline);
 		return -CHECK_TABLE_PORT_ENABLE;
+	}
 
-	if (rte_pipeline_check(pipeline) != 0)
+	if (rte_pipeline_check(pipeline) != 0) {
+		rte_pipeline_free(pipeline);
 		return -CHECK_TABLE_CONSISTENCY;
+	}
 
 
 
@@ -234,13 +254,17 @@ test_table_type(struct rte_table_ops *table_ops, void *table_args,
 	table_entry.table_id = ring_out_2_id;
 
 	if (rte_pipeline_table_default_entry_add(pipeline, table_id,
-		&default_entry, &default_entry_ptr) != 0)
+		&default_entry, &default_entry_ptr) != 0) {
+		rte_pipeline_free(pipeline);
 		return -CHECK_TABLE_ENTRY_ADD;
+	}
 
 	if (rte_pipeline_table_entry_add(pipeline, table_id,
 		key ? key : &table_entry, &table_entry, &key_found,
-			&entry_ptr) != 0)
+			&entry_ptr) != 0) {
+		rte_pipeline_free(pipeline);
 		return -CHECK_TABLE_ENTRY_ADD;
+	}
 
 	/* Check that traffic destination has changed */
 	if (table_packets->n_hit_packets) {
@@ -786,3 +810,72 @@ test_table_hash32ext(void)
 
 	return 0;
 }
+
+int
+test_table_hash_cuckoo_combined(void)
+{
+	int status, i;
+
+	/* Traffic flow */
+	struct rte_table_hash_cuckoo_params cuckoo_params = {
+		.key_size = 32,
+		.n_keys = 1<<16,
+		.f_hash = pipeline_test_hash,
+		.seed = 0,
+		.signature_offset = APP_METADATA_OFFSET(0),
+		.key_offset = APP_METADATA_OFFSET(32),
+		.name = "CUCKOO_HASH",
+	};
+
+	uint8_t key_cuckoo[32];
+	uint32_t *kcuckoo = (uint32_t *) key_cuckoo;
+
+	memset(key_cuckoo, 0, sizeof(key_cuckoo));
+	kcuckoo[0] = 0xadadadad;
+
+	struct table_packets table_packets;
+
+	printf("--------------\n");
+	printf("RUNNING TEST - %s\n", __func__);
+	printf("--------------\n");
+	for (i = 0; i < 50; i++)
+		table_packets.hit_packet[i] = 0xadadadad;
+
+	for (i = 0; i < 50; i++)
+		table_packets.miss_packet[i] = 0xbdadadad;
+
+	table_packets.n_hit_packets = 50;
+	table_packets.n_miss_packets = 50;
+
+	status = test_table_type(&rte_table_hash_cuckoo_dosig_ops,
+		(void *)&cuckoo_params, (void *)key_cuckoo, &table_packets,
+		NULL, 0);
+	VERIFY(status, CHECK_TABLE_OK);
+
+	/* Invalid parameters */
+	cuckoo_params.key_size = 0;
+
+	status = test_table_type(&rte_table_hash_cuckoo_dosig_ops,
+		(void *)&cuckoo_params, (void *)key_cuckoo, &table_packets,
+		NULL, 0);
+	VERIFY(status, CHECK_TABLE_TABLE_CONFIG);
+
+	cuckoo_params.key_size = 32;
+	cuckoo_params.n_keys = 0;
+
+	status = test_table_type(&rte_table_hash_cuckoo_dosig_ops,
+		(void *)&cuckoo_params, (void *)key_cuckoo, &table_packets,
+		NULL, 0);
+	VERIFY(status, CHECK_TABLE_TABLE_CONFIG);
+
+	cuckoo_params.n_keys = 1<<16;
+	cuckoo_params.f_hash = NULL;
+
+	status = test_table_type(&rte_table_hash_cuckoo_dosig_ops,
+		(void *)&cuckoo_params, (void *)key_cuckoo, &table_packets,
+		NULL, 0);
+	VERIFY(status, CHECK_TABLE_TABLE_CONFIG);
+
+	return 0;
+}
+

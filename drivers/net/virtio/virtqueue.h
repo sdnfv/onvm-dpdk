@@ -44,6 +44,7 @@
 #include "virtio_pci.h"
 #include "virtio_ring.h"
 #include "virtio_logs.h"
+#include "virtio_rxtx.h"
 
 struct rte_mbuf;
 
@@ -191,6 +192,12 @@ struct virtqueue {
 	void *vq_ring_virt_mem;  /**< linear address of vring*/
 	unsigned int vq_ring_size;
 
+	union {
+		struct virtnet_rx rxq;
+		struct virtnet_tx txq;
+		struct virtnet_ctl cq;
+	};
+
 	phys_addr_t vq_ring_mem; /**< physical address of vring,
 				  * or virtual address for virtio_user. */
 
@@ -204,7 +211,6 @@ struct virtqueue {
 	uint16_t  vq_queue_index;   /**< PCI queue index */
 	uint16_t offset; /**< relative offset to obtain addr in mbuf */
 	uint16_t  *notify_addr;
-	int configured;
 	struct rte_mbuf **sw_ring;  /**< RX software ring. */
 	struct vq_desc_extra vq_descx[0];
 };
@@ -223,6 +229,7 @@ struct virtqueue {
  */
 struct virtio_net_hdr {
 #define VIRTIO_NET_HDR_F_NEEDS_CSUM 1    /**< Use csum_start,csum_offset*/
+#define VIRTIO_NET_HDR_F_DATA_VALID 2    /**< Checksum is valid */
 	uint8_t flags;
 #define VIRTIO_NET_HDR_GSO_NONE     0    /**< Not a GSO frame */
 #define VIRTIO_NET_HDR_GSO_TCPV4    1    /**< GSO frame, IPv4 TCP (TSO) */

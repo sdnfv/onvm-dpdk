@@ -52,6 +52,8 @@
 #define MAX_QUERY_SWITCH_STATE_TIMES 10
 /* Wait interval to get switch status */
 #define WAIT_SWITCH_MSG_US    100000
+/* A period of quiescence for switch */
+#define FM10K_SWITCH_QUIESCE_US 10000
 /* Number of chars per uint32 type */
 #define CHARS_PER_UINT32 (sizeof(uint32_t))
 #define BIT_MASK_PER_UINT32 ((1 << CHARS_PER_UINT32) - 1)
@@ -675,7 +677,7 @@ fm10k_dev_tx_init(struct rte_eth_dev *dev)
 		/* Enable use of FTAG bit in TX descriptor, PFVTCTL
 		 * register is read-only for VF.
 		 */
-		if (fm10k_check_ftag(dev->pci_dev->devargs)) {
+		if (fm10k_check_ftag(dev->pci_dev->device.devargs)) {
 			if (hw->mac.type == fm10k_mac_pf) {
 				FM10K_WRITE_REG(hw, FM10K_PFVTCTL(i),
 						FM10K_PFVTCTL_FTAG_DESC_ENABLE);
@@ -693,8 +695,9 @@ fm10k_dev_tx_init(struct rte_eth_dev *dev)
 				base_addr >> (CHAR_BIT * sizeof(uint32_t)));
 		FM10K_WRITE_REG(hw, FM10K_TDLEN(i), size);
 
-		/* assign default SGLORT for each TX queue */
-		FM10K_WRITE_REG(hw, FM10K_TX_SGLORT(i), hw->mac.dglort_map);
+		/* assign default SGLORT for each TX queue by PF */
+		if (hw->mac.type == fm10k_mac_pf)
+			FM10K_WRITE_REG(hw, FM10K_TX_SGLORT(i), hw->mac.dglort_map);
 	}
 
 	/* set up vector or scalar TX function as appropriate */
@@ -1232,6 +1235,9 @@ fm10k_dev_close(struct rte_eth_dev *dev)
 	hw->mac.ops.update_lport_state(hw, hw->mac.dglort_map,
 		MAX_LPORT_NUM, false);
 	fm10k_mbx_unlock(hw);
+
+	/* allow 10ms for device to quiesce */
+	rte_delay_us(FM10K_SWITCH_QUIESCE_US);
 
 	/* Stop mailbox service first */
 	fm10k_close_mbx_service(hw);
@@ -2731,7 +2737,7 @@ fm10k_set_tx_function(struct rte_eth_dev *dev)
 	int use_sse = 1;
 	uint16_t tx_ftag_en = 0;
 
-	if (fm10k_check_ftag(dev->pci_dev->devargs))
+	if (fm10k_check_ftag(dev->pci_dev->device.devargs))
 		tx_ftag_en = 1;
 
 	for (i = 0; i < dev->data->nb_tx_queues; i++) {
@@ -2762,7 +2768,7 @@ fm10k_set_rx_function(struct rte_eth_dev *dev)
 	uint16_t i, rx_using_sse;
 	uint16_t rx_ftag_en = 0;
 
-	if (fm10k_check_ftag(dev->pci_dev->devargs))
+	if (fm10k_check_ftag(dev->pci_dev->device.devargs))
 		rx_ftag_en = 1;
 
 	/* In order to allow Vector Rx there are a few configuration
@@ -3055,34 +3061,16 @@ static const struct rte_pci_id pci_id_fm10k_map[] = {
 
 static struct eth_driver rte_pmd_fm10k = {
 	.pci_drv = {
-		.name = "rte_pmd_fm10k",
 		.id_table = pci_id_fm10k_map,
 		.drv_flags = RTE_PCI_DRV_NEED_MAPPING | RTE_PCI_DRV_INTR_LSC |
 			RTE_PCI_DRV_DETACHABLE,
+		.probe = rte_eth_dev_pci_probe,
+		.remove = rte_eth_dev_pci_remove,
 	},
 	.eth_dev_init = eth_fm10k_dev_init,
 	.eth_dev_uninit = eth_fm10k_dev_uninit,
 	.dev_private_size = sizeof(struct fm10k_adapter),
 };
 
-/*
- * Driver initialization routine.
- * Invoked once at EAL init time.
- * Register itself as the [Poll Mode] Driver of PCI FM10K devices.
- */
-static int
-rte_pmd_fm10k_init(__rte_unused const char *name,
-	__rte_unused const char *params)
-{
-	PMD_INIT_FUNC_TRACE();
-	rte_eth_driver_register(&rte_pmd_fm10k);
-	return 0;
-}
-
-static struct rte_driver rte_fm10k_driver = {
-	.type = PMD_PDEV,
-	.init = rte_pmd_fm10k_init,
-};
-
-PMD_REGISTER_DRIVER(rte_fm10k_driver, fm10k);
-DRIVER_REGISTER_PCI_TABLE(fm10k, pci_id_fm10k_map);
+RTE_PMD_REGISTER_PCI(net_fm10k, rte_pmd_fm10k.pci_drv);
+RTE_PMD_REGISTER_PCI_TABLE(net_fm10k, pci_id_fm10k_map);

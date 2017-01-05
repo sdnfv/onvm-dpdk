@@ -458,8 +458,8 @@ Code and Literal block sections
   For long literal lines that exceed that limit try to wrap the text at sensible locations.
   For example a long command line could be documented like this and still work if copied directly from the docs::
 
-     build/app/testpmd -c7 -n3 --vdev=eth_pcap0,iface=eth0     \
-                               --vdev=eth_pcap1,iface=eth1     \
+     build/app/testpmd -c7 -n3 --vdev=net_pcap0,iface=eth0     \
+                               --vdev=net_pcap1,iface=eth1     \
                                -- -i --nb-cores=2 --nb-ports=2 \
                                   --total-num-mbufs=2048
 
@@ -631,7 +631,7 @@ The following are some guidelines for use of Doxygen in the DPDK API documentati
       * @param devargs
       *  A pointer to a strings array describing the new device
       *  to be attached. The strings should be a pci address like
-      *  `0000:01:00.0` or **virtual** device name like `eth_pcap0`.
+      *  `0000:01:00.0` or **virtual** device name like `net_pcap0`.
       * @param port_id
       *  A pointer to a port identifier actually attached.
       *
@@ -643,7 +643,7 @@ The following are some guidelines for use of Doxygen in the DPDK API documentati
 * Doxygen supports Markdown style syntax such as bold, italics, fixed width text and lists.
   For example the second line in the ``devargs`` parameter in the previous example will be rendered as:
 
-     The strings should be a pci address like ``0000:01:00.0`` or **virtual** device name like ``eth_pcap0``.
+     The strings should be a pci address like ``0000:01:00.0`` or **virtual** device name like ``net_pcap0``.
 
 * Use ``-`` instead of ``*`` for lists within the Doxygen comment since the latter can get confused with the comment delimiter.
 

@@ -62,7 +62,7 @@
  */
 #define RTE_SZE2_PACKET_HEADER_SIZE_ALIGNED 8
 
-#define RTE_SZEDATA2_DRIVER_NAME rte_szedata2_pmd
+#define RTE_SZEDATA2_DRIVER_NAME net_szedata2
 #define RTE_SZEDATA2_PCI_DRIVER_NAME "rte_szedata2_pmd"
 
 #define SZEDATA2_DEV_PATH_FMT "/dev/szedataII%u"
@@ -1416,7 +1416,7 @@ rte_szedata2_eth_dev_init(struct rte_eth_dev *dev)
 	int ret;
 	uint32_t szedata2_index;
 	struct rte_pci_addr *pci_addr = &dev->pci_dev->addr;
-	struct rte_pci_resource *pci_rsc =
+	struct rte_mem_resource *pci_rsc =
 		&dev->pci_dev->mem_resource[PCI_RESOURCE_NUMBER];
 	char rsc_filename[PATH_MAX];
 	void *pci_resource_ptr = NULL;
@@ -1473,7 +1473,7 @@ rte_szedata2_eth_dev_init(struct rte_eth_dev *dev)
 
 	rte_eth_copy_pci_info(dev, dev->pci_dev);
 
-	/* mmap pci resource0 file to rte_pci_resource structure */
+	/* mmap pci resource0 file to rte_mem_resource structure */
 	if (dev->pci_dev->mem_resource[PCI_RESOURCE_NUMBER].phys_addr ==
 			0) {
 		RTE_LOG(ERR, PMD, "Missing resource%u file\n",
@@ -1572,33 +1572,14 @@ static const struct rte_pci_id rte_szedata2_pci_id_table[] = {
 
 static struct eth_driver szedata2_eth_driver = {
 	.pci_drv = {
-		.name     = RTE_SZEDATA2_PCI_DRIVER_NAME,
 		.id_table = rte_szedata2_pci_id_table,
+		.probe = rte_eth_dev_pci_probe,
+		.remove = rte_eth_dev_pci_remove,
 	},
 	.eth_dev_init     = rte_szedata2_eth_dev_init,
 	.eth_dev_uninit   = rte_szedata2_eth_dev_uninit,
 	.dev_private_size = sizeof(struct pmd_internals),
 };
 
-static int
-rte_szedata2_init(const char *name __rte_unused,
-		const char *args __rte_unused)
-{
-	rte_eth_driver_register(&szedata2_eth_driver);
-	return 0;
-}
-
-static int
-rte_szedata2_uninit(const char *name __rte_unused)
-{
-	return 0;
-}
-
-static struct rte_driver rte_szedata2_driver = {
-	.type = PMD_PDEV,
-	.init = rte_szedata2_init,
-	.uninit = rte_szedata2_uninit,
-};
-
-PMD_REGISTER_DRIVER(rte_szedata2_driver, RTE_SZEDATA2_DRIVER_NAME);
-DRIVER_REGISTER_PCI_TABLE(RTE_SZEDATA2_DRIVER_NAME, rte_szedata2_pci_id_table);
+RTE_PMD_REGISTER_PCI(RTE_SZEDATA2_DRIVER_NAME, szedata2_eth_driver.pci_drv);
+RTE_PMD_REGISTER_PCI_TABLE(RTE_SZEDATA2_DRIVER_NAME, rte_szedata2_pci_id_table);

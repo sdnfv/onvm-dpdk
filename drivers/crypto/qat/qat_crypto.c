@@ -54,7 +54,6 @@
 #include <rte_lcore.h>
 #include <rte_atomic.h>
 #include <rte_branch_prediction.h>
-#include <rte_ring.h>
 #include <rte_mempool.h>
 #include <rte_mbuf.h>
 #include <rte_string_fns.h>
@@ -90,6 +89,27 @@ static const struct rte_cryptodev_capabilities qat_pmd_capabilities[] = {
 			}, }
 		}, }
 	},
+	{	/* SHA224 HMAC */
+		.op = RTE_CRYPTO_OP_TYPE_SYMMETRIC,
+		{.sym = {
+			.xform_type = RTE_CRYPTO_SYM_XFORM_AUTH,
+			{.auth = {
+				.algo = RTE_CRYPTO_AUTH_SHA224_HMAC,
+				.block_size = 64,
+					.key_size = {
+					.min = 64,
+					.max = 64,
+					.increment = 0
+				},
+				.digest_size = {
+					.min = 28,
+					.max = 28,
+					.increment = 0
+				},
+				.aad_size = { 0 }
+			}, }
+		}, }
+	},
 	{	/* SHA256 HMAC */
 		.op = RTE_CRYPTO_OP_TYPE_SYMMETRIC,
 		{.sym = {
@@ -111,6 +131,27 @@ static const struct rte_cryptodev_capabilities qat_pmd_capabilities[] = {
 			}, }
 		}, }
 	},
+	{	/* SHA384 HMAC */
+		.op = RTE_CRYPTO_OP_TYPE_SYMMETRIC,
+		{.sym = {
+			.xform_type = RTE_CRYPTO_SYM_XFORM_AUTH,
+			{.auth = {
+				.algo = RTE_CRYPTO_AUTH_SHA384_HMAC,
+				.block_size = 64,
+				.key_size = {
+					.min = 128,
+					.max = 128,
+					.increment = 0
+				},
+				.digest_size = {
+					.min = 48,
+					.max = 48,
+					.increment = 0
+					},
+				.aad_size = { 0 }
+			}, }
+		}, }
+	},
 	{	/* SHA512 HMAC */
 		.op = RTE_CRYPTO_OP_TYPE_SYMMETRIC,
 		{.sym = {
@@ -126,6 +167,27 @@ static const struct rte_cryptodev_capabilities qat_pmd_capabilities[] = {
 				.digest_size = {
 					.min = 64,
 					.max = 64,
+					.increment = 0
+				},
+				.aad_size = { 0 }
+			}, }
+		}, }
+	},
+	{	/* MD5 HMAC */
+		.op = RTE_CRYPTO_OP_TYPE_SYMMETRIC,
+		{.sym = {
+			.xform_type = RTE_CRYPTO_SYM_XFORM_AUTH,
+			{.auth = {
+				.algo = RTE_CRYPTO_AUTH_MD5_HMAC,
+				.block_size = 64,
+				.key_size = {
+					.min = 8,
+					.max = 64,
+					.increment = 8
+				},
+				.digest_size = {
+					.min = 16,
+					.max = 16,
 					.increment = 0
 				},
 				.aad_size = { 0 }
@@ -178,7 +240,32 @@ static const struct rte_cryptodev_capabilities qat_pmd_capabilities[] = {
 			}, }
 		}, }
 	},
-	{	/* SNOW3G (UIA2) */
+	{	/* AES GMAC (AUTH) */
+		.op = RTE_CRYPTO_OP_TYPE_SYMMETRIC,
+		{.sym = {
+			.xform_type = RTE_CRYPTO_SYM_XFORM_AUTH,
+			{.auth = {
+				.algo = RTE_CRYPTO_AUTH_AES_GMAC,
+				.block_size = 16,
+				.key_size = {
+					.min = 16,
+					.max = 32,
+					.increment = 8
+				},
+				.digest_size = {
+					.min = 8,
+					.max = 16,
+					.increment = 4
+				},
+				.aad_size = {
+					.min = 1,
+					.max = 65535,
+					.increment = 1
+				}
+			}, }
+		}, }
+	},
+	{	/* SNOW 3G (UIA2) */
 		.op = RTE_CRYPTO_OP_TYPE_SYMMETRIC,
 		{.sym = {
 			.xform_type = RTE_CRYPTO_SYM_XFORM_AUTH,
@@ -243,7 +330,7 @@ static const struct rte_cryptodev_capabilities qat_pmd_capabilities[] = {
 			}, }
 		}, }
 	},
-	{	/* SNOW3G (UEA2) */
+	{	/* SNOW 3G (UEA2) */
 		.op = RTE_CRYPTO_OP_TYPE_SYMMETRIC,
 		{.sym = {
 			.xform_type = RTE_CRYPTO_SYM_XFORM_CIPHER,
@@ -278,6 +365,132 @@ static const struct rte_cryptodev_capabilities qat_pmd_capabilities[] = {
 				.iv_size = {
 					.min = 16,
 					.max = 16,
+					.increment = 0
+				}
+			}, }
+		}, }
+	},
+	{	/* NULL (AUTH) */
+		.op = RTE_CRYPTO_OP_TYPE_SYMMETRIC,
+		{.sym = {
+			.xform_type = RTE_CRYPTO_SYM_XFORM_AUTH,
+			{.auth = {
+				.algo = RTE_CRYPTO_AUTH_NULL,
+				.block_size = 1,
+				.key_size = {
+					.min = 0,
+					.max = 0,
+					.increment = 0
+				},
+				.digest_size = {
+					.min = 0,
+					.max = 0,
+					.increment = 0
+				},
+				.aad_size = { 0 }
+			}, },
+		}, },
+	},
+	{	/* NULL (CIPHER) */
+		.op = RTE_CRYPTO_OP_TYPE_SYMMETRIC,
+		{.sym = {
+			.xform_type = RTE_CRYPTO_SYM_XFORM_CIPHER,
+			{.cipher = {
+				.algo = RTE_CRYPTO_CIPHER_NULL,
+				.block_size = 1,
+				.key_size = {
+					.min = 0,
+					.max = 0,
+					.increment = 0
+				},
+				.iv_size = {
+					.min = 0,
+					.max = 0,
+					.increment = 0
+				}
+			}, },
+		}, }
+	},
+	{       /* KASUMI (F8) */
+		.op = RTE_CRYPTO_OP_TYPE_SYMMETRIC,
+		{.sym = {
+			.xform_type = RTE_CRYPTO_SYM_XFORM_CIPHER,
+			{.cipher = {
+				.algo = RTE_CRYPTO_CIPHER_KASUMI_F8,
+				.block_size = 8,
+				.key_size = {
+					.min = 16,
+					.max = 16,
+					.increment = 0
+				},
+				.iv_size = {
+					.min = 8,
+					.max = 8,
+					.increment = 0
+				}
+			}, }
+		}, }
+	},
+	{       /* KASUMI (F9) */
+		.op = RTE_CRYPTO_OP_TYPE_SYMMETRIC,
+		{.sym = {
+			.xform_type = RTE_CRYPTO_SYM_XFORM_AUTH,
+			{.auth = {
+				.algo = RTE_CRYPTO_AUTH_KASUMI_F9,
+				.block_size = 8,
+				.key_size = {
+					.min = 16,
+					.max = 16,
+					.increment = 0
+				},
+				.digest_size = {
+					.min = 4,
+					.max = 4,
+					.increment = 0
+				},
+				.aad_size = {
+					.min = 8,
+					.max = 8,
+					.increment = 0
+				}
+			}, }
+		}, }
+	},
+	{	/* 3DES CBC */
+		.op = RTE_CRYPTO_OP_TYPE_SYMMETRIC,
+		{.sym = {
+			.xform_type = RTE_CRYPTO_SYM_XFORM_CIPHER,
+			{.cipher = {
+				.algo = RTE_CRYPTO_CIPHER_3DES_CBC,
+				.block_size = 8,
+				.key_size = {
+					.min = 16,
+					.max = 24,
+					.increment = 8
+				},
+				.iv_size = {
+					.min = 8,
+					.max = 8,
+					.increment = 0
+				}
+			}, }
+		}, }
+	},
+	{	/* 3DES CTR */
+		.op = RTE_CRYPTO_OP_TYPE_SYMMETRIC,
+		{.sym = {
+			.xform_type = RTE_CRYPTO_SYM_XFORM_CIPHER,
+			{.cipher = {
+				.algo = RTE_CRYPTO_CIPHER_3DES_CTR,
+				.block_size = 8,
+				.key_size = {
+					.min = 16,
+					.max = 24,
+					.increment = 8
+				},
+				.iv_size = {
+					.min = 8,
+					.max = 8,
 					.increment = 0
 				}
 			}, }
@@ -400,18 +613,46 @@ qat_crypto_sym_configure_session_cipher(struct rte_cryptodev *dev,
 	case RTE_CRYPTO_CIPHER_SNOW3G_UEA2:
 		if (qat_alg_validate_snow3g_key(cipher_xform->key.length,
 					&session->qat_cipher_alg) != 0) {
-			PMD_DRV_LOG(ERR, "Invalid SNOW3G cipher key size");
+			PMD_DRV_LOG(ERR, "Invalid SNOW 3G cipher key size");
 			goto error_out;
 		}
 		session->qat_mode = ICP_QAT_HW_CIPHER_ECB_MODE;
 		break;
 	case RTE_CRYPTO_CIPHER_NULL:
-	case RTE_CRYPTO_CIPHER_3DES_ECB:
+		session->qat_mode = ICP_QAT_HW_CIPHER_ECB_MODE;
+		break;
+	case RTE_CRYPTO_CIPHER_KASUMI_F8:
+		if (qat_alg_validate_kasumi_key(cipher_xform->key.length,
+					&session->qat_cipher_alg) != 0) {
+			PMD_DRV_LOG(ERR, "Invalid KASUMI cipher key size");
+			goto error_out;
+		}
+		session->qat_mode = ICP_QAT_HW_CIPHER_F8_MODE;
+		break;
 	case RTE_CRYPTO_CIPHER_3DES_CBC:
+		if (qat_alg_validate_3des_key(cipher_xform->key.length,
+				&session->qat_cipher_alg) != 0) {
+			PMD_DRV_LOG(ERR, "Invalid 3DES cipher key size");
+			goto error_out;
+		}
+		session->qat_mode = ICP_QAT_HW_CIPHER_CBC_MODE;
+		break;
+	case RTE_CRYPTO_CIPHER_3DES_CTR:
+		if (qat_alg_validate_3des_key(cipher_xform->key.length,
+				&session->qat_cipher_alg) != 0) {
+			PMD_DRV_LOG(ERR, "Invalid 3DES cipher key size");
+			goto error_out;
+		}
+		session->qat_mode = ICP_QAT_HW_CIPHER_CTR_MODE;
+		break;
+	case RTE_CRYPTO_CIPHER_3DES_ECB:
 	case RTE_CRYPTO_CIPHER_AES_ECB:
 	case RTE_CRYPTO_CIPHER_AES_CCM:
-	case RTE_CRYPTO_CIPHER_KASUMI_F8:
-		PMD_DRV_LOG(ERR, "Crypto: Unsupported Cipher alg %u",
+	case RTE_CRYPTO_CIPHER_AES_F8:
+	case RTE_CRYPTO_CIPHER_AES_XTS:
+	case RTE_CRYPTO_CIPHER_ARC4:
+	case RTE_CRYPTO_CIPHER_ZUC_EEA3:
+		PMD_DRV_LOG(ERR, "Crypto QAT PMD: Unsupported Cipher alg %u",
 				cipher_xform->algo);
 		goto error_out;
 	default:
@@ -512,8 +753,14 @@ qat_crypto_sym_configure_session_auth(struct rte_cryptodev *dev,
 	case RTE_CRYPTO_AUTH_SHA1_HMAC:
 		session->qat_hash_alg = ICP_QAT_HW_AUTH_ALGO_SHA1;
 		break;
+	case RTE_CRYPTO_AUTH_SHA224_HMAC:
+		session->qat_hash_alg = ICP_QAT_HW_AUTH_ALGO_SHA224;
+		break;
 	case RTE_CRYPTO_AUTH_SHA256_HMAC:
 		session->qat_hash_alg = ICP_QAT_HW_AUTH_ALGO_SHA256;
+		break;
+	case RTE_CRYPTO_AUTH_SHA384_HMAC:
+		session->qat_hash_alg = ICP_QAT_HW_AUTH_ALGO_SHA384;
 		break;
 	case RTE_CRYPTO_AUTH_SHA512_HMAC:
 		session->qat_hash_alg = ICP_QAT_HW_AUTH_ALGO_SHA512;
@@ -524,22 +771,28 @@ qat_crypto_sym_configure_session_auth(struct rte_cryptodev *dev,
 	case RTE_CRYPTO_AUTH_AES_GCM:
 		session->qat_hash_alg = ICP_QAT_HW_AUTH_ALGO_GALOIS_128;
 		break;
+	case RTE_CRYPTO_AUTH_AES_GMAC:
+		session->qat_hash_alg = ICP_QAT_HW_AUTH_ALGO_GALOIS_128;
+		break;
 	case RTE_CRYPTO_AUTH_SNOW3G_UIA2:
 		session->qat_hash_alg = ICP_QAT_HW_AUTH_ALGO_SNOW_3G_UIA2;
 		break;
+	case RTE_CRYPTO_AUTH_MD5_HMAC:
+		session->qat_hash_alg = ICP_QAT_HW_AUTH_ALGO_MD5;
+		break;
 	case RTE_CRYPTO_AUTH_NULL:
+		session->qat_hash_alg = ICP_QAT_HW_AUTH_ALGO_NULL;
+		break;
+	case RTE_CRYPTO_AUTH_KASUMI_F9:
+		session->qat_hash_alg = ICP_QAT_HW_AUTH_ALGO_KASUMI_F9;
+		break;
 	case RTE_CRYPTO_AUTH_SHA1:
 	case RTE_CRYPTO_AUTH_SHA256:
 	case RTE_CRYPTO_AUTH_SHA512:
 	case RTE_CRYPTO_AUTH_SHA224:
-	case RTE_CRYPTO_AUTH_SHA224_HMAC:
 	case RTE_CRYPTO_AUTH_SHA384:
-	case RTE_CRYPTO_AUTH_SHA384_HMAC:
 	case RTE_CRYPTO_AUTH_MD5:
-	case RTE_CRYPTO_AUTH_MD5_HMAC:
 	case RTE_CRYPTO_AUTH_AES_CCM:
-	case RTE_CRYPTO_AUTH_AES_GMAC:
-	case RTE_CRYPTO_AUTH_KASUMI_F9:
 	case RTE_CRYPTO_AUTH_AES_CMAC:
 	case RTE_CRYPTO_AUTH_AES_CBC_MAC:
 	case RTE_CRYPTO_AUTH_ZUC_EIA3:
@@ -575,7 +828,8 @@ qat_crypto_sym_configure_session_auth(struct rte_cryptodev *dev,
 	return session;
 
 error_out:
-	rte_mempool_put(internals->sess_mp, session);
+	if (internals->sess_mp != NULL)
+		rte_mempool_put(internals->sess_mp, session);
 	return NULL;
 }
 
@@ -697,6 +951,13 @@ qat_write_hw_desc_entry(struct rte_crypto_op *op, uint8_t *out_msg)
 	struct icp_qat_fw_la_cipher_req_params *cipher_param;
 	struct icp_qat_fw_la_auth_req_params *auth_param;
 	register struct icp_qat_fw_la_bulk_req *qat_req;
+	uint8_t do_auth = 0, do_cipher = 0;
+	uint32_t cipher_len = 0, cipher_ofs = 0;
+	uint32_t auth_len = 0, auth_ofs = 0;
+	uint32_t min_ofs = 0;
+	uint32_t digest_appended = 1;
+	uint64_t buf_start = 0;
+
 
 #ifdef RTE_LIBRTE_PMD_QAT_DEBUG_TX
 	if (unlikely(op->type != RTE_CRYPTO_OP_TYPE_SYMMETRIC)) {
@@ -719,87 +980,178 @@ qat_write_hw_desc_entry(struct rte_crypto_op *op, uint8_t *out_msg)
 
 	ctx = (struct qat_session *)op->sym->session->_private;
 	qat_req = (struct icp_qat_fw_la_bulk_req *)out_msg;
-	*qat_req = ctx->fw_req;
+	rte_mov128((uint8_t *)qat_req, (const uint8_t *)&(ctx->fw_req));
 	qat_req->comn_mid.opaque_data = (uint64_t)(uintptr_t)op;
-
-	qat_req->comn_mid.dst_length =
-		qat_req->comn_mid.src_length =
-				rte_pktmbuf_data_len(op->sym->m_src);
-
-	qat_req->comn_mid.dest_data_addr =
-		qat_req->comn_mid.src_data_addr =
-			    rte_pktmbuf_mtophys(op->sym->m_src);
-
-	if (unlikely(op->sym->m_dst != NULL)) {
-		qat_req->comn_mid.dest_data_addr =
-				rte_pktmbuf_mtophys(op->sym->m_dst);
-		qat_req->comn_mid.dst_length =
-				rte_pktmbuf_data_len(op->sym->m_dst);
-	}
-
 	cipher_param = (void *)&qat_req->serv_specif_rqpars;
 	auth_param = (void *)((uint8_t *)cipher_param + sizeof(*cipher_param));
 
-	cipher_param->cipher_length = op->sym->cipher.data.length;
-	cipher_param->cipher_offset = op->sym->cipher.data.offset;
-	if (ctx->qat_cipher_alg == ICP_QAT_HW_CIPHER_ALGO_SNOW_3G_UEA2) {
-		if (unlikely((cipher_param->cipher_length % BYTE_LENGTH != 0) ||
-				(cipher_param->cipher_offset
-					% BYTE_LENGTH != 0))) {
-			PMD_DRV_LOG(ERR, " For Snow3g, QAT PMD only "
-				"supports byte aligned values");
-			op->status = RTE_CRYPTO_OP_STATUS_INVALID_ARGS;
-			return -EINVAL;
-		}
-		cipher_param->cipher_length >>= 3;
-		cipher_param->cipher_offset >>= 3;
+	if (ctx->qat_cmd == ICP_QAT_FW_LA_CMD_HASH_CIPHER ||
+		ctx->qat_cmd == ICP_QAT_FW_LA_CMD_CIPHER_HASH) {
+		do_auth = 1;
+		do_cipher = 1;
+	} else if (ctx->qat_cmd == ICP_QAT_FW_LA_CMD_AUTH) {
+		do_auth = 1;
+		do_cipher = 0;
+	} else if (ctx->qat_cmd == ICP_QAT_FW_LA_CMD_CIPHER) {
+		do_auth = 0;
+		do_cipher = 1;
 	}
 
-	if (op->sym->cipher.iv.length && (op->sym->cipher.iv.length <=
-			sizeof(cipher_param->u.cipher_IV_array))) {
-		rte_memcpy(cipher_param->u.cipher_IV_array,
-				op->sym->cipher.iv.data,
-				op->sym->cipher.iv.length);
-	} else {
-		ICP_QAT_FW_LA_CIPH_IV_FLD_FLAG_SET(
-				qat_req->comn_hdr.serv_specif_flags,
-				ICP_QAT_FW_CIPH_IV_64BIT_PTR);
-		cipher_param->u.s.cipher_IV_ptr = op->sym->cipher.iv.phys_addr;
-	}
-	if (op->sym->auth.digest.phys_addr) {
-		ICP_QAT_FW_LA_DIGEST_IN_BUFFER_SET(
-				qat_req->comn_hdr.serv_specif_flags,
-				ICP_QAT_FW_LA_NO_DIGEST_IN_BUFFER);
-		auth_param->auth_res_addr = op->sym->auth.digest.phys_addr;
-	}
-	auth_param->auth_off = op->sym->auth.data.offset;
-	auth_param->auth_len = op->sym->auth.data.length;
-	if (ctx->qat_hash_alg == ICP_QAT_HW_AUTH_ALGO_SNOW_3G_UIA2) {
-		if (unlikely((auth_param->auth_off % BYTE_LENGTH != 0) ||
-				(auth_param->auth_len % BYTE_LENGTH != 0))) {
-			PMD_DRV_LOG(ERR, " For Snow3g, QAT PMD only "
-				"supports byte aligned values");
-			op->status = RTE_CRYPTO_OP_STATUS_INVALID_ARGS;
-			return -EINVAL;
+	if (do_cipher) {
+
+		if (ctx->qat_cipher_alg ==
+					 ICP_QAT_HW_CIPHER_ALGO_SNOW_3G_UEA2 ||
+			ctx->qat_cipher_alg == ICP_QAT_HW_CIPHER_ALGO_KASUMI) {
+
+			if (unlikely(
+				(cipher_param->cipher_length % BYTE_LENGTH != 0)
+				 || (cipher_param->cipher_offset
+							% BYTE_LENGTH != 0))) {
+				PMD_DRV_LOG(ERR,
+		  "SNOW3G/KASUMI in QAT PMD only supports byte aligned values");
+				op->status = RTE_CRYPTO_OP_STATUS_INVALID_ARGS;
+				return -EINVAL;
+			}
+			cipher_len = op->sym->cipher.data.length >> 3;
+			cipher_ofs = op->sym->cipher.data.offset >> 3;
+
+		} else {
+			cipher_len = op->sym->cipher.data.length;
+			cipher_ofs = op->sym->cipher.data.offset;
 		}
-		auth_param->auth_off >>= 3;
-		auth_param->auth_len >>= 3;
+
+		/* copy IV into request if it fits */
+		if (op->sym->cipher.iv.length && (op->sym->cipher.iv.length <=
+				sizeof(cipher_param->u.cipher_IV_array))) {
+			rte_memcpy(cipher_param->u.cipher_IV_array,
+					op->sym->cipher.iv.data,
+					op->sym->cipher.iv.length);
+		} else {
+			ICP_QAT_FW_LA_CIPH_IV_FLD_FLAG_SET(
+					qat_req->comn_hdr.serv_specif_flags,
+					ICP_QAT_FW_CIPH_IV_64BIT_PTR);
+			cipher_param->u.s.cipher_IV_ptr =
+					op->sym->cipher.iv.phys_addr;
+		}
+		min_ofs = cipher_ofs;
 	}
-	auth_param->u1.aad_adr = op->sym->auth.aad.phys_addr;
-	/* (GCM) aad length(240 max) will be at this location after precompute */
+
+	if (do_auth) {
+
+		if (ctx->qat_hash_alg == ICP_QAT_HW_AUTH_ALGO_SNOW_3G_UIA2 ||
+			ctx->qat_hash_alg == ICP_QAT_HW_AUTH_ALGO_KASUMI_F9) {
+			if (unlikely((auth_param->auth_off % BYTE_LENGTH != 0)
+				|| (auth_param->auth_len % BYTE_LENGTH != 0))) {
+				PMD_DRV_LOG(ERR,
+		"For SNOW3G/KASUMI, QAT PMD only supports byte aligned values");
+				op->status = RTE_CRYPTO_OP_STATUS_INVALID_ARGS;
+				return -EINVAL;
+			}
+			auth_ofs = op->sym->auth.data.offset >> 3;
+			auth_len = op->sym->auth.data.length >> 3;
+
+			if (ctx->qat_hash_alg ==
+					ICP_QAT_HW_AUTH_ALGO_KASUMI_F9) {
+				if (do_cipher) {
+					auth_len = auth_len + auth_ofs + 1 -
+						ICP_QAT_HW_KASUMI_BLK_SZ;
+					auth_ofs = ICP_QAT_HW_KASUMI_BLK_SZ;
+				} else {
+					auth_len = auth_len + auth_ofs + 1;
+					auth_ofs = 0;
+				}
+			}
+
+		} else {
+			auth_ofs = op->sym->auth.data.offset;
+			auth_len = op->sym->auth.data.length;
+		}
+		min_ofs = auth_ofs;
+
+		if (op->sym->auth.digest.phys_addr) {
+			ICP_QAT_FW_LA_DIGEST_IN_BUFFER_SET(
+					qat_req->comn_hdr.serv_specif_flags,
+					ICP_QAT_FW_LA_NO_DIGEST_IN_BUFFER);
+			auth_param->auth_res_addr =
+					op->sym->auth.digest.phys_addr;
+			digest_appended = 0;
+		}
+
+		auth_param->u1.aad_adr = op->sym->auth.aad.phys_addr;
+
+	}
+
+	/* adjust for chain case */
+	if (do_cipher && do_auth)
+		min_ofs = cipher_ofs < auth_ofs ? cipher_ofs : auth_ofs;
+
+
+	/* Start DMA at nearest aligned address below min_ofs */
+	#define QAT_64_BTYE_ALIGN_MASK (~0x3f)
+	buf_start = rte_pktmbuf_mtophys_offset(op->sym->m_src, min_ofs) &
+							QAT_64_BTYE_ALIGN_MASK;
+
+	if (unlikely((rte_pktmbuf_mtophys(op->sym->m_src)
+			- rte_pktmbuf_headroom(op->sym->m_src)) > buf_start)) {
+		/* alignment has pushed addr ahead of start of mbuf
+		 * so revert and take the performance hit
+		 */
+		buf_start = rte_pktmbuf_mtophys(op->sym->m_src);
+	}
+
+	qat_req->comn_mid.dest_data_addr =
+		qat_req->comn_mid.src_data_addr = buf_start;
+
+	if (do_cipher) {
+		cipher_param->cipher_offset =
+					(uint32_t)rte_pktmbuf_mtophys_offset(
+					op->sym->m_src, cipher_ofs) - buf_start;
+		cipher_param->cipher_length = cipher_len;
+	} else {
+		cipher_param->cipher_offset = 0;
+		cipher_param->cipher_length = 0;
+	}
+	if (do_auth) {
+		auth_param->auth_off = (uint32_t)rte_pktmbuf_mtophys_offset(
+					op->sym->m_src, auth_ofs) - buf_start;
+		auth_param->auth_len = auth_len;
+	} else {
+		auth_param->auth_off = 0;
+		auth_param->auth_len = 0;
+	}
+	qat_req->comn_mid.dst_length =
+		qat_req->comn_mid.src_length =
+		(cipher_param->cipher_offset + cipher_param->cipher_length)
+		> (auth_param->auth_off + auth_param->auth_len) ?
+		(cipher_param->cipher_offset + cipher_param->cipher_length)
+		: (auth_param->auth_off + auth_param->auth_len);
+
+	if (do_auth && digest_appended) {
+		if (ctx->auth_op == ICP_QAT_HW_AUTH_GENERATE)
+			qat_req->comn_mid.dst_length
+					+= op->sym->auth.digest.length;
+		else
+			qat_req->comn_mid.src_length
+				+= op->sym->auth.digest.length;
+	}
+
+	/* out-of-place operation (OOP) */
+	if (unlikely(op->sym->m_dst != NULL)) {
+
+		if (do_auth)
+			qat_req->comn_mid.dest_data_addr =
+				rte_pktmbuf_mtophys_offset(op->sym->m_dst,
+						auth_ofs)
+						- auth_param->auth_off;
+		else
+			qat_req->comn_mid.dest_data_addr =
+				rte_pktmbuf_mtophys_offset(op->sym->m_dst,
+						cipher_ofs)
+						- cipher_param->cipher_offset;
+	}
+
 	if (ctx->qat_hash_alg == ICP_QAT_HW_AUTH_ALGO_GALOIS_128 ||
 			ctx->qat_hash_alg == ICP_QAT_HW_AUTH_ALGO_GALOIS_64) {
-		struct icp_qat_hw_auth_algo_blk *hash;
-
-		if (ctx->qat_cmd == ICP_QAT_FW_LA_CMD_HASH_CIPHER)
-			hash = (struct icp_qat_hw_auth_algo_blk *)((char *)&ctx->cd);
-		else
-			hash = (struct icp_qat_hw_auth_algo_blk *)((char *)&ctx->cd +
-				sizeof(struct icp_qat_hw_cipher_algo_blk));
-
-		auth_param->u2.aad_sz = ALIGN_POW2_ROUNDUP(hash->sha.state1[
-					ICP_QAT_HW_GALOIS_128_STATE1_SZ +
-					ICP_QAT_HW_GALOIS_H_SZ + 3], 16);
 		if (op->sym->cipher.iv.length == 12) {
 			/*
 			 * For GCM a 12 bit IV is allowed,
@@ -809,8 +1161,24 @@ qat_write_hw_desc_entry(struct rte_crypto_op *op, uint8_t *out_msg)
 				qat_req->comn_hdr.serv_specif_flags,
 				ICP_QAT_FW_LA_GCM_IV_LEN_12_OCTETS);
 		}
+		if (op->sym->cipher.data.length == 0) {
+			/*
+			 * GMAC
+			 */
+			qat_req->comn_mid.dest_data_addr =
+				qat_req->comn_mid.src_data_addr =
+						op->sym->auth.aad.phys_addr;
+			qat_req->comn_mid.dst_length =
+				qat_req->comn_mid.src_length =
+					rte_pktmbuf_data_len(op->sym->m_src);
+			cipher_param->cipher_length = 0;
+			cipher_param->cipher_offset = 0;
+			auth_param->u1.aad_adr = 0;
+			auth_param->auth_len = op->sym->auth.aad.length;
+			auth_param->auth_off = op->sym->auth.data.offset;
+			auth_param->u2.aad_sz = 0;
+		}
 	}
-	auth_param->hash_state_sz = (auth_param->u2.aad_sz) >> 3;
 
 
 #ifdef RTE_LIBRTE_PMD_QAT_DEBUG_TX

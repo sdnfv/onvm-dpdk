@@ -44,8 +44,8 @@ struct virtnet_ctl;
 
 /* VirtIO PCI vendor/device ID. */
 #define VIRTIO_PCI_VENDORID     0x1AF4
-#define VIRTIO_PCI_DEVICEID_MIN 0x1000
-#define VIRTIO_PCI_DEVICEID_MAX 0x103F
+#define VIRTIO_PCI_LEGACY_DEVICEID_NET 0x1000
+#define VIRTIO_PCI_MODERN_DEVICEID_NET 0x1041
 
 /* VirtIO ABI version, this must match exactly. */
 #define VIRTIO_PCI_ABI_VERSION 0
@@ -138,6 +138,7 @@ struct virtnet_ctl;
 #define VIRTIO_RING_F_INDIRECT_DESC	28
 
 #define VIRTIO_F_VERSION_1		32
+#define VIRTIO_F_IOMMU_PLATFORM	33
 
 /*
  * Some VirtIO feature bits (currently bits 28 through 31) are
@@ -145,7 +146,7 @@ struct virtnet_ctl;
  * rest are per-device feature bits.
  */
 #define VIRTIO_TRANSPORT_F_START 28
-#define VIRTIO_TRANSPORT_F_END   32
+#define VIRTIO_TRANSPORT_F_END   34
 
 /* The Guest publishes the used index for which it expects an interrupt
  * at the end of the avail ring. Host should ignore the avail->flags field. */
@@ -245,14 +246,14 @@ struct virtio_net_config;
 struct virtio_hw {
 	struct virtnet_ctl *cvq;
 	struct rte_pci_ioport io;
+	uint64_t    req_guest_features;
 	uint64_t    guest_features;
-	uint32_t    max_tx_queues;
-	uint32_t    max_rx_queues;
+	uint32_t    max_queue_pairs;
 	uint16_t    vtnet_hdr_size;
 	uint8_t	    vlan_strip;
 	uint8_t	    use_msix;
-	uint8_t     started;
 	uint8_t     modern;
+	uint8_t     use_simple_rxtx;
 	uint8_t     mac_addr[ETHER_ADDR_LEN];
 	uint32_t    notify_off_multiplier;
 	uint8_t     *isr;
@@ -262,6 +263,8 @@ struct virtio_hw {
 	struct virtio_net_config *dev_cfg;
 	const struct virtio_pci_ops *vtpci_ops;
 	void	    *virtio_user_dev;
+
+	struct virtqueue **vqs;
 };
 
 /*

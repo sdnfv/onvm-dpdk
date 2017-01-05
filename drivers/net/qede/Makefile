@@ -14,8 +14,6 @@ LIB = librte_pmd_qede.a
 CFLAGS += -O3
 CFLAGS += $(WERROR_FLAGS)
 
-LDLIBS += -lz
-
 EXPORT_MAP := rte_pmd_qede_version.map
 
 LIBABIVER := 1
@@ -48,9 +46,13 @@ endif
 endif
 
 ifeq ($(CONFIG_RTE_TOOLCHAIN_GCC),y)
+ifeq ($(shell test $(GCC_VERSION) -ge 44 && echo 1), 1)
 CFLAGS_BASE_DRIVER += -Wno-unused-but-set-variable
+endif
 CFLAGS_BASE_DRIVER += -Wno-missing-declarations
+ifeq ($(shell test $(GCC_VERSION) -ge 46 && echo 1), 1)
 CFLAGS_BASE_DRIVER += -Wno-maybe-uninitialized
+endif
 CFLAGS_BASE_DRIVER += -Wno-strict-prototypes
 ifeq ($(shell test $(GCC_VERSION) -ge 60 && echo 1), 1)
 CFLAGS_BASE_DRIVER += -Wno-shift-negative-value

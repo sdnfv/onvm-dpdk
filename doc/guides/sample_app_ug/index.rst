@@ -28,8 +28,8 @@
     (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
     OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-Sample Applications User Guide
-==============================
+Sample Applications User Guides
+===============================
 
 .. toctree::
     :maxdepth: 2
@@ -72,11 +72,9 @@ Sample Applications User Guide
     dist_app
     vm_power_management
     tep_termination
-    proc_info
     ptpclient
     performance_thread
     ipsec_secgw
-    pdump
 
 **Figures**
 
@@ -119,16 +117,6 @@ Sample Applications User Guide
 :numref:`figure_threads_pipelines` :ref:`figure_threads_pipelines`
 
 :numref:`figure_vmdq_dcb_example` :ref:`figure_vmdq_dcb_example`
-
-:numref:`figure_qemu_virtio_net` :ref:`figure_qemu_virtio_net`
-
-:numref:`figure_virtio_linux_vhost` :ref:`figure_virtio_linux_vhost`
-
-:numref:`figure_vhost_net_arch` :ref:`figure_vhost_net_arch`
-
-:numref:`figure_vhost_net_sample_app` :ref:`figure_vhost_net_sample_app`
-
-:numref:`figure_tx_dpdk_testpmd` :ref:`figure_tx_dpdk_testpmd`
 
 :numref:`figure_test_pipeline_app` :ref:`figure_test_pipeline_app`
 

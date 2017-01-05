@@ -72,6 +72,8 @@
 #include "base/ixgbe_phy.h"
 #include "ixgbe_regs.h"
 
+#include "rte_pmd_ixgbe.h"
+
 /*
  * High threshold controlling when to start sending XOFF frames. Must be at
  * least 8 bytes less than receive packet buffer size. This value is in units
@@ -429,23 +431,80 @@ static int ixgbe_dev_udp_tunnel_port_del(struct rte_eth_dev *dev,
  * The set of PCI devices this driver supports
  */
 static const struct rte_pci_id pci_id_ixgbe_map[] = {
-
-#define RTE_PCI_DEV_ID_DECL_IXGBE(vend, dev) {RTE_PCI_DEVICE(vend, dev)},
-#include "rte_pci_dev_ids.h"
-
-{ .vendor_id = 0, /* sentinel */ },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_82598) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_82598_BX) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_82598AF_DUAL_PORT) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_82598AF_SINGLE_PORT) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_82598AT) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_82598AT2) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_82598EB_SFP_LOM) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_82598EB_CX4) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_82598_CX4_DUAL_PORT) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_82598_DA_DUAL_PORT) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_82598_SR_DUAL_PORT_EM) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_82598EB_XF_LR) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_82599_KX4) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_82599_KX4_MEZZ) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_82599_KR) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_82599_COMBO_BACKPLANE) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_SUBDEV_ID_82599_KX4_KR_MEZZ) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_82599_CX4) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_82599_SFP) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_SUBDEV_ID_82599_SFP) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_SUBDEV_ID_82599_RNDC) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_SUBDEV_ID_82599_560FLR) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_SUBDEV_ID_82599_ECNA_DP) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_82599_BACKPLANE_FCOE) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_82599_SFP_FCOE) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_82599_SFP_EM) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_82599_SFP_SF2) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_82599_SFP_SF_QP) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_82599_QSFP_SF_QP) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_82599EN_SFP) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_82599_XAUI_LOM) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_82599_T3_LOM) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_82599_LS) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_X540T) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_X540T1) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_X550EM_X_SFP) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_X550EM_X_10G_T) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_X550EM_X_1G_T) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_X550T) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_X550T1) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_X550EM_A_KR) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_X550EM_A_KR_L) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_X550EM_A_SFP_N) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_X550EM_A_SGMII) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_X550EM_A_SGMII_L) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_X550EM_A_10G_T) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_X550EM_A_QSFP) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_X550EM_A_QSFP_N) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_X550EM_A_SFP) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_X550EM_A_1G_T) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_X550EM_A_1G_T_L) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_X550EM_X_KX4) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_X550EM_X_KR) },
+#ifdef RTE_NIC_BYPASS
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_82599_BYPASS) },
+#endif
+	{ .vendor_id = 0, /* sentinel */ },
 };
-
 
 /*
  * The set of PCI devices this driver supports (for 82599 VF)
  */
 static const struct rte_pci_id pci_id_ixgbevf_map[] = {
-
-#define RTE_PCI_DEV_ID_DECL_IXGBEVF(vend, dev) {RTE_PCI_DEVICE(vend, dev)},
-#include "rte_pci_dev_ids.h"
-{ .vendor_id = 0, /* sentinel */ },
-
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_82599_VF) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_82599_VF_HV) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_X540_VF) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_X540_VF_HV) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_X550_VF_HV) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_X550_VF) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_X550EM_A_VF) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_X550EM_A_VF_HV) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_X550EM_X_VF) },
+	{ RTE_PCI_DEVICE(IXGBE_INTEL_VENDOR_ID, IXGBE_DEV_ID_X550EM_X_VF_HV) },
+	{ .vendor_id = 0, /* sentinel */ },
 };
 
 static const struct rte_eth_desc_lim rx_desc_lim = {
@@ -1505,10 +1564,11 @@ eth_ixgbevf_dev_uninit(struct rte_eth_dev *eth_dev)
 
 static struct eth_driver rte_ixgbe_pmd = {
 	.pci_drv = {
-		.name = "rte_ixgbe_pmd",
 		.id_table = pci_id_ixgbe_map,
 		.drv_flags = RTE_PCI_DRV_NEED_MAPPING | RTE_PCI_DRV_INTR_LSC |
 			RTE_PCI_DRV_DETACHABLE,
+		.probe = rte_eth_dev_pci_probe,
+		.remove = rte_eth_dev_pci_remove,
 	},
 	.eth_dev_init = eth_ixgbe_dev_init,
 	.eth_dev_uninit = eth_ixgbe_dev_uninit,
@@ -1520,42 +1580,15 @@ static struct eth_driver rte_ixgbe_pmd = {
  */
 static struct eth_driver rte_ixgbevf_pmd = {
 	.pci_drv = {
-		.name = "rte_ixgbevf_pmd",
 		.id_table = pci_id_ixgbevf_map,
 		.drv_flags = RTE_PCI_DRV_NEED_MAPPING | RTE_PCI_DRV_DETACHABLE,
+		.probe = rte_eth_dev_pci_probe,
+		.remove = rte_eth_dev_pci_remove,
 	},
 	.eth_dev_init = eth_ixgbevf_dev_init,
 	.eth_dev_uninit = eth_ixgbevf_dev_uninit,
 	.dev_private_size = sizeof(struct ixgbe_adapter),
 };
-
-/*
- * Driver initialization routine.
- * Invoked once at EAL init time.
- * Register itself as the [Poll Mode] Driver of PCI IXGBE devices.
- */
-static int
-rte_ixgbe_pmd_init(const char *name __rte_unused, const char *params __rte_unused)
-{
-	PMD_INIT_FUNC_TRACE();
-
-	rte_eth_driver_register(&rte_ixgbe_pmd);
-	return 0;
-}
-
-/*
- * VF Driver initialization routine.
- * Invoked one at EAL init time.
- * Register itself as the [Virtual Poll Mode] Driver of PCI niantic devices.
- */
-static int
-rte_ixgbevf_pmd_init(const char *name __rte_unused, const char *param __rte_unused)
-{
-	PMD_INIT_FUNC_TRACE();
-
-	rte_eth_driver_register(&rte_ixgbevf_pmd);
-	return 0;
-}
 
 static int
 ixgbe_vlan_filter_set(struct rte_eth_dev *dev, uint16_t vlan_id, int on)
@@ -1768,6 +1801,7 @@ ixgbe_vlan_hw_strip_disable_all(struct rte_eth_dev *dev)
 		IXGBE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
 	uint32_t ctrl;
 	uint16_t i;
+	struct ixgbe_rx_queue *rxq;
 
 	PMD_INIT_FUNC_TRACE();
 
@@ -1778,9 +1812,10 @@ ixgbe_vlan_hw_strip_disable_all(struct rte_eth_dev *dev)
 	} else {
 		/* Other 10G NIC, the VLAN strip can be setup per queue in RXDCTL */
 		for (i = 0; i < dev->data->nb_rx_queues; i++) {
-			ctrl = IXGBE_READ_REG(hw, IXGBE_RXDCTL(i));
+			rxq = dev->data->rx_queues[i];
+			ctrl = IXGBE_READ_REG(hw, IXGBE_RXDCTL(rxq->reg_idx));
 			ctrl &= ~IXGBE_RXDCTL_VME;
-			IXGBE_WRITE_REG(hw, IXGBE_RXDCTL(i), ctrl);
+			IXGBE_WRITE_REG(hw, IXGBE_RXDCTL(rxq->reg_idx), ctrl);
 
 			/* record those setting for HW strip per queue */
 			ixgbe_vlan_hw_strip_bitmap_set(dev, i, 0);
@@ -1795,6 +1830,7 @@ ixgbe_vlan_hw_strip_enable_all(struct rte_eth_dev *dev)
 		IXGBE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
 	uint32_t ctrl;
 	uint16_t i;
+	struct ixgbe_rx_queue *rxq;
 
 	PMD_INIT_FUNC_TRACE();
 
@@ -1805,9 +1841,10 @@ ixgbe_vlan_hw_strip_enable_all(struct rte_eth_dev *dev)
 	} else {
 		/* Other 10G NIC, the VLAN strip can be setup per queue in RXDCTL */
 		for (i = 0; i < dev->data->nb_rx_queues; i++) {
-			ctrl = IXGBE_READ_REG(hw, IXGBE_RXDCTL(i));
+			rxq = dev->data->rx_queues[i];
+			ctrl = IXGBE_READ_REG(hw, IXGBE_RXDCTL(rxq->reg_idx));
 			ctrl |= IXGBE_RXDCTL_VME;
-			IXGBE_WRITE_REG(hw, IXGBE_RXDCTL(i), ctrl);
+			IXGBE_WRITE_REG(hw, IXGBE_RXDCTL(rxq->reg_idx), ctrl);
 
 			/* record those setting for HW strip per queue */
 			ixgbe_vlan_hw_strip_bitmap_set(dev, i, 1);
@@ -1940,6 +1977,8 @@ ixgbe_check_mq_mode(struct rte_eth_dev *dev)
 		/* check multi-queue mode */
 		switch (dev_conf->rxmode.mq_mode) {
 		case ETH_MQ_RX_VMDQ_DCB:
+			PMD_INIT_LOG(INFO, "ETH_MQ_RX_VMDQ_DCB mode supported in SRIOV");
+			break;
 		case ETH_MQ_RX_VMDQ_DCB_RSS:
 			/* DCB/RSS VMDQ in SRIOV mode, not implement yet */
 			PMD_INIT_LOG(ERR, "SRIOV active,"
@@ -1975,11 +2014,9 @@ ixgbe_check_mq_mode(struct rte_eth_dev *dev)
 
 		switch (dev_conf->txmode.mq_mode) {
 		case ETH_MQ_TX_VMDQ_DCB:
-			/* DCB VMDQ in SRIOV mode, not implement yet */
-			PMD_INIT_LOG(ERR, "SRIOV is active,"
-					" unsupported VMDQ mq_mode tx %d.",
-					dev_conf->txmode.mq_mode);
-			return -EINVAL;
+			PMD_INIT_LOG(INFO, "ETH_MQ_TX_VMDQ_DCB mode supported in SRIOV");
+			dev->data->dev_conf.txmode.mq_mode = ETH_MQ_TX_VMDQ_DCB;
+			break;
 		default: /* ETH_MQ_TX_VMDQ_ONLY or ETH_MQ_TX_NONE */
 			dev->data->dev_conf.txmode.mq_mode = ETH_MQ_TX_VMDQ_ONLY;
 			break;
@@ -2234,6 +2271,36 @@ ixgbe_dev_start(struct rte_eth_dev *dev)
 		goto error;
 	}
 
+    mask = ETH_VLAN_STRIP_MASK | ETH_VLAN_FILTER_MASK |
+		ETH_VLAN_EXTEND_MASK;
+	ixgbe_vlan_offload_set(dev, mask);
+
+	if (dev->data->dev_conf.rxmode.mq_mode == ETH_MQ_RX_VMDQ_ONLY) {
+		/* Enable vlan filtering for VMDq */
+		ixgbe_vmdq_vlan_hw_filter_enable(dev);
+	}
+
+	/* Configure DCB hw */
+	ixgbe_configure_dcb(dev);
+
+	if (dev->data->dev_conf.fdir_conf.mode != RTE_FDIR_MODE_NONE) {
+		err = ixgbe_fdir_configure(dev);
+		if (err)
+			goto error;
+	}
+
+	/* Restore vf rate limit */
+	if (vfinfo != NULL) {
+		for (vf = 0; vf < dev->pci_dev->max_vfs; vf++)
+			for (idx = 0; idx < IXGBE_MAX_QUEUE_NUM_PER_VF; idx++)
+				if (vfinfo[vf].tx_rate[idx] != 0)
+					ixgbe_set_vf_rate_limit(dev, vf,
+						vfinfo[vf].tx_rate[idx],
+						1 << idx);
+	}
+
+	ixgbe_restore_statistics_mapping(dev);
+
 	err = ixgbe_dev_rxtx_start(dev);
 	if (err < 0) {
 		PMD_INIT_LOG(ERR, "Unable to start rxtx queues");
@@ -2318,36 +2385,6 @@ skip_link_setup:
 
 	/* resume enabled intr since hw reset */
 	ixgbe_enable_intr(dev);
-
-	mask = ETH_VLAN_STRIP_MASK | ETH_VLAN_FILTER_MASK |
-		ETH_VLAN_EXTEND_MASK;
-	ixgbe_vlan_offload_set(dev, mask);
-
-	if (dev->data->dev_conf.rxmode.mq_mode == ETH_MQ_RX_VMDQ_ONLY) {
-		/* Enable vlan filtering for VMDq */
-		ixgbe_vmdq_vlan_hw_filter_enable(dev);
-	}
-
-	/* Configure DCB hw */
-	ixgbe_configure_dcb(dev);
-
-	if (dev->data->dev_conf.fdir_conf.mode != RTE_FDIR_MODE_NONE) {
-		err = ixgbe_fdir_configure(dev);
-		if (err)
-			goto error;
-	}
-
-	/* Restore vf rate limit */
-	if (vfinfo != NULL) {
-		for (vf = 0; vf < dev->pci_dev->max_vfs; vf++)
-			for (idx = 0; idx < IXGBE_MAX_QUEUE_NUM_PER_VF; idx++)
-				if (vfinfo[vf].tx_rate[idx] != 0)
-					ixgbe_set_vf_rate_limit(dev, vf,
-						vfinfo[vf].tx_rate[idx],
-						1 << idx);
-	}
-
-	ixgbe_restore_statistics_mapping(dev);
 
 	return 0;
 
@@ -3410,7 +3447,7 @@ ixgbe_dev_link_status_print(struct rte_eth_dev *dev)
 		PMD_INIT_LOG(INFO, " Port %d: Link Down",
 				(int)(dev->data->port_id));
 	}
-	PMD_INIT_LOG(DEBUG, "PCI Address: %04d:%02d:%02d:%d",
+	PMD_INIT_LOG(DEBUG, "PCI Address: " PCI_PRI_FMT,
 				dev->pci_dev->addr.domain,
 				dev->pci_dev->addr.bus,
 				dev->pci_dev->addr.devid,
@@ -3522,7 +3559,7 @@ ixgbe_dev_interrupt_delayed_handler(void *param)
 		ixgbe_dev_link_update(dev, 0);
 		intr->flags &= ~IXGBE_FLAG_NEED_LINK_UPDATE;
 		ixgbe_dev_link_status_print(dev);
-		_rte_eth_dev_callback_process(dev, RTE_ETH_EVENT_INTR_LSC);
+		_rte_eth_dev_callback_process(dev, RTE_ETH_EVENT_INTR_LSC, NULL);
 	}
 
 	PMD_DRV_LOG(DEBUG, "enable intr in delayed handler S[%08x]", eicr);
@@ -4009,6 +4046,38 @@ ixgbe_set_default_mac_addr(struct rte_eth_dev *dev, struct ether_addr *addr)
 	ixgbe_remove_rar(dev, 0);
 
 	ixgbe_add_rar(dev, addr, 0, 0);
+}
+
+int
+rte_pmd_ixgbe_set_vf_mac_addr(uint8_t port, uint16_t vf,
+		struct ether_addr *mac_addr)
+{
+	struct ixgbe_hw *hw;
+	struct ixgbe_vf_info *vfinfo;
+	int rar_entry;
+	uint8_t *new_mac = (uint8_t *)(mac_addr);
+	struct rte_eth_dev *dev;
+	struct rte_eth_dev_info dev_info;
+
+	RTE_ETH_VALID_PORTID_OR_ERR_RET(port, -ENODEV);
+
+	dev = &rte_eth_devices[port];
+	rte_eth_dev_info_get(port, &dev_info);
+
+	if (vf >= dev_info.max_vfs)
+		return -EINVAL;
+
+	hw = IXGBE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
+	vfinfo = *(IXGBE_DEV_PRIVATE_TO_P_VFDATA(dev->data->dev_private));
+	rar_entry = hw->mac.num_rar_entries - (vf + 1);
+
+	if (is_valid_assigned_ether_addr((struct ether_addr *)new_mac)) {
+		rte_memcpy(vfinfo[vf].vf_mac_addresses, new_mac,
+				ETHER_ADDR_LEN);
+		return hw->mac.ops.set_rar(hw, rar_entry, new_mac, vf,
+				IXGBE_RAH_AV);
+	}
+	return -EINVAL;
 }
 
 static int
@@ -4602,6 +4671,216 @@ ixgbe_set_pool_vlan_filter(struct rte_eth_dev *dev, uint16_t vlan,
 	}
 
 	return ret;
+}
+
+int
+rte_pmd_ixgbe_set_vf_vlan_anti_spoof(uint8_t port, uint16_t vf, uint8_t on)
+{
+	struct ixgbe_hw *hw;
+	struct ixgbe_mac_info *mac;
+	struct rte_eth_dev *dev;
+	struct rte_eth_dev_info dev_info;
+
+	RTE_ETH_VALID_PORTID_OR_ERR_RET(port, -ENODEV);
+
+	dev = &rte_eth_devices[port];
+	rte_eth_dev_info_get(port, &dev_info);
+
+	if (vf >= dev_info.max_vfs)
+		return -EINVAL;
+
+	if (on > 1)
+		return -EINVAL;
+
+	hw = IXGBE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
+	mac = &hw->mac;
+
+	mac->ops.set_vlan_anti_spoofing(hw, on, vf);
+
+	return 0;
+}
+
+int
+rte_pmd_ixgbe_set_vf_mac_anti_spoof(uint8_t port, uint16_t vf, uint8_t on)
+{
+	struct ixgbe_hw *hw;
+	struct ixgbe_mac_info *mac;
+	struct rte_eth_dev *dev;
+	struct rte_eth_dev_info dev_info;
+
+	RTE_ETH_VALID_PORTID_OR_ERR_RET(port, -ENODEV);
+
+	dev = &rte_eth_devices[port];
+	rte_eth_dev_info_get(port, &dev_info);
+
+	if (vf >= dev_info.max_vfs)
+		return -EINVAL;
+
+	if (on > 1)
+		return -EINVAL;
+
+	hw = IXGBE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
+	mac = &hw->mac;
+	mac->ops.set_mac_anti_spoofing(hw, on, vf);
+
+	return 0;
+}
+
+int
+rte_pmd_ixgbe_set_vf_vlan_insert(uint8_t port, uint16_t vf, uint16_t vlan_id)
+{
+	struct ixgbe_hw *hw;
+	uint32_t ctrl;
+	struct rte_eth_dev *dev;
+	struct rte_eth_dev_info dev_info;
+
+	RTE_ETH_VALID_PORTID_OR_ERR_RET(port, -ENODEV);
+
+	dev = &rte_eth_devices[port];
+	rte_eth_dev_info_get(port, &dev_info);
+
+	if (vf >= dev_info.max_vfs)
+		return -EINVAL;
+
+	if (vlan_id > 4095)
+		return -EINVAL;
+
+	hw = IXGBE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
+	ctrl = IXGBE_READ_REG(hw, IXGBE_VMVIR(vf));
+	if (vlan_id) {
+		ctrl = vlan_id;
+		ctrl |= IXGBE_VMVIR_VLANA_DEFAULT;
+	} else {
+		ctrl = 0;
+	}
+
+	IXGBE_WRITE_REG(hw, IXGBE_VMVIR(vf), ctrl);
+
+	return 0;
+}
+
+int
+rte_pmd_ixgbe_set_tx_loopback(uint8_t port, uint8_t on)
+{
+	struct ixgbe_hw *hw;
+	uint32_t ctrl;
+	struct rte_eth_dev *dev;
+
+	RTE_ETH_VALID_PORTID_OR_ERR_RET(port, -ENODEV);
+
+	dev = &rte_eth_devices[port];
+
+	if (on > 1)
+		return -EINVAL;
+
+	hw = IXGBE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
+	ctrl = IXGBE_READ_REG(hw, IXGBE_PFDTXGSWC);
+	/* enable or disable VMDQ loopback */
+	if (on)
+		ctrl |= IXGBE_PFDTXGSWC_VT_LBEN;
+	else
+		ctrl &= ~IXGBE_PFDTXGSWC_VT_LBEN;
+
+	IXGBE_WRITE_REG(hw, IXGBE_PFDTXGSWC, ctrl);
+
+	return 0;
+}
+
+int
+rte_pmd_ixgbe_set_all_queues_drop_en(uint8_t port, uint8_t on)
+{
+	struct ixgbe_hw *hw;
+	uint32_t reg_value;
+	int i;
+	int num_queues = (int)(IXGBE_QDE_IDX_MASK >> IXGBE_QDE_IDX_SHIFT);
+	struct rte_eth_dev *dev;
+
+	RTE_ETH_VALID_PORTID_OR_ERR_RET(port, -ENODEV);
+
+	dev = &rte_eth_devices[port];
+
+	if (on > 1)
+		return -EINVAL;
+
+	hw = IXGBE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
+	for (i = 0; i <= num_queues; i++) {
+		reg_value = IXGBE_QDE_WRITE |
+				(i << IXGBE_QDE_IDX_SHIFT) |
+				(on & IXGBE_QDE_ENABLE);
+		IXGBE_WRITE_REG(hw, IXGBE_QDE, reg_value);
+	}
+
+	return 0;
+}
+
+int
+rte_pmd_ixgbe_set_vf_split_drop_en(uint8_t port, uint16_t vf, uint8_t on)
+{
+	struct ixgbe_hw *hw;
+	uint32_t reg_value;
+	struct rte_eth_dev *dev;
+	struct rte_eth_dev_info dev_info;
+
+	RTE_ETH_VALID_PORTID_OR_ERR_RET(port, -ENODEV);
+
+	dev = &rte_eth_devices[port];
+	rte_eth_dev_info_get(port, &dev_info);
+
+	/* only support VF's 0 to 63 */
+	if ((vf >= dev_info.max_vfs) || (vf > 63))
+		return -EINVAL;
+
+	if (on > 1)
+		return -EINVAL;
+
+	hw = IXGBE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
+	reg_value = IXGBE_READ_REG(hw, IXGBE_SRRCTL(vf));
+	if (on)
+		reg_value |= IXGBE_SRRCTL_DROP_EN;
+	else
+		reg_value &= ~IXGBE_SRRCTL_DROP_EN;
+
+	IXGBE_WRITE_REG(hw, IXGBE_SRRCTL(vf), reg_value);
+
+	return 0;
+}
+
+int
+rte_pmd_ixgbe_set_vf_vlan_stripq(uint8_t port, uint16_t vf, uint8_t on)
+{
+	struct rte_eth_dev *dev;
+	struct rte_eth_dev_info dev_info;
+	uint16_t queues_per_pool;
+	uint32_t q;
+
+	RTE_ETH_VALID_PORTID_OR_ERR_RET(port, -ENODEV);
+
+	dev = &rte_eth_devices[port];
+	rte_eth_dev_info_get(port, &dev_info);
+
+	if (vf >= dev_info.max_vfs)
+		return -EINVAL;
+
+	if (on > 1)
+		return -EINVAL;
+
+	RTE_FUNC_PTR_OR_ERR_RET(*dev->dev_ops->vlan_strip_queue_set, -ENOTSUP);
+
+	/* The PF has 128 queue pairs and in SRIOV configuration
+	 * those queues will be assigned to VF's, so RXDCTL
+	 * registers will be dealing with queues which will be
+	 * assigned to VF's.
+	 * Let's say we have SRIOV configured with 31 VF's then the
+	 * first 124 queues 0-123 will be allocated to VF's and only
+	 * the last 4 queues 123-127 will be assigned to the PF.
+	 */
+
+	queues_per_pool = dev_info.vmdq_queue_num / dev_info.max_vmdq_pools;
+
+	for (q = 0; q < queues_per_pool; q++)
+		(*dev->dev_ops->vlan_strip_queue_set)(dev,
+				q + vf * queues_per_pool, on);
+	return 0;
 }
 
 #define IXGBE_MRCTL_VPME  0x01 /* Virtual Pool Mirroring. */
@@ -7236,51 +7515,12 @@ ixgbe_dev_udp_tunnel_port_del(struct rte_eth_dev *dev,
 	return ret;
 }
 
-/* ixgbevf_update_xcast_mode - Update Multicast mode
- * @hw: pointer to the HW structure
- * @netdev: pointer to net device structure
- * @xcast_mode: new multicast mode
- *
- * Updates the Multicast Mode of VF.
- */
-static int ixgbevf_update_xcast_mode(struct ixgbe_hw *hw,
-				     int xcast_mode)
-{
-	struct ixgbe_mbx_info *mbx = &hw->mbx;
-	u32 msgbuf[2];
-	s32 err;
-
-	switch (hw->api_version) {
-	case ixgbe_mbox_api_12:
-		break;
-	default:
-		return -EOPNOTSUPP;
-	}
-
-	msgbuf[0] = IXGBE_VF_UPDATE_XCAST_MODE;
-	msgbuf[1] = xcast_mode;
-
-	err = mbx->ops.write_posted(hw, msgbuf, 2, 0);
-	if (err)
-		return err;
-
-	err = mbx->ops.read_posted(hw, msgbuf, 2, 0);
-	if (err)
-		return err;
-
-	msgbuf[0] &= ~IXGBE_VT_MSGTYPE_CTS;
-	if (msgbuf[0] == (IXGBE_VF_UPDATE_XCAST_MODE | IXGBE_VT_MSGTYPE_NACK))
-		return -EPERM;
-
-	return 0;
-}
-
 static void
 ixgbevf_dev_allmulticast_enable(struct rte_eth_dev *dev)
 {
 	struct ixgbe_hw *hw = IXGBE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
 
-	ixgbevf_update_xcast_mode(hw, IXGBEVF_XCAST_MODE_ALLMULTI);
+	hw->mac.ops.update_xcast_mode(hw, IXGBEVF_XCAST_MODE_ALLMULTI);
 }
 
 static void
@@ -7288,7 +7528,7 @@ ixgbevf_dev_allmulticast_disable(struct rte_eth_dev *dev)
 {
 	struct ixgbe_hw *hw = IXGBE_DEV_PRIVATE_TO_HW(dev->data->dev_private);
 
-	ixgbevf_update_xcast_mode(hw, IXGBEVF_XCAST_MODE_NONE);
+	hw->mac.ops.update_xcast_mode(hw, IXGBEVF_XCAST_MODE_NONE);
 }
 
 static void ixgbevf_mbx_process(struct rte_eth_dev *dev)
@@ -7301,7 +7541,7 @@ static void ixgbevf_mbx_process(struct rte_eth_dev *dev)
 
 	/* PF reset VF event */
 	if (in_msg == IXGBE_PF_CONTROL_MSG)
-		_rte_eth_dev_callback_process(dev, RTE_ETH_EVENT_INTR_RESET);
+		_rte_eth_dev_callback_process(dev, RTE_ETH_EVENT_INTR_RESET, NULL);
 }
 
 static int
@@ -7352,17 +7592,7 @@ ixgbevf_dev_interrupt_handler(__rte_unused struct rte_intr_handle *handle,
 	ixgbevf_dev_interrupt_action(dev);
 }
 
-static struct rte_driver rte_ixgbe_driver = {
-	.type = PMD_PDEV,
-	.init = rte_ixgbe_pmd_init,
-};
-
-static struct rte_driver rte_ixgbevf_driver = {
-	.type = PMD_PDEV,
-	.init = rte_ixgbevf_pmd_init,
-};
-
-PMD_REGISTER_DRIVER(rte_ixgbe_driver, ixgbe);
-DRIVER_REGISTER_PCI_TABLE(ixgbe, pci_id_ixgbe_map);
-PMD_REGISTER_DRIVER(rte_ixgbevf_driver, ixgbevf);
-DRIVER_REGISTER_PCI_TABLE(ixgbevf, pci_id_ixgbevf_map);
+RTE_PMD_REGISTER_PCI(net_ixgbe, rte_ixgbe_pmd.pci_drv);
+RTE_PMD_REGISTER_PCI_TABLE(net_ixgbe, pci_id_ixgbe_map);
+RTE_PMD_REGISTER_PCI(net_ixgbe_vf, rte_ixgbevf_pmd.pci_drv);
+RTE_PMD_REGISTER_PCI_TABLE(net_ixgbe_vf, pci_id_ixgbevf_map);

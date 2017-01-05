@@ -44,6 +44,7 @@
 #include <sched.h>
 
 #include <rte_per_lcore.h>
+#include <rte_config.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -251,6 +252,9 @@ static inline int rte_gettid(void)
 		RTE_PER_LCORE(_thread_id) = rte_sys_gettid();
 	return RTE_PER_LCORE(_thread_id);
 }
+
+#define RTE_INIT(func) \
+static void __attribute__((constructor, used)) func(void)
 
 #ifdef __cplusplus
 }

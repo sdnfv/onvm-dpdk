@@ -35,7 +35,7 @@
 #include <rte_hexdump.h>
 #include <rte_cryptodev.h>
 #include <rte_cryptodev_pmd.h>
-#include <rte_dev.h>
+#include <rte_vdev.h>
 #include <rte_malloc.h>
 #include <rte_cpuflags.h>
 
@@ -108,7 +108,7 @@ kasumi_set_session_parameters(struct kasumi_session *sess,
 {
 	const struct rte_crypto_sym_xform *auth_xform = NULL;
 	const struct rte_crypto_sym_xform *cipher_xform = NULL;
-	int mode;
+	enum kasumi_operation mode;
 
 	/* Select Crypto operation - hash then cipher / cipher then hash */
 	mode = kasumi_get_mode(xform);
@@ -125,9 +125,9 @@ kasumi_set_session_parameters(struct kasumi_session *sess,
 		/* Fall-through */
 	case KASUMI_OP_ONLY_AUTH:
 		auth_xform = xform;
-	}
-
-	if (mode == KASUMI_OP_NOT_SUPPORTED) {
+		break;
+	case KASUMI_OP_NOT_SUPPORTED:
+	default:
 		KASUMI_LOG_ERR("Unsupported operation chain order parameter");
 		return -EINVAL;
 	}
@@ -556,7 +556,7 @@ kasumi_pmd_dequeue_burst(void *queue_pair,
 	return nb_dequeued;
 }
 
-static int cryptodev_kasumi_uninit(const char *name);
+static int cryptodev_kasumi_remove(const char *name);
 
 static int
 cryptodev_kasumi_create(const char *name,
@@ -611,12 +611,12 @@ cryptodev_kasumi_create(const char *name,
 init_error:
 	KASUMI_LOG_ERR("driver %s: cryptodev_kasumi_create failed", name);
 
-	cryptodev_kasumi_uninit(crypto_dev_name);
+	cryptodev_kasumi_remove(crypto_dev_name);
 	return -EFAULT;
 }
 
 static int
-cryptodev_kasumi_init(const char *name,
+cryptodev_kasumi_probe(const char *name,
 		const char *input_args)
 {
 	struct rte_crypto_vdev_init_params init_params = {
@@ -638,7 +638,7 @@ cryptodev_kasumi_init(const char *name,
 }
 
 static int
-cryptodev_kasumi_uninit(const char *name)
+cryptodev_kasumi_remove(const char *name)
 {
 	if (name == NULL)
 		return -EINVAL;
@@ -650,14 +650,14 @@ cryptodev_kasumi_uninit(const char *name)
 	return 0;
 }
 
-static struct rte_driver cryptodev_kasumi_pmd_drv = {
-	.type = PMD_VDEV,
-	.init = cryptodev_kasumi_init,
-	.uninit = cryptodev_kasumi_uninit
+static struct rte_vdev_driver cryptodev_kasumi_pmd_drv = {
+	.probe = cryptodev_kasumi_probe,
+	.remove = cryptodev_kasumi_remove
 };
 
-PMD_REGISTER_DRIVER(cryptodev_kasumi_pmd_drv, CRYPTODEV_NAME_KASUMI_PMD);
-DRIVER_REGISTER_PARAM_STRING(CRYPTODEV_NAME_KASUMI_PMD,
+RTE_PMD_REGISTER_VDEV(CRYPTODEV_NAME_KASUMI_PMD, cryptodev_kasumi_pmd_drv);
+RTE_PMD_REGISTER_ALIAS(CRYPTODEV_NAME_KASUMI_PMD, cryptodev_kasumi_pmd);
+RTE_PMD_REGISTER_PARAM_STRING(CRYPTODEV_NAME_KASUMI_PMD,
 	"max_nb_queue_pairs=<int> "
 	"max_nb_sessions=<int> "
 	"socket_id=<int>");

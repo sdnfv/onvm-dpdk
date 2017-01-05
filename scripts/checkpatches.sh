@@ -33,7 +33,7 @@
 # Load config options:
 # - DPDK_CHECKPATCH_PATH
 # - DPDK_CHECKPATCH_LINE_LENGTH
-. $(dirname $(readlink -e $0))/load-devel-config.sh
+. $(dirname $(readlink -e $0))/load-devel-config
 
 length=${DPDK_CHECKPATCH_LINE_LENGTH:-80}
 
@@ -42,7 +42,8 @@ options="--no-tree"
 options="$options --max-line-length=$length"
 options="$options --show-types"
 options="$options --ignore=LINUX_VERSION_CODE,FILE_PATH_CHANGES,\
-VOLATILE,PREFER_PACKED,PREFER_ALIGNED,PREFER_PRINTF,PREFER_KERNEL_TYPES,BIT_MACRO,\
+VOLATILE,PREFER_PACKED,PREFER_ALIGNED,PREFER_PRINTF,\
+PREFER_KERNEL_TYPES,BIT_MACRO,CONST_STRUCT,\
 SPLIT_STRING,LINE_SPACING,PARENTHESIS_ALIGNMENT,NETWORKING_BLOCK_COMMENT_STYLE,\
 NEW_TYPEDEFS,COMPARISON_TO_NULL"
 
@@ -52,6 +53,9 @@ print_usage () {
 
 	Run Linux kernel checkpatch.pl with DPDK options.
 	The environment variable DPDK_CHECKPATCH_PATH must be set.
+
+	The patches to check can be from stdin, files specified on the command line,
+	or latest git commits limited with -n option (default limit: origin/master).
 	END_OF_HELP
 }
 
@@ -61,7 +65,7 @@ verbose=false
 while getopts hn:qv ARG ; do
 	case $ARG in
 		n ) number=$OPTARG ;;
-		q ) quiet=true && options="$options --no-summary" ;;
+		q ) quiet=true ;;
 		v ) verbose=true ;;
 		h ) print_usage ; exit 0 ;;
 		? ) print_usage ; exit 1 ;;
@@ -87,31 +91,44 @@ check () { # <patch> <commit> <title>
 	elif [ -n "$2" ] ; then
 		report=$(git format-patch --no-stat --stdout -1 $commit |
 			$DPDK_CHECKPATCH_PATH $options - 2>/dev/null)
+	else
+		report=$($DPDK_CHECKPATCH_PATH $options - 2>/dev/null)
 	fi
 	[ $? -ne 0 ] || continue
 	$verbose || printf '\n### %s\n\n' "$3"
-	printf '%s\n' "$report" | head -n -6
+	printf '%s\n' "$report" | sed -n '1,/^total:.*lines checked$/p'
 	status=$(($status + 1))
 }
 
-if [ -z "$1" ] ; then
+if [ -n "$1" ] ; then
+	for patch in "$@" ; do
+		# Subject can be on 2 lines
+		subject=$(sed '/^Subject: */!d;s///;N;s,\n[[:space:]]\+, ,;s,\n.*,,;q' "$patch")
+		check "$patch" '' "$subject"
+	done
+elif [ ! -t 0 ] ; then # stdin
+	subject=$(while read header value ; do
+		if [ "$header" = 'Subject:' ] ; then
+			IFS= read next
+			continuation=$(echo "$next" | sed -n 's,^[[:space:]]\+, ,p')
+			echo $value$continuation
+			break
+		fi
+	done)
+	check '' '' "$subject"
+else
 	if [ $number -eq 0 ] ; then
-		commits=$(git rev-list origin/master..)
+		commits=$(git rev-list --reverse origin/master..)
 	else
-		commits=$(git rev-list --max-count=$number HEAD)
+		commits=$(git rev-list --reverse --max-count=$number HEAD)
 	fi
 	for commit in $commits ; do
 		subject=$(git log --format='%s' -1 $commit)
 		check '' $commit "$subject"
 	done
-else
-	for patch in "$@" ; do
-		subject=$(sed -n 's,^Subject: ,,p' "$patch")
-		check "$patch" '' "$subject"
-	done
 fi
 pass=$(($total - $status))
-$quiet || printf '%d/%d valid patch' $pass $total
+$quiet || printf '\n%d/%d valid patch' $pass $total
 $quiet || [ $pass -le 1 ] || printf 'es'
 $quiet || printf '\n'
 exit $status

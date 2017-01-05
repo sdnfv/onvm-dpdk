@@ -130,7 +130,7 @@ See the DPDK Getting Started Guides for more information on these options.
 
     For example::
 
-       --vdev 'eth_pcap0,rx_pcap=input.pcap,tx_pcap=output.pcap'
+       --vdev 'net_pcap0,rx_pcap=input.pcap,tx_pcap=output.pcap'
 
 *   ``--base-virtaddr``
 
@@ -284,6 +284,10 @@ The commandline options are:
 *   ``--crc-strip``
 
     Enable hardware CRC stripping.
+
+*   ``--enable-lro``
+
+    Enable large receive offload.
 
 *   ``--enable-rx-cksum``
 
@@ -450,7 +454,8 @@ The commandline options are:
 
 *   ``--txpkts=X[,Y]``
 
-    Set TX segment sizes.
+    Set TX segment sizes or total packet length. Valid for ``tx-only``
+    and ``flowgen`` forwarding modes.
 
 *   ``--disable-link-check``
 

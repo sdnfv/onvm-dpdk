@@ -72,7 +72,6 @@
 #include <rte_per_lcore.h>
 #include <rte_prefetch.h>
 #include <rte_random.h>
-#include <rte_ring.h>
 #include <rte_hexdump.h>
 
 enum cdev_type {
@@ -341,16 +340,24 @@ fill_supported_algorithm_tables(void)
 		strcpy(supported_auth_algo[i], "NOT_SUPPORTED");
 
 	strcpy(supported_auth_algo[RTE_CRYPTO_AUTH_AES_GCM], "AES_GCM");
+	strcpy(supported_auth_algo[RTE_CRYPTO_AUTH_AES_GMAC], "AES_GMAC");
 	strcpy(supported_auth_algo[RTE_CRYPTO_AUTH_MD5_HMAC], "MD5_HMAC");
+	strcpy(supported_auth_algo[RTE_CRYPTO_AUTH_MD5], "MD5");
 	strcpy(supported_auth_algo[RTE_CRYPTO_AUTH_NULL], "NULL");
 	strcpy(supported_auth_algo[RTE_CRYPTO_AUTH_AES_XCBC_MAC],
 		"AES_XCBC_MAC");
 	strcpy(supported_auth_algo[RTE_CRYPTO_AUTH_SHA1_HMAC], "SHA1_HMAC");
+	strcpy(supported_auth_algo[RTE_CRYPTO_AUTH_SHA1], "SHA1");
 	strcpy(supported_auth_algo[RTE_CRYPTO_AUTH_SHA224_HMAC], "SHA224_HMAC");
+	strcpy(supported_auth_algo[RTE_CRYPTO_AUTH_SHA224], "SHA224");
 	strcpy(supported_auth_algo[RTE_CRYPTO_AUTH_SHA256_HMAC], "SHA256_HMAC");
+	strcpy(supported_auth_algo[RTE_CRYPTO_AUTH_SHA256], "SHA256");
 	strcpy(supported_auth_algo[RTE_CRYPTO_AUTH_SHA384_HMAC], "SHA384_HMAC");
+	strcpy(supported_auth_algo[RTE_CRYPTO_AUTH_SHA384], "SHA384");
 	strcpy(supported_auth_algo[RTE_CRYPTO_AUTH_SHA512_HMAC], "SHA512_HMAC");
+	strcpy(supported_auth_algo[RTE_CRYPTO_AUTH_SHA512], "SHA512");
 	strcpy(supported_auth_algo[RTE_CRYPTO_AUTH_SNOW3G_UIA2], "SNOW3G_UIA2");
+	strcpy(supported_auth_algo[RTE_CRYPTO_AUTH_ZUC_EIA3], "ZUC_EIA3");
 	strcpy(supported_auth_algo[RTE_CRYPTO_AUTH_KASUMI_F9], "KASUMI_F9");
 
 	for (i = 0; i < RTE_CRYPTO_CIPHER_LIST_END; i++)
@@ -361,7 +368,10 @@ fill_supported_algorithm_tables(void)
 	strcpy(supported_cipher_algo[RTE_CRYPTO_CIPHER_AES_GCM], "AES_GCM");
 	strcpy(supported_cipher_algo[RTE_CRYPTO_CIPHER_NULL], "NULL");
 	strcpy(supported_cipher_algo[RTE_CRYPTO_CIPHER_SNOW3G_UEA2], "SNOW3G_UEA2");
+	strcpy(supported_cipher_algo[RTE_CRYPTO_CIPHER_ZUC_EEA3], "ZUC_EEA3");
 	strcpy(supported_cipher_algo[RTE_CRYPTO_CIPHER_KASUMI_F8], "KASUMI_F8");
+	strcpy(supported_cipher_algo[RTE_CRYPTO_CIPHER_3DES_CTR], "3DES_CTR");
+	strcpy(supported_cipher_algo[RTE_CRYPTO_CIPHER_3DES_CBC], "3DES_CBC");
 }
 
 
@@ -441,6 +451,10 @@ l2fwd_simple_crypto_enqueue(struct rte_mbuf *m,
 
 	/* Zero pad data to be crypto'd so it is block aligned */
 	data_len  = rte_pktmbuf_data_len(m) - ipdata_offset;
+
+	if (cparams->do_hash && cparams->hash_verify)
+		data_len -= cparams->digest_length;
+
 	pad_len = data_len % cparams->block_size ? cparams->block_size -
 			(data_len % cparams->block_size) : 0;
 
@@ -462,17 +476,18 @@ l2fwd_simple_crypto_enqueue(struct rte_mbuf *m,
 			op->sym->auth.digest.data = (uint8_t *)rte_pktmbuf_append(m,
 				cparams->digest_length);
 		} else {
-			op->sym->auth.digest.data = (uint8_t *)rte_pktmbuf_append(m,
-				cparams->digest_length);
+			op->sym->auth.digest.data = rte_pktmbuf_mtod(m,
+				uint8_t *) + ipdata_offset + data_len;
 		}
 
 		op->sym->auth.digest.phys_addr = rte_pktmbuf_mtophys_offset(m,
 				rte_pktmbuf_pkt_len(m) - cparams->digest_length);
 		op->sym->auth.digest.length = cparams->digest_length;
 
-		/* For SNOW3G/KASUMI algorithms, offset/length must be in bits */
+		/* For wireless algorithms, offset/length must be in bits */
 		if (cparams->auth_algo == RTE_CRYPTO_AUTH_SNOW3G_UIA2 ||
-				cparams->auth_algo == RTE_CRYPTO_AUTH_KASUMI_F9) {
+				cparams->auth_algo == RTE_CRYPTO_AUTH_KASUMI_F9 ||
+				cparams->auth_algo == RTE_CRYPTO_AUTH_ZUC_EIA3) {
 			op->sym->auth.data.offset = ipdata_offset << 3;
 			op->sym->auth.data.length = data_len << 3;
 		} else {
@@ -492,25 +507,15 @@ l2fwd_simple_crypto_enqueue(struct rte_mbuf *m,
 		op->sym->cipher.iv.phys_addr = cparams->iv.phys_addr;
 		op->sym->cipher.iv.length = cparams->iv.length;
 
-		/* For SNOW3G algorithms, offset/length must be in bits */
+		/* For wireless algorithms, offset/length must be in bits */
 		if (cparams->cipher_algo == RTE_CRYPTO_CIPHER_SNOW3G_UEA2 ||
-				cparams->cipher_algo == RTE_CRYPTO_CIPHER_KASUMI_F8) {
+				cparams->cipher_algo == RTE_CRYPTO_CIPHER_KASUMI_F8 ||
+				cparams->cipher_algo == RTE_CRYPTO_CIPHER_ZUC_EEA3) {
 			op->sym->cipher.data.offset = ipdata_offset << 3;
-			if (cparams->do_hash && cparams->hash_verify)
-				/* Do not cipher the hash tag */
-				op->sym->cipher.data.length = (data_len -
-					cparams->digest_length) << 3;
-			else
-				op->sym->cipher.data.length = data_len << 3;
-
+			op->sym->cipher.data.length = data_len << 3;
 		} else {
 			op->sym->cipher.data.offset = ipdata_offset;
-			if (cparams->do_hash && cparams->hash_verify)
-				/* Do not cipher the hash tag */
-				op->sym->cipher.data.length = data_len -
-					cparams->digest_length;
-			else
-				op->sym->cipher.data.length = data_len;
+			op->sym->cipher.data.length = data_len;
 		}
 	}
 

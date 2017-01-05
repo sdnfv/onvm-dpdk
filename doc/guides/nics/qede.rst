@@ -32,7 +32,7 @@ QEDE Poll Mode Driver
 ======================
 
 The QEDE poll mode driver library (**librte_pmd_qede**) implements support
-for **QLogic FastLinQ QL4xxxx 25G/40G CNA** family of adapters as well
+for **QLogic FastLinQ QL4xxxx 25G/40G/100G CNA** family of adapters as well
 as their virtual functions (VF) in SR-IOV context. It is supported on
 several standard Linux distros like RHEL7.x, SLES12.x and Ubuntu.
 It is compile-tested under FreeBSD OS.
@@ -47,44 +47,42 @@ Supported Features
 - Promiscuous mode
 - Allmulti mode
 - Port hardware statistics
-- Jumbo frames (using single buffer)
+- Jumbo frames
 - VLAN offload - Filtering and stripping
 - Stateless checksum offloads (IPv4/TCP/UDP)
-- Multiple Rx/Tx queues (queue-pairs)
-- RSS (with user configurable table/key)
+- Multiple Rx/Tx queues
+- RSS (with RETA/hash table/key)
 - TSS
 - Multiple MAC address
 - Default pause flow control
-- SR-IOV VF for 25G/40G modes
+- SR-IOV VF
+- MTU change
+- Multiprocess aware
+- Scatter-Gather
 
 Non-supported Features
 ----------------------
 
-- Scatter-Gather Rx/Tx frames
-- Unequal number of Rx/Tx queues
-- MTU change (dynamic)
 - SR-IOV PF
 - Tunneling offloads
-- Reload of the PMD after a non-graceful termination
+- LRO/TSO
+- NPAR
 
 Supported QLogic Adapters
 -------------------------
 
-- QLogic FastLinQ QL4xxxx 25G/40G/100G CNAs.
+- QLogic FastLinQ QL4xxxx 10G/25G/40G/100G CNAs.
 
 Prerequisites
 -------------
 
-- Requires firmware version **8.7.x.** and management firmware
-  version **8.7.x or higher**. Firmware may be available
+- Requires firmware version **8.10.x.** and management firmware
+  version **8.10.x or higher**. Firmware may be available
   inbox in certain newer Linux distros under the standard directory
-  ``E.g. /lib/firmware/qed/qed_init_values_zipped-8.7.7.0.bin``
+  ``E.g. /lib/firmware/qed/qed_init_values-8.10.9.0.bin``
 
 - If the required firmware files are not available then visit
   `QLogic Driver Download Center <http://driverdownloads.qlogic.com>`_.
-
-- This driver relies on external zlib library (-lz) for uncompressing
-  the firmware file.
 
 Performance note
 ~~~~~~~~~~~~~~~~
@@ -120,7 +118,7 @@ enabling debugging options may affect system performance.
 - ``CONFIG_RTE_LIBRTE_QEDE_FW`` (default **""**)
 
   Gives absolute path of firmware file.
-  ``Eg: "/lib/firmware/qed/qed_init_values_zipped-8.7.7.0.bin"``
+  ``Eg: "/lib/firmware/qed/qed_init_values_zipped-8.10.9.0.bin"``
   Empty string indicates driver will pick up the firmware file
   from the default location.
 
@@ -150,7 +148,7 @@ command::
 
    cd <DPDK-source-directory>
    gmake config T=x86_64-native-bsdapp-gcc install -Wl,-rpath=\
-                                        /usr/local/lib/gcc48 CC=gcc48
+                                        /usr/local/lib/gcc49 CC=gcc49
 
 
 Sample Application Notes
@@ -243,7 +241,7 @@ SR-IOV: Prerequisites and Sample Application Notes
 
 This section provides instructions to configure SR-IOV with Linux OS.
 
-**Note**: librte_pmd_qede will be used to bind to SR-IOV VF device and Linux native kernel driver (QEDE) will function as SR-IOV PF driver.
+**Note**: librte_pmd_qede will be used to bind to SR-IOV VF device and Linux native kernel driver (QEDE) will function as SR-IOV PF driver. Requires PF driver to be 8.10.x.x or higher.
 
 #. Verify SR-IOV and ARI capability is enabled on the adapter using ``lspci``:
 

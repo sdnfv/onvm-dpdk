@@ -40,7 +40,7 @@
 #include <rte_ethdev.h>
 #include <rte_malloc.h>
 #include <rte_kvargs.h>
-#include <rte_dev.h>
+#include <rte_vdev.h>
 
 #include <linux/if_ether.h>
 #include <linux/if_packet.h>
@@ -666,7 +666,7 @@ rte_pmd_init_internals(const char *name,
 	}
 
 	/* reserve an ethdev entry */
-	*eth_dev = rte_eth_dev_allocate(name, RTE_ETH_DEV_VIRTUAL);
+	*eth_dev = rte_eth_dev_allocate(name);
 	if (*eth_dev == NULL)
 		goto error;
 
@@ -820,7 +820,7 @@ rte_eth_from_packet(const char *name,
 }
 
 static int
-rte_pmd_af_packet_devinit(const char *name, const char *params)
+rte_pmd_af_packet_probe(const char *name, const char *params)
 {
 	unsigned numa_node;
 	int ret = 0;
@@ -858,7 +858,7 @@ exit:
 }
 
 static int
-rte_pmd_af_packet_devuninit(const char *name)
+rte_pmd_af_packet_remove(const char *name)
 {
 	struct rte_eth_dev *eth_dev = NULL;
 	struct pmd_internals *internals;
@@ -889,14 +889,14 @@ rte_pmd_af_packet_devuninit(const char *name)
 	return 0;
 }
 
-static struct rte_driver pmd_af_packet_drv = {
-	.type = PMD_VDEV,
-	.init = rte_pmd_af_packet_devinit,
-	.uninit = rte_pmd_af_packet_devuninit,
+static struct rte_vdev_driver pmd_af_packet_drv = {
+	.probe = rte_pmd_af_packet_probe,
+	.remove = rte_pmd_af_packet_remove,
 };
 
-PMD_REGISTER_DRIVER(pmd_af_packet_drv, eth_af_packet);
-DRIVER_REGISTER_PARAM_STRING(eth_af_packet,
+RTE_PMD_REGISTER_VDEV(net_af_packet, pmd_af_packet_drv);
+RTE_PMD_REGISTER_ALIAS(net_af_packet, eth_af_packet);
+RTE_PMD_REGISTER_PARAM_STRING(net_af_packet,
 	"iface=<string> "
 	"qpairs=<int> "
 	"blocksz=<int> "

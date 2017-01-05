@@ -41,6 +41,8 @@ void qed_link_update(struct ecore_hwfn *hwfn);
 #endif
 #endif
 
+#define OSAL_WARN(arg1, arg2, arg3, ...) (0)
+
 /* Memory Types */
 typedef uint8_t u8;
 typedef uint16_t u16;
@@ -301,6 +303,10 @@ bool qede_test_bit(u32, unsigned long *);
 #define OSAL_TEST_BIT(bit, bitmap) \
 	qede_test_bit(bit, bitmap)
 
+u32 qede_find_first_bit(unsigned long *, u32);
+#define OSAL_FIND_FIRST_BIT(bitmap, length) \
+	qede_find_first_bit(bitmap, length)
+
 u32 qede_find_first_zero_bit(unsigned long *, u32);
 #define OSAL_FIND_FIRST_ZERO_BIT(bitmap, length) \
 	qede_find_first_zero_bit(bitmap, length)
@@ -324,6 +330,8 @@ u32 qede_find_first_zero_bit(unsigned long *, u32);
 #define OSAL_IOV_VF_VPORT_UPDATE(hwfn, vfid, p_params, p_mask) 0
 #define OSAL_VF_UPDATE_ACQUIRE_RESC_RESP(_dev_p, _resc_resp) 0
 #define OSAL_IOV_GET_OS_TYPE() 0
+#define OSAL_IOV_VF_MSG_TYPE(hwfn, vfid, vf_msg_type) 0
+#define OSAL_IOV_PF_RESP_TYPE(hwfn, vfid, pf_resp_type) 0
 
 u32 qede_unzip_data(struct ecore_hwfn *p_hwfn, u32 input_len,
 		   u8 *input_buf, u32 max_size, u8 *unzip_buf);
@@ -377,6 +385,8 @@ u32 qede_osal_log2(u32);
 #define OSAL_ARRAY_SIZE(arr) RTE_DIM(arr)
 #define OSAL_SPRINTF(name, pattern, ...) \
 	sprintf(name, pattern, ##__VA_ARGS__)
+#define OSAL_SNPRINTF(buf, size, format, ...) \
+	snprintf(buf, size, format, ##__VA_ARGS__)
 #define OSAL_STRLEN(string) strlen(string)
 #define OSAL_STRCPY(dst, string) strcpy(dst, string)
 #define OSAL_STRNCPY(dst, string, len) strncpy(dst, string, len)

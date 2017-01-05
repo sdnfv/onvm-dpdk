@@ -30,9 +30,6 @@
 #define TX_CONS(txq)            (txq->sw_tx_cons & NUM_TX_BDS(txq))
 #define TX_PROD(txq)            (txq->sw_tx_prod & NUM_TX_BDS(txq))
 
-/* Number of TX BDs per packet used currently */
-#define MAX_NUM_TX_BDS			1
-
 #define QEDE_DEFAULT_TX_FREE_THRESH	32
 
 #define QEDE_CSUM_ERROR			(1 << 0)
@@ -44,6 +41,10 @@
 		(bd)->addr.hi = rte_cpu_to_le_32(U64_HI(maddr)); \
 		(bd)->addr.lo = rte_cpu_to_le_32(U64_LO(maddr)); \
 		(bd)->nbytes = rte_cpu_to_le_16(len); \
+		/* FW 8.10.x specific change */  \
+		(bd)->data.bitfields = ((len) & \
+					 ETH_TX_DATA_1ST_BD_PKT_LEN_MASK) \
+					<< ETH_TX_DATA_1ST_BD_PKT_LEN_SHIFT; \
 	} while (0)
 
 #define CQE_HAS_VLAN(flags) \
@@ -71,7 +72,7 @@
 
 #define MAX_NUM_TC		8
 
-#define for_each_rss(i) for (i = 0; i < qdev->num_rss; i++)
+#define for_each_queue(i) for (i = 0; i < qdev->num_queues; i++)
 
 /*
  * RX BD descriptor ring
@@ -98,6 +99,8 @@ struct qede_rx_queue {
 	uint16_t queue_id;
 	uint16_t port_id;
 	uint16_t rx_buf_size;
+	uint64_t rcv_pkts;
+	uint64_t rx_segs;
 	uint64_t rx_hw_errors;
 	uint64_t rx_alloc_errors;
 	struct qede_dev *qdev;
@@ -129,13 +132,14 @@ struct qede_tx_queue {
 	void OSAL_IOMEM *doorbell_addr;
 	volatile union db_prod tx_db;
 	uint16_t port_id;
-	uint64_t txq_counter;
+	uint64_t xmit_pkts;
 	struct qede_dev *qdev;
 };
 
 struct qede_fastpath {
 	struct qede_dev *qdev;
-	uint8_t rss_id;
+	u8 type;
+	uint8_t id;
 	struct ecore_sb_info *sb_info;
 	struct qede_rx_queue *rxq;
 	struct qede_tx_queue *txqs[MAX_NUM_TC];
@@ -164,16 +168,21 @@ int qede_dev_start(struct rte_eth_dev *eth_dev);
 
 void qede_dev_stop(struct rte_eth_dev *eth_dev);
 
-void qede_reset_fp_rings(struct qede_dev *qdev);
+int qede_reset_fp_rings(struct qede_dev *qdev);
 
 void qede_free_fp_arrays(struct qede_dev *qdev);
 
-void qede_free_mem_load(struct qede_dev *qdev);
+void qede_free_mem_load(struct rte_eth_dev *eth_dev);
 
 uint16_t qede_xmit_pkts(void *p_txq, struct rte_mbuf **tx_pkts,
 			uint16_t nb_pkts);
 
 uint16_t qede_recv_pkts(void *p_rxq, struct rte_mbuf **rx_pkts,
 			uint16_t nb_pkts);
+
+/* Fastpath resource alloc/dealloc helpers */
+int qede_alloc_fp_resc(struct qede_dev *qdev);
+
+void qede_dealloc_fp_resc(struct rte_eth_dev *eth_dev);
 
 #endif /* _QEDE_RXTX_H_ */

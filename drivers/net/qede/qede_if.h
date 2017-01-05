@@ -70,20 +70,20 @@ struct qed_link_output {
 	uint32_t advertised_caps;	/* In ADVERTISED defs */
 	uint32_t lp_caps;	/* In ADVERTISED defs */
 	uint32_t speed;		/* In Mb/s */
+	uint32_t adv_speed;	/* Speed mask */
 	uint8_t duplex;		/* In DUPLEX defs */
 	uint8_t port;		/* In PORT defs */
 	bool autoneg;
 	uint32_t pause_config;
 };
 
-#define QED_DRV_VER_STR_SIZE 80
 struct qed_slowpath_params {
 	uint32_t int_mode;
 	uint8_t drv_major;
 	uint8_t drv_minor;
 	uint8_t drv_rev;
 	uint8_t drv_eng;
-	uint8_t name[QED_DRV_VER_STR_SIZE];
+	uint8_t name[NAME_SIZE];
 };
 
 #define ILT_PAGE_SIZE_TCFC 0x8000	/* 32KB */
@@ -151,14 +151,5 @@ struct qed_common_ops {
 	void (*update_msglvl)(struct ecore_dev *edev,
 			      uint32_t dp_module, uint8_t dp_level);
 };
-
-/**
- * @brief qed_get_protocol_version
- *
- * @param protocol
- *
- * @return version supported by qed for given protocol driver
- */
-uint32_t qed_get_protocol_version(enum qed_protocol protocol);
 
 #endif /* _QEDE_IF_H */

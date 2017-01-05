@@ -45,6 +45,12 @@
 #define RTE_PORT_HANDLING       (uint16_t)3
 
 /*
+ * It is used to allocate the memory for hash key.
+ * The hash key size is NIC dependent.
+ */
+#define RSS_HASH_KEY_LENGTH 64
+
+/*
  * Default size of the mbuf data buffer to receive standard 1518-byte
  * Ethernet frames in a mono-segment memory buffer.
  */
@@ -152,7 +158,8 @@ struct rte_port {
 	struct fwd_stream       *tx_stream; /**< Port TX stream, if unique */
 	unsigned int            socket_id;  /**< For NUMA support */
 	uint16_t                tx_ol_flags;/**< TX Offload Flags (TESTPMD_TX_OFFLOAD...). */
-	uint16_t                tso_segsz;  /**< MSS for segmentation offload. */
+	uint16_t                tso_segsz;  /**< Segmentation offload MSS for non-tunneled packets. */
+	uint16_t                tunnel_tso_segsz; /**< Segmentation offload MSS for tunneled pkts. */
 	uint16_t                tx_vlan_id;/**< The tag ID */
 	uint16_t                tx_vlan_id_outer;/**< The outer tag ID */
 	void                    *fwd_ctx;   /**< Forwarding mode context */

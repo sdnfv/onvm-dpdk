@@ -59,6 +59,13 @@ extern "C" {
 #define asm __asm__
 #endif
 
+/** C extension macro for environments lacking C11 features. */
+#if !defined(__STDC_VERSION__) || __STDC_VERSION__ < 201112L
+#define RTE_STD_C11 __extension__
+#else
+#define RTE_STD_C11
+#endif
+
 #ifdef RTE_ARCH_STRICT_ALIGN
 typedef uint64_t unaligned_uint64_t __attribute__ ((aligned(1)));
 typedef uint32_t unaligned_uint32_t __attribute__ ((aligned(1)));
@@ -268,7 +275,8 @@ rte_align64pow2(uint64_t v)
 /**
  * Macro to return the minimum of two numbers
  */
-#define RTE_MIN(a, b) ({ \
+#define RTE_MIN(a, b) \
+	__extension__ ({ \
 		typeof (a) _a = (a); \
 		typeof (b) _b = (b); \
 		_a < _b ? _a : _b; \
@@ -277,7 +285,8 @@ rte_align64pow2(uint64_t v)
 /**
  * Macro to return the maximum of two numbers
  */
-#define RTE_MAX(a, b) ({ \
+#define RTE_MAX(a, b) \
+	__extension__ ({ \
 		typeof (a) _a = (a); \
 		typeof (b) _b = (b); \
 		_a > _b ? _a : _b; \
@@ -325,6 +334,15 @@ rte_bsf32(uint32_t v)
 #define _RTE_STR(x) #x
 /** Take a macro value and get a string version of it */
 #define RTE_STR(x) _RTE_STR(x)
+
+/**
+ * ISO C helpers to modify format strings using variadic macros.
+ * This is a replacement for the ", ## __VA_ARGS__" GNU extension.
+ * An empty %s argument is appended to avoid a dangling comma.
+ */
+#define RTE_FMT(fmt, ...) fmt "%.0s", __VA_ARGS__ ""
+#define RTE_FMT_HEAD(fmt, ...) fmt
+#define RTE_FMT_TAIL(fmt, ...) __VA_ARGS__
 
 /** Mask value of type "tp" for the first "ln" bit set. */
 #define	RTE_LEN2MASK(ln, tp)	\

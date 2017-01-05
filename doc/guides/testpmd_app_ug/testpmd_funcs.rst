@@ -1,5 +1,5 @@
 ..  BSD LICENSE
-    Copyright(c) 2010-2015 Intel Corporation. All rights reserved.
+    Copyright(c) 2010-2016 Intel Corporation. All rights reserved.
     All rights reserved.
 
     Redistribution and use in source and binary forms, with or without
@@ -35,7 +35,8 @@ Testpmd Runtime Functions
 
 Where the testpmd application is started in interactive mode, (``-i|--interactive``),
 it displays a prompt that can be used to start and stop forwarding,
-configure the application, display statistics, set the Flow Director and other tasks::
+configure the application, display statistics (including the extended NIC
+statistics aka xstats) , set the Flow Director and other tasks::
 
    testpmd>
 
@@ -50,10 +51,10 @@ If you type a partial command and hit ``<TAB>`` you get a list of the available 
 
    testpmd> show port <TAB>
 
-       info [Mul-choice STRING]: show|clear port info|stats|fdir|stat_qmap|dcb_tc X
-       info [Mul-choice STRING]: show|clear port info|stats|fdir|stat_qmap|dcb_tc all
-       stats [Mul-choice STRING]: show|clear port info|stats|fdir|stat_qmap|dcb_tc X
-       stats [Mul-choice STRING]: show|clear port info|stats|fdir|stat_qmap|dcb_tc all
+       info [Mul-choice STRING]: show|clear port info|stats|xstats|fdir|stat_qmap|dcb_tc X
+       info [Mul-choice STRING]: show|clear port info|stats|xstats|fdir|stat_qmap|dcb_tc all
+       stats [Mul-choice STRING]: show|clear port info|stats|xstats|fdir|stat_qmap|dcb_tc X
+       stats [Mul-choice STRING]: show|clear port info|stats|xstats|fdir|stat_qmap|dcb_tc all
        ...
 
 
@@ -130,13 +131,15 @@ show port
 
 Display information for a given port or all ports::
 
-   testpmd> show port (info|stats|fdir|stat_qmap|dcb_tc) (port_id|all)
+   testpmd> show port (info|stats|xstats|fdir|stat_qmap|dcb_tc) (port_id|all)
 
 The available information categories are:
 
 * ``info``: General port information such as MAC address.
 
 * ``stats``: RX/TX statistics.
+
+* ``xstats``: RX/TX extended NIC statistics.
 
 * ``fdir``: Flow Director information and statistics.
 
@@ -205,7 +208,7 @@ clear port
 
 Clear the port statistics for a given port or for all ports::
 
-   testpmd> clear port (info|stats|fdir|stat_qmap) (port_id|all)
+   testpmd> clear port (info|stats|xstats|fdir|stat_qmap) (port_id|all)
 
 For example::
 
@@ -267,6 +270,9 @@ The available information categories are:
   This is the default mode.
 
 * ``mac``: Changes the source and the destination Ethernet addresses of packets before forwarding them.
+  Default application behaviour is to set source Ethernet address to that of the transmitting interface, and destination
+  address to a dummy value (set during init). The user may specify a target destination Ethernet address via the 'eth-peer' or
+  'eth-peer-configfile' command-line options. It is not currently possible to specify a specific source Ethernet address.
 
 * ``macswap``: MAC swap forwarding mode.
   Swaps the source and the destination Ethernet addresses of packets before forwarding them.
@@ -405,7 +411,7 @@ When retry is enabled, the transmit delay time and number of retries can also be
 set txpkts
 ~~~~~~~~~~
 
-Set the length of each segment of the TX-ONLY packets::
+Set the length of each segment of the TX-ONLY packets or length of packet for FLOWGEN mode::
 
    testpmd> set txpkts (x[,y]*)
 
@@ -473,6 +479,34 @@ For example, to change the port forwarding:
    RX P=1/Q=0 (socket 0) -> TX P=3/Q=0 (socket 0) peer=02:00:00:00:00:03
    RX P=3/Q=0 (socket 0) -> TX P=1/Q=0 (socket 0) peer=02:00:00:00:00:02
 
+set tx loopback
+~~~~~~~~~~~~~~~
+
+Enable/disable tx loopback::
+
+   testpmd> set tx loopback (port_id) (on|off)
+
+set drop enable
+~~~~~~~~~~~~~~~
+
+set drop enable bit for all queues::
+
+   testpmd> set all queues drop (port_id) (on|off)
+
+set split drop enable (for VF)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+set split drop enable bit for VF from PF::
+
+   testpmd> set vf split drop (port_id) (vf_id) (on|off)
+
+set mac antispoof (for VF)
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Set mac antispoof for a VF from the PF::
+
+   testpmd> set vf mac antispoof  (port_id) (vf_id) (on|off)
+
 vlan set strip
 ~~~~~~~~~~~~~~
 
@@ -486,6 +520,27 @@ vlan set stripq
 Set the VLAN strip for a queue on a port::
 
    testpmd> vlan set stripq (on|off) (port_id,queue_id)
+
+vlan set stripq (for VF)
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+Set VLAN strip for all queues in a pool for a VF from the PF::
+
+   testpmd> set vf vlan stripq (port_id) (vf_id) (on|off)
+
+vlan set insert (for VF)
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+Set VLAN insert for a VF from the PF::
+
+   testpmd> set vf vlan insert (port_id) (vf_id) (vlan_id)
+
+vlan set antispoof (for VF)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Set VLAN antispoof for a VF from the PF::
+
+   testpmd> set vf vlan antispoof (port_id) (vf_id) (on|off)
 
 vlan set filter
 ~~~~~~~~~~~~~~~
@@ -727,12 +782,19 @@ Remove a MAC address from a port::
 
    testpmd> mac_addr remove (port_id) (XX:XX:XX:XX:XX:XX)
 
-mac_addr add(for VF)
-~~~~~~~~~~~~~~~~~~~~
+mac_addr add (for VF)
+~~~~~~~~~~~~~~~~~~~~~
 
 Add an alternative MAC address for a VF to a port::
 
    testpmd> mac_add add port (port_id) vf (vf_id) (XX:XX:XX:XX:XX:XX)
+
+mac_addr set (for VF)
+~~~~~~~~~~~~~~~~~~~~~
+
+Set the MAC address for a VF from the PF::
+
+   testpmd> set vf mac addr (port_id) (vf_id) (XX:XX:XX:XX:XX:XX)
 
 set port-uta
 ~~~~~~~~~~~~
@@ -1041,14 +1103,14 @@ For example, to attach a port created by pcap PMD.
 
 .. code-block:: console
 
-   testpmd> port attach eth_pcap0
+   testpmd> port attach net_pcap0
    Attaching a new port...
-   PMD: Initializing pmd_pcap for eth_pcap0
+   PMD: Initializing pmd_pcap for net_pcap0
    PMD: Creating pcap-backed ethdev on numa socket 0
    Port 0 is attached. Now total ports is 1
    Done
 
-In this case, identifier is ``eth_pcap0``.
+In this case, identifier is ``net_pcap0``.
 This identifier format is the same as ``--vdev`` format of DPDK applications.
 
 For example, to re-attach a bonded port which has been previously detached,
@@ -1056,10 +1118,10 @@ the mode and slave parameters must be given.
 
 .. code-block:: console
 
-   testpmd> port attach eth_bond_0,mode=0,slave=1
+   testpmd> port attach net_bond_0,mode=0,slave=1
    Attaching a new port...
-   EAL: Initializing pmd_bond for eth_bond_0
-   EAL: Create bonded device eth_bond_0 on port 0 in mode 0 on socket 0.
+   EAL: Initializing pmd_bond for net_bond_0
+   EAL: Create bonded device net_bond_0 on port 0 in mode 0 on socket 0.
    Port 0 is attached. Now total ports is 1
    Done
 
@@ -1107,7 +1169,7 @@ For example, to detach a virtual device port 0.
    testpmd> port detach 0
    Detaching a port...
    PMD: Closing pcap ethdev on numa socket 0
-   Port 'eth_pcap0' is detached. Now total ports is 0
+   Port 'net_pcap0' is detached. Now total ports is 0
    Done
 
 To remove a pci device completely from the system, first detach the port from testpmd.
@@ -1167,7 +1229,7 @@ port config - speed
 
 Set the speed and duplex mode for all ports or a specific port::
 
-   testpmd> port config (port_id|all) speed (10|100|1000|10000|40000|100000|auto) \
+   testpmd> port config (port_id|all) speed (10|100|1000|10000|25000|40000|50000|100000|auto) \
             duplex (half|full|auto)
 
 port config - queues/descriptors
@@ -1844,8 +1906,7 @@ Set flow director's input masks::
                       src_mask (ipv4_src) (ipv6_src) (src_port) \
                       dst_mask (ipv4_dst) (ipv6_dst) (dst_port)
 
-   flow_director_mask (port_id) mode MAC-VLAN vlan (vlan_value) \
-                      mac (mac_value)
+   flow_director_mask (port_id) mode MAC-VLAN vlan (vlan_value)
 
    flow_director_mask (port_id) mode Tunnel vlan (vlan_value) \
                       mac (mac_value) tunnel-type (tunnel_type_value) \

@@ -306,22 +306,57 @@ static enum e1000_fc_mode igb_fc_setting = e1000_fc_full;
  * The set of PCI devices this driver supports
  */
 static const struct rte_pci_id pci_id_igb_map[] = {
+	{ RTE_PCI_DEVICE(E1000_INTEL_VENDOR_ID, E1000_DEV_ID_82576) },
+	{ RTE_PCI_DEVICE(E1000_INTEL_VENDOR_ID, E1000_DEV_ID_82576_FIBER) },
+	{ RTE_PCI_DEVICE(E1000_INTEL_VENDOR_ID, E1000_DEV_ID_82576_SERDES) },
+	{ RTE_PCI_DEVICE(E1000_INTEL_VENDOR_ID, E1000_DEV_ID_82576_QUAD_COPPER) },
+	{ RTE_PCI_DEVICE(E1000_INTEL_VENDOR_ID, E1000_DEV_ID_82576_QUAD_COPPER_ET2) },
+	{ RTE_PCI_DEVICE(E1000_INTEL_VENDOR_ID, E1000_DEV_ID_82576_NS) },
+	{ RTE_PCI_DEVICE(E1000_INTEL_VENDOR_ID, E1000_DEV_ID_82576_NS_SERDES) },
+	{ RTE_PCI_DEVICE(E1000_INTEL_VENDOR_ID, E1000_DEV_ID_82576_SERDES_QUAD) },
 
-#define RTE_PCI_DEV_ID_DECL_IGB(vend, dev) {RTE_PCI_DEVICE(vend, dev)},
-#include "rte_pci_dev_ids.h"
+	{ RTE_PCI_DEVICE(E1000_INTEL_VENDOR_ID, E1000_DEV_ID_82575EB_COPPER) },
+	{ RTE_PCI_DEVICE(E1000_INTEL_VENDOR_ID, E1000_DEV_ID_82575EB_FIBER_SERDES) },
+	{ RTE_PCI_DEVICE(E1000_INTEL_VENDOR_ID, E1000_DEV_ID_82575GB_QUAD_COPPER) },
 
-{0},
+	{ RTE_PCI_DEVICE(E1000_INTEL_VENDOR_ID, E1000_DEV_ID_82580_COPPER) },
+	{ RTE_PCI_DEVICE(E1000_INTEL_VENDOR_ID, E1000_DEV_ID_82580_FIBER) },
+	{ RTE_PCI_DEVICE(E1000_INTEL_VENDOR_ID, E1000_DEV_ID_82580_SERDES) },
+	{ RTE_PCI_DEVICE(E1000_INTEL_VENDOR_ID, E1000_DEV_ID_82580_SGMII) },
+	{ RTE_PCI_DEVICE(E1000_INTEL_VENDOR_ID, E1000_DEV_ID_82580_COPPER_DUAL) },
+	{ RTE_PCI_DEVICE(E1000_INTEL_VENDOR_ID, E1000_DEV_ID_82580_QUAD_FIBER) },
+
+	{ RTE_PCI_DEVICE(E1000_INTEL_VENDOR_ID, E1000_DEV_ID_I350_COPPER) },
+	{ RTE_PCI_DEVICE(E1000_INTEL_VENDOR_ID, E1000_DEV_ID_I350_FIBER) },
+	{ RTE_PCI_DEVICE(E1000_INTEL_VENDOR_ID, E1000_DEV_ID_I350_SERDES) },
+	{ RTE_PCI_DEVICE(E1000_INTEL_VENDOR_ID, E1000_DEV_ID_I350_SGMII) },
+	{ RTE_PCI_DEVICE(E1000_INTEL_VENDOR_ID, E1000_DEV_ID_I350_DA4) },
+	{ RTE_PCI_DEVICE(E1000_INTEL_VENDOR_ID, E1000_DEV_ID_I210_COPPER) },
+	{ RTE_PCI_DEVICE(E1000_INTEL_VENDOR_ID, E1000_DEV_ID_I210_COPPER_OEM1) },
+	{ RTE_PCI_DEVICE(E1000_INTEL_VENDOR_ID, E1000_DEV_ID_I210_COPPER_IT) },
+	{ RTE_PCI_DEVICE(E1000_INTEL_VENDOR_ID, E1000_DEV_ID_I210_FIBER) },
+	{ RTE_PCI_DEVICE(E1000_INTEL_VENDOR_ID, E1000_DEV_ID_I210_SERDES) },
+	{ RTE_PCI_DEVICE(E1000_INTEL_VENDOR_ID, E1000_DEV_ID_I210_SGMII) },
+	{ RTE_PCI_DEVICE(E1000_INTEL_VENDOR_ID, E1000_DEV_ID_I211_COPPER) },
+	{ RTE_PCI_DEVICE(E1000_INTEL_VENDOR_ID, E1000_DEV_ID_I354_BACKPLANE_1GBPS) },
+	{ RTE_PCI_DEVICE(E1000_INTEL_VENDOR_ID, E1000_DEV_ID_I354_SGMII) },
+	{ RTE_PCI_DEVICE(E1000_INTEL_VENDOR_ID, E1000_DEV_ID_I354_BACKPLANE_2_5GBPS) },
+	{ RTE_PCI_DEVICE(E1000_INTEL_VENDOR_ID, E1000_DEV_ID_DH89XXCC_SGMII) },
+	{ RTE_PCI_DEVICE(E1000_INTEL_VENDOR_ID, E1000_DEV_ID_DH89XXCC_SERDES) },
+	{ RTE_PCI_DEVICE(E1000_INTEL_VENDOR_ID, E1000_DEV_ID_DH89XXCC_BACKPLANE) },
+	{ RTE_PCI_DEVICE(E1000_INTEL_VENDOR_ID, E1000_DEV_ID_DH89XXCC_SFP) },
+	{ .vendor_id = 0, /* sentinel */ },
 };
 
 /*
  * The set of PCI devices this driver supports (for 82576&I350 VF)
  */
 static const struct rte_pci_id pci_id_igbvf_map[] = {
-
-#define RTE_PCI_DEV_ID_DECL_IGBVF(vend, dev) {RTE_PCI_DEVICE(vend, dev)},
-#include "rte_pci_dev_ids.h"
-
-{0},
+	{ RTE_PCI_DEVICE(E1000_INTEL_VENDOR_ID, E1000_DEV_ID_82576_VF) },
+	{ RTE_PCI_DEVICE(E1000_INTEL_VENDOR_ID, E1000_DEV_ID_82576_VF_HV) },
+	{ RTE_PCI_DEVICE(E1000_INTEL_VENDOR_ID, E1000_DEV_ID_I350_VF) },
+	{ RTE_PCI_DEVICE(E1000_INTEL_VENDOR_ID, E1000_DEV_ID_I350_VF_HV) },
+	{ .vendor_id = 0, /* sentinel */ },
 };
 
 static const struct rte_eth_desc_lim rx_desc_lim = {
@@ -1043,10 +1078,11 @@ eth_igbvf_dev_uninit(struct rte_eth_dev *eth_dev)
 
 static struct eth_driver rte_igb_pmd = {
 	.pci_drv = {
-		.name = "rte_igb_pmd",
 		.id_table = pci_id_igb_map,
 		.drv_flags = RTE_PCI_DRV_NEED_MAPPING | RTE_PCI_DRV_INTR_LSC |
 			RTE_PCI_DRV_DETACHABLE,
+		.probe = rte_eth_dev_pci_probe,
+		.remove = rte_eth_dev_pci_remove,
 	},
 	.eth_dev_init = eth_igb_dev_init,
 	.eth_dev_uninit = eth_igb_dev_uninit,
@@ -1058,21 +1094,15 @@ static struct eth_driver rte_igb_pmd = {
  */
 static struct eth_driver rte_igbvf_pmd = {
 	.pci_drv = {
-		.name = "rte_igbvf_pmd",
 		.id_table = pci_id_igbvf_map,
 		.drv_flags = RTE_PCI_DRV_NEED_MAPPING | RTE_PCI_DRV_DETACHABLE,
+		.probe = rte_eth_dev_pci_probe,
+		.remove = rte_eth_dev_pci_remove,
 	},
 	.eth_dev_init = eth_igbvf_dev_init,
 	.eth_dev_uninit = eth_igbvf_dev_uninit,
 	.dev_private_size = sizeof(struct e1000_adapter),
 };
-
-static int
-rte_igb_pmd_init(const char *name __rte_unused, const char *params __rte_unused)
-{
-	rte_eth_driver_register(&rte_igb_pmd);
-	return 0;
-}
 
 static void
 igb_vmdq_vlan_hw_filter_enable(struct rte_eth_dev *dev)
@@ -1083,20 +1113,6 @@ igb_vmdq_vlan_hw_filter_enable(struct rte_eth_dev *dev)
 	uint32_t rctl = E1000_READ_REG(hw, E1000_RCTL);
 	rctl |= E1000_RCTL_VFE;
 	E1000_WRITE_REG(hw, E1000_RCTL, rctl);
-}
-
-/*
- * VF Driver initialization routine.
- * Invoked one at EAL init time.
- * Register itself as the [Virtual Poll Mode] Driver of PCI IGB devices.
- */
-static int
-rte_igbvf_pmd_init(const char *name __rte_unused, const char *params __rte_unused)
-{
-	PMD_INIT_FUNC_TRACE();
-
-	rte_eth_driver_register(&rte_igbvf_pmd);
-	return 0;
 }
 
 static int
@@ -1311,6 +1327,7 @@ eth_igb_start(struct rte_eth_dev *dev)
 	speeds = &dev->data->dev_conf.link_speeds;
 	if (*speeds == ETH_LINK_SPEED_AUTONEG) {
 		hw->phy.autoneg_advertised = E1000_ALL_SPEED_DUPLEX;
+		hw->mac.autoneg = 1;
 	} else {
 		num_speeds = 0;
 		autoneg = (*speeds & ETH_LINK_SPEED_FIXED) == 0;
@@ -1346,6 +1363,17 @@ eth_igb_start(struct rte_eth_dev *dev)
 		}
 		if (num_speeds == 0 || (!autoneg && (num_speeds > 1)))
 			goto error_invalid_config;
+
+		/* Set/reset the mac.autoneg based on the link speed,
+		 * fixed or not
+		 */
+		if (!autoneg) {
+			hw->mac.autoneg = 0;
+			hw->mac.forced_speed_duplex =
+					hw->phy.autoneg_advertised;
+		} else {
+			hw->mac.autoneg = 1;
+		}
 	}
 
 	e1000_setup_link(hw);
@@ -2667,7 +2695,7 @@ eth_igb_interrupt_action(struct rte_eth_dev *dev)
 		E1000_WRITE_REG(hw, E1000_TCTL, tctl);
 		E1000_WRITE_REG(hw, E1000_RCTL, rctl);
 		E1000_WRITE_FLUSH(hw);
-		_rte_eth_dev_callback_process(dev, RTE_ETH_EVENT_INTR_LSC);
+		_rte_eth_dev_callback_process(dev, RTE_ETH_EVENT_INTR_LSC, NULL);
 	}
 
 	return 0;
@@ -2727,7 +2755,7 @@ void igbvf_mbx_process(struct rte_eth_dev *dev)
 
 	/* PF reset VF event */
 	if (in_msg == E1000_PF_CONTROL_MSG)
-		_rte_eth_dev_callback_process(dev, RTE_ETH_EVENT_INTR_RESET);
+		_rte_eth_dev_callback_process(dev, RTE_ETH_EVENT_INTR_RESET, NULL);
 }
 
 static int
@@ -5049,16 +5077,6 @@ eth_igb_set_eeprom(struct rte_eth_dev *dev,
 	return nvm->ops.write(hw,  first, length, data);
 }
 
-static struct rte_driver pmd_igb_drv = {
-	.type = PMD_PDEV,
-	.init = rte_igb_pmd_init,
-};
-
-static struct rte_driver pmd_igbvf_drv = {
-	.type = PMD_PDEV,
-	.init = rte_igbvf_pmd_init,
-};
-
 static int
 eth_igb_rx_queue_intr_disable(struct rte_eth_dev *dev, uint16_t queue_id)
 {
@@ -5220,7 +5238,7 @@ eth_igb_configure_msix_intr(struct rte_eth_dev *dev)
 	E1000_WRITE_FLUSH(hw);
 }
 
-PMD_REGISTER_DRIVER(pmd_igb_drv, igb);
-DRIVER_REGISTER_PCI_TABLE(igb, pci_id_igb_map);
-PMD_REGISTER_DRIVER(pmd_igbvf_drv, igbvf);
-DRIVER_REGISTER_PCI_TABLE(igbvf, pci_id_igbvf_map);
+RTE_PMD_REGISTER_PCI(net_e1000_igb, rte_igb_pmd.pci_drv);
+RTE_PMD_REGISTER_PCI_TABLE(net_e1000_igb, pci_id_igb_map);
+RTE_PMD_REGISTER_PCI(net_e1000_igb_vf, rte_igbvf_pmd.pci_drv);
+RTE_PMD_REGISTER_PCI_TABLE(net_e1000_igb_vf, pci_id_igbvf_map);

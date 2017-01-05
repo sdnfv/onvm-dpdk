@@ -3,3 +3,5 @@
 
 # built target
 **/x86_64-native-linuxapp-gcc/**
+
+doc/guides/nics/overview_table.txt

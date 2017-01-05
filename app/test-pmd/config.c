@@ -84,7 +84,6 @@
 #include <rte_lcore.h>
 #include <rte_atomic.h>
 #include <rte_branch_prediction.h>
-#include <rte_ring.h>
 #include <rte_mempool.h>
 #include <rte_mbuf.h>
 #include <rte_interrupts.h>
@@ -954,7 +953,7 @@ rxtx_config_display(void)
 	       rx_mode.hw_strip_crc ? "enabled" : "disabled",
 	       nb_pkt_per_burst);
 
-	if (cur_fwd_eng == &tx_only_engine)
+	if (cur_fwd_eng == &tx_only_engine || cur_fwd_eng == &flow_gen_engine)
 		printf("  packet len=%u - nb packet segments=%d\n",
 				(unsigned)tx_pkt_length, (int) tx_pkt_nb_segs);
 
@@ -1012,13 +1011,25 @@ void
 port_rss_hash_conf_show(portid_t port_id, char rss_info[], int show_rss_key)
 {
 	struct rte_eth_rss_conf rss_conf;
-	uint8_t rss_key[10 * 4] = "";
+	uint8_t rss_key[RSS_HASH_KEY_LENGTH];
 	uint64_t rss_hf;
 	uint8_t i;
 	int diag;
+	struct rte_eth_dev_info dev_info;
+	uint8_t hash_key_size;
 
 	if (port_id_is_invalid(port_id, ENABLED_WARN))
 		return;
+
+	memset(&dev_info, 0, sizeof(dev_info));
+	rte_eth_dev_info_get(port_id, &dev_info);
+	if (dev_info.hash_key_size > 0 &&
+			dev_info.hash_key_size <= sizeof(rss_key))
+		hash_key_size = dev_info.hash_key_size;
+	else {
+		printf("dev_info did not provide a valid hash key size\n");
+		return;
+	}
 
 	rss_conf.rss_hf = 0;
 	for (i = 0; i < RTE_DIM(rss_type_table); i++) {
@@ -1028,7 +1039,7 @@ port_rss_hash_conf_show(portid_t port_id, char rss_info[], int show_rss_key)
 
 	/* Get RSS hash key if asked to display it */
 	rss_conf.rss_key = (show_rss_key) ? rss_key : NULL;
-	rss_conf.rss_key_len = sizeof(rss_key);
+	rss_conf.rss_key_len = hash_key_size;
 	diag = rte_eth_dev_rss_hash_conf_get(port_id, &rss_conf);
 	if (diag != 0) {
 		switch (diag) {
@@ -1058,7 +1069,7 @@ port_rss_hash_conf_show(portid_t port_id, char rss_info[], int show_rss_key)
 	if (!show_rss_key)
 		return;
 	printf("RSS key:\n");
-	for (i = 0; i < sizeof(rss_key); i++)
+	for (i = 0; i < hash_key_size; i++)
 		printf("%02X", rss_key[i]);
 	printf("\n");
 }
@@ -2046,26 +2057,33 @@ set_qmap(portid_t port_id, uint8_t is_rx, uint16_t queue_id, uint8_t map_value)
 static inline void
 print_fdir_mask(struct rte_eth_fdir_masks *mask)
 {
-	printf("\n    vlan_tci: 0x%04x, ", mask->vlan_tci_mask);
+	printf("\n    vlan_tci: 0x%04x", rte_be_to_cpu_16(mask->vlan_tci_mask));
 
-	if (fdir_conf.mode == RTE_FDIR_MODE_PERFECT_MAC_VLAN)
-		printf("mac_addr: 0x%02x", mask->mac_addr_byte_mask);
-	else if (fdir_conf.mode == RTE_FDIR_MODE_PERFECT_TUNNEL)
-		printf("mac_addr: 0x%02x, tunnel_type: 0x%01x, tunnel_id: 0x%08x",
+	if (fdir_conf.mode == RTE_FDIR_MODE_PERFECT_TUNNEL)
+		printf(", mac_addr: 0x%02x, tunnel_type: 0x%01x,"
+			" tunnel_id: 0x%08x",
 			mask->mac_addr_byte_mask, mask->tunnel_type_mask,
-			mask->tunnel_id_mask);
-	else {
-		printf("src_ipv4: 0x%08x, dst_ipv4: 0x%08x,"
-			" src_port: 0x%04x, dst_port: 0x%04x",
-			mask->ipv4_mask.src_ip, mask->ipv4_mask.dst_ip,
-			mask->src_port_mask, mask->dst_port_mask);
+			rte_be_to_cpu_32(mask->tunnel_id_mask));
+	else if (fdir_conf.mode != RTE_FDIR_MODE_PERFECT_MAC_VLAN) {
+		printf(", src_ipv4: 0x%08x, dst_ipv4: 0x%08x",
+			rte_be_to_cpu_32(mask->ipv4_mask.src_ip),
+			rte_be_to_cpu_32(mask->ipv4_mask.dst_ip));
 
-		printf("\n    src_ipv6: 0x%08x,0x%08x,0x%08x,0x%08x,"
-			" dst_ipv6: 0x%08x,0x%08x,0x%08x,0x%08x",
-			mask->ipv6_mask.src_ip[0], mask->ipv6_mask.src_ip[1],
-			mask->ipv6_mask.src_ip[2], mask->ipv6_mask.src_ip[3],
-			mask->ipv6_mask.dst_ip[0], mask->ipv6_mask.dst_ip[1],
-			mask->ipv6_mask.dst_ip[2], mask->ipv6_mask.dst_ip[3]);
+		printf("\n    src_port: 0x%04x, dst_port: 0x%04x",
+			rte_be_to_cpu_16(mask->src_port_mask),
+			rte_be_to_cpu_16(mask->dst_port_mask));
+
+		printf("\n    src_ipv6: 0x%08x,0x%08x,0x%08x,0x%08x",
+			rte_be_to_cpu_32(mask->ipv6_mask.src_ip[0]),
+			rte_be_to_cpu_32(mask->ipv6_mask.src_ip[1]),
+			rte_be_to_cpu_32(mask->ipv6_mask.src_ip[2]),
+			rte_be_to_cpu_32(mask->ipv6_mask.src_ip[3]));
+
+		printf("\n    dst_ipv6: 0x%08x,0x%08x,0x%08x,0x%08x",
+			rte_be_to_cpu_32(mask->ipv6_mask.dst_ip[0]),
+			rte_be_to_cpu_32(mask->ipv6_mask.dst_ip[1]),
+			rte_be_to_cpu_32(mask->ipv6_mask.dst_ip[2]),
+			rte_be_to_cpu_32(mask->ipv6_mask.dst_ip[3]));
 	}
 
 	printf("\n");

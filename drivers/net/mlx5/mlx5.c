@@ -43,16 +43,16 @@
 /* Verbs header. */
 /* ISO C doesn't support unnamed structs/unions, disabling -pedantic. */
 #ifdef PEDANTIC
-#pragma GCC diagnostic ignored "-pedantic"
+#pragma GCC diagnostic ignored "-Wpedantic"
 #endif
 #include <infiniband/verbs.h>
 #ifdef PEDANTIC
-#pragma GCC diagnostic error "-pedantic"
+#pragma GCC diagnostic error "-Wpedantic"
 #endif
 
 /* DPDK headers don't like -pedantic. */
 #ifdef PEDANTIC
-#pragma GCC diagnostic ignored "-pedantic"
+#pragma GCC diagnostic ignored "-Wpedantic"
 #endif
 #include <rte_malloc.h>
 #include <rte_ethdev.h>
@@ -60,7 +60,7 @@
 #include <rte_common.h>
 #include <rte_kvargs.h>
 #ifdef PEDANTIC
-#pragma GCC diagnostic error "-pedantic"
+#pragma GCC diagnostic error "-Wpedantic"
 #endif
 
 #include "mlx5.h"
@@ -355,7 +355,7 @@ static struct eth_driver mlx5_driver;
  *   0 on success, negative errno value on failure.
  */
 static int
-mlx5_pci_devinit(struct rte_pci_driver *pci_drv, struct rte_pci_device *pci_dev)
+mlx5_pci_probe(struct rte_pci_driver *pci_drv, struct rte_pci_device *pci_dev)
 {
 	struct ibv_device **list;
 	struct ibv_device *ibv_dev;
@@ -511,7 +511,7 @@ mlx5_pci_devinit(struct rte_pci_driver *pci_drv, struct rte_pci_device *pci_dev)
 		priv->mtu = ETHER_MTU;
 		priv->mps = mps; /* Enable MPW by default if supported. */
 		priv->cqe_comp = 1; /* Enable compression by default. */
-		err = mlx5_args(priv, pci_dev->devargs);
+		err = mlx5_args(priv, pci_dev->device.devargs);
 		if (err) {
 			ERROR("failed to process device arguments: %s",
 			      strerror(err));
@@ -617,7 +617,7 @@ mlx5_pci_devinit(struct rte_pci_driver *pci_drv, struct rte_pci_device *pci_dev)
 
 			snprintf(name, sizeof(name), "%s port %u",
 				 ibv_get_device_name(ibv_dev), port);
-			eth_dev = rte_eth_dev_allocate(name, RTE_ETH_DEV_PCI);
+			eth_dev = rte_eth_dev_allocate(name);
 		}
 		if (eth_dev == NULL) {
 			ERROR("can not allocate rte ethdev");
@@ -668,6 +668,7 @@ mlx5_pci_devinit(struct rte_pci_driver *pci_drv, struct rte_pci_device *pci_dev)
 		/* Bring Ethernet device up. */
 		DEBUG("forcing Ethernet interface up");
 		priv_set_flags(priv, ~IFF_UP, IFF_UP);
+		mlx5_link_update_unlocked(priv->dev, 1);
 		continue;
 
 port_error:
@@ -728,9 +729,11 @@ static const struct rte_pci_id mlx5_pci_id_map[] = {
 
 static struct eth_driver mlx5_driver = {
 	.pci_drv = {
-		.name = MLX5_DRIVER_NAME,
+		.driver = {
+			.name = MLX5_DRIVER_NAME
+		},
 		.id_table = mlx5_pci_id_map,
-		.devinit = mlx5_pci_devinit,
+		.probe = mlx5_pci_probe,
 		.drv_flags = RTE_PCI_DRV_INTR_LSC,
 	},
 	.dev_private_size = sizeof(struct priv)
@@ -739,11 +742,10 @@ static struct eth_driver mlx5_driver = {
 /**
  * Driver initialization routine.
  */
-static int
-rte_mlx5_pmd_init(const char *name, const char *args)
+RTE_INIT(rte_mlx5_pmd_init);
+static void
+rte_mlx5_pmd_init(void)
 {
-	(void)name;
-	(void)args;
 	/*
 	 * RDMAV_HUGEPAGES_SAFE tells ibv_fork_init() we intend to use
 	 * huge pages. Calling ibv_fork_init() during init allows
@@ -753,13 +755,7 @@ rte_mlx5_pmd_init(const char *name, const char *args)
 	setenv("RDMAV_HUGEPAGES_SAFE", "1", 1);
 	ibv_fork_init();
 	rte_eal_pci_register(&mlx5_driver.pci_drv);
-	return 0;
 }
 
-static struct rte_driver rte_mlx5_driver = {
-	.type = PMD_PDEV,
-	.init = rte_mlx5_pmd_init,
-};
-
-PMD_REGISTER_DRIVER(rte_mlx5_driver, mlx5);
-DRIVER_REGISTER_PCI_TABLE(mlx5, mlx5_pci_id_map);
+RTE_PMD_EXPORT_NAME(net_mlx5, __COUNTER__);
+RTE_PMD_REGISTER_PCI_TABLE(net_mlx5, mlx5_pci_id_map);

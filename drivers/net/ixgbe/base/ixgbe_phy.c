@@ -283,6 +283,39 @@ s32 ixgbe_init_phy_ops_generic(struct ixgbe_hw *hw)
 }
 
 /**
+ * ixgbe_probe_phy - Probe a single address for a PHY
+ * @hw: pointer to hardware structure
+ * @phy_addr: PHY address to probe
+ *
+ * Returns true if PHY found
+ */
+static bool ixgbe_probe_phy(struct ixgbe_hw *hw, u16 phy_addr)
+{
+	u16 ext_ability = 0;
+
+	if (!ixgbe_validate_phy_addr(hw, phy_addr))
+		return false;
+
+	if (ixgbe_get_phy_id(hw))
+		return false;
+
+	hw->phy.type = ixgbe_get_phy_type_from_id(hw->phy.id);
+
+	if (hw->phy.type == ixgbe_phy_unknown) {
+		hw->phy.ops.read_reg(hw, IXGBE_MDIO_PHY_EXT_ABILITY,
+				     IXGBE_MDIO_PMA_PMD_DEV_TYPE, &ext_ability);
+		if (ext_ability &
+		    (IXGBE_MDIO_PHY_10GBASET_ABILITY |
+		     IXGBE_MDIO_PHY_1000BASET_ABILITY))
+			hw->phy.type = ixgbe_phy_cu_unknown;
+		else
+			hw->phy.type = ixgbe_phy_generic;
+	}
+
+	return true;
+}
+
+/**
  *  ixgbe_identify_phy_generic - Get physical layer module
  *  @hw: pointer to hardware structure
  *
@@ -291,8 +324,7 @@ s32 ixgbe_init_phy_ops_generic(struct ixgbe_hw *hw)
 s32 ixgbe_identify_phy_generic(struct ixgbe_hw *hw)
 {
 	s32 status = IXGBE_ERR_PHY_ADDR_INVALID;
-	u32 phy_addr;
-	u16 ext_ability = 0;
+	u16 phy_addr;
 
 	DEBUGFUNC("ixgbe_identify_phy_generic");
 
@@ -303,44 +335,32 @@ s32 ixgbe_identify_phy_generic(struct ixgbe_hw *hw)
 			hw->phy.phy_semaphore_mask = IXGBE_GSSR_PHY0_SM;
 	}
 
-	if (hw->phy.type == ixgbe_phy_unknown) {
-		for (phy_addr = 0; phy_addr < IXGBE_MAX_PHY_ADDR; phy_addr++) {
-			if (ixgbe_validate_phy_addr(hw, phy_addr)) {
-				hw->phy.addr = phy_addr;
-				ixgbe_get_phy_id(hw);
-				hw->phy.type =
-					ixgbe_get_phy_type_from_id(hw->phy.id);
+	if (hw->phy.type != ixgbe_phy_unknown)
+		return IXGBE_SUCCESS;
 
-				if (hw->phy.type == ixgbe_phy_unknown) {
-					hw->phy.ops.read_reg(hw,
-						  IXGBE_MDIO_PHY_EXT_ABILITY,
-						  IXGBE_MDIO_PMA_PMD_DEV_TYPE,
-						  &ext_ability);
-					if (ext_ability &
-					    (IXGBE_MDIO_PHY_10GBASET_ABILITY |
-					     IXGBE_MDIO_PHY_1000BASET_ABILITY))
-						hw->phy.type =
-							 ixgbe_phy_cu_unknown;
-					else
-						hw->phy.type =
-							 ixgbe_phy_generic;
-				}
-
-				status = IXGBE_SUCCESS;
-				break;
-			}
-		}
-
-		/* Certain media types do not have a phy so an address will not
-		 * be found and the code will take this path.  Caller has to
-		 * decide if it is an error or not.
-		 */
-		if (status != IXGBE_SUCCESS) {
-			hw->phy.addr = 0;
-		}
-	} else {
-		status = IXGBE_SUCCESS;
+	if (hw->phy.nw_mng_if_sel) {
+		phy_addr = (hw->phy.nw_mng_if_sel &
+			    IXGBE_NW_MNG_IF_SEL_MDIO_PHY_ADD) >>
+			   IXGBE_NW_MNG_IF_SEL_MDIO_PHY_ADD_SHIFT;
+		if (ixgbe_probe_phy(hw, phy_addr))
+			return IXGBE_SUCCESS;
+		else
+			return IXGBE_ERR_PHY_ADDR_INVALID;
 	}
+
+	for (phy_addr = 0; phy_addr < IXGBE_MAX_PHY_ADDR; phy_addr++) {
+		if (ixgbe_probe_phy(hw, phy_addr)) {
+			status = IXGBE_SUCCESS;
+			break;
+		}
+	}
+
+	/* Certain media types do not have a phy so an address will not
+	 * be found and the code will take this path.  Caller has to
+	 * decide if it is an error or not.
+	 */
+	if (status != IXGBE_SUCCESS)
+		hw->phy.addr = 0;
 
 	return status;
 }
@@ -452,9 +472,11 @@ enum ixgbe_phy_type ixgbe_get_phy_type_from_id(u32 phy_id)
 		phy_type = ixgbe_phy_nl;
 		break;
 	case X557_PHY_ID:
+	case X557_PHY_ID2:
 		phy_type = ixgbe_phy_x550em_ext_t;
 		break;
 	case IXGBE_M88E1500_E_PHY_ID:
+	case IXGBE_M88E1543_E_PHY_ID:
 		phy_type = ixgbe_phy_m88;
 		break;
 	default:
@@ -719,7 +741,7 @@ s32 ixgbe_write_phy_reg_generic(struct ixgbe_hw *hw, u32 reg_addr,
 	DEBUGFUNC("ixgbe_write_phy_reg_generic");
 
 	if (hw->mac.ops.acquire_swfw_sync(hw, gssr) == IXGBE_SUCCESS) {
-		status = ixgbe_write_phy_reg_mdi(hw, reg_addr, device_type,
+		status = hw->phy.ops.write_reg_mdi(hw, reg_addr, device_type,
 						 phy_data);
 		hw->mac.ops.release_swfw_sync(hw, gssr);
 	} else {
@@ -882,6 +904,9 @@ s32 ixgbe_setup_phy_link_speed_generic(struct ixgbe_hw *hw,
 	if (speed & IXGBE_LINK_SPEED_100_FULL)
 		hw->phy.autoneg_advertised |= IXGBE_LINK_SPEED_100_FULL;
 
+	if (speed & IXGBE_LINK_SPEED_10_FULL)
+		hw->phy.autoneg_advertised |= IXGBE_LINK_SPEED_10_FULL;
+
 	/* Setup link based on the new speed settings */
 	ixgbe_setup_phy_link(hw);
 
@@ -919,6 +944,7 @@ static s32 ixgbe_get_copper_speeds_supported(struct ixgbe_hw *hw)
 		hw->phy.speeds_supported |= IXGBE_LINK_SPEED_5GB_FULL;
 		break;
 	case ixgbe_mac_X550EM_x:
+	case ixgbe_mac_X550EM_a:
 		hw->phy.speeds_supported &= ~IXGBE_LINK_SPEED_100_FULL;
 		break;
 	default:

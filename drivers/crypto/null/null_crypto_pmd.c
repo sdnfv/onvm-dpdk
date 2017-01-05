@@ -33,7 +33,7 @@
 #include <rte_common.h>
 #include <rte_config.h>
 #include <rte_cryptodev_pmd.h>
-#include <rte_dev.h>
+#include <rte_vdev.h>
 #include <rte_malloc.h>
 
 #include "null_crypto_pmd_private.h"
@@ -182,7 +182,7 @@ null_crypto_pmd_dequeue_burst(void *queue_pair, struct rte_crypto_op **ops,
 	return nb_dequeued;
 }
 
-static int cryptodev_null_uninit(const char *name);
+static int cryptodev_null_remove(const char *name);
 
 /** Create crypto device */
 static int
@@ -227,14 +227,14 @@ cryptodev_null_create(const char *name,
 
 init_error:
 	NULL_CRYPTO_LOG_ERR("driver %s: cryptodev_null_create failed", name);
-	cryptodev_null_uninit(crypto_dev_name);
+	cryptodev_null_remove(crypto_dev_name);
 
 	return -EFAULT;
 }
 
 /** Initialise null crypto device */
 static int
-cryptodev_null_init(const char *name,
+cryptodev_null_probe(const char *name,
 		const char *input_args)
 {
 	struct rte_crypto_vdev_init_params init_params = {
@@ -257,7 +257,7 @@ cryptodev_null_init(const char *name,
 
 /** Uninitialise null crypto device */
 static int
-cryptodev_null_uninit(const char *name)
+cryptodev_null_remove(const char *name)
 {
 	if (name == NULL)
 		return -EINVAL;
@@ -268,14 +268,14 @@ cryptodev_null_uninit(const char *name)
 	return 0;
 }
 
-static struct rte_driver cryptodev_null_pmd_drv = {
-	.type = PMD_VDEV,
-	.init = cryptodev_null_init,
-	.uninit = cryptodev_null_uninit
+static struct rte_vdev_driver cryptodev_null_pmd_drv = {
+	.probe = cryptodev_null_probe,
+	.remove = cryptodev_null_remove
 };
 
-PMD_REGISTER_DRIVER(cryptodev_null_pmd_drv, CRYPTODEV_NAME_NULL_PMD);
-DRIVER_REGISTER_PARAM_STRING(CRYPTODEV_NAME_NULL_PMD,
+RTE_PMD_REGISTER_VDEV(CRYPTODEV_NAME_NULL_PMD, cryptodev_null_pmd_drv);
+RTE_PMD_REGISTER_ALIAS(CRYPTODEV_NAME_NULL_PMD, cryptodev_null_pmd);
+RTE_PMD_REGISTER_PARAM_STRING(CRYPTODEV_NAME_NULL_PMD,
 	"max_nb_queue_pairs=<int> "
 	"max_nb_sessions=<int> "
 	"socket_id=<int>");

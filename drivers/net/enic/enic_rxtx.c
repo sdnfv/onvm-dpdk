@@ -149,30 +149,18 @@ enic_cq_rx_flags_to_pkt_type(struct cq_desc *cqd)
 	uint8_t cqrd_flags = cqrd->flags;
 	static const uint32_t cq_type_table[128] __rte_cache_aligned = {
 		[0x00] = RTE_PTYPE_UNKNOWN,
-		[0x20] = RTE_PTYPE_L2_ETHER | RTE_PTYPE_L3_IPV4_EXT_UNKNOWN
-			  | RTE_PTYPE_L4_NONFRAG,
-		[0x22] = RTE_PTYPE_L2_ETHER | RTE_PTYPE_L3_IPV4_EXT_UNKNOWN
-			  | RTE_PTYPE_L4_UDP,
-		[0x24] = RTE_PTYPE_L2_ETHER | RTE_PTYPE_L3_IPV4_EXT_UNKNOWN
-			  | RTE_PTYPE_L4_TCP,
-		[0x60] = RTE_PTYPE_L2_ETHER | RTE_PTYPE_L3_IPV4_EXT_UNKNOWN
-			  | RTE_PTYPE_L4_FRAG,
-		[0x62] = RTE_PTYPE_L2_ETHER | RTE_PTYPE_L3_IPV4_EXT_UNKNOWN
-			  | RTE_PTYPE_L4_UDP,
-		[0x64] = RTE_PTYPE_L2_ETHER | RTE_PTYPE_L3_IPV4_EXT_UNKNOWN
-			  | RTE_PTYPE_L4_TCP,
-		[0x10] = RTE_PTYPE_L2_ETHER | RTE_PTYPE_L3_IPV6_EXT_UNKNOWN
-			  | RTE_PTYPE_L4_NONFRAG,
-		[0x12] = RTE_PTYPE_L2_ETHER | RTE_PTYPE_L3_IPV6_EXT_UNKNOWN
-			  | RTE_PTYPE_L4_UDP,
-		[0x14] = RTE_PTYPE_L2_ETHER | RTE_PTYPE_L3_IPV6_EXT_UNKNOWN
-			  | RTE_PTYPE_L4_TCP,
-		[0x50] = RTE_PTYPE_L2_ETHER | RTE_PTYPE_L3_IPV6_EXT_UNKNOWN
-			  | RTE_PTYPE_L4_FRAG,
-		[0x52] = RTE_PTYPE_L2_ETHER | RTE_PTYPE_L3_IPV6_EXT_UNKNOWN
-			  | RTE_PTYPE_L4_UDP,
-		[0x54] = RTE_PTYPE_L2_ETHER | RTE_PTYPE_L3_IPV6_EXT_UNKNOWN
-			  | RTE_PTYPE_L4_TCP,
+		[0x20] = RTE_PTYPE_L3_IPV4_EXT_UNKNOWN | RTE_PTYPE_L4_NONFRAG,
+		[0x22] = RTE_PTYPE_L3_IPV4_EXT_UNKNOWN | RTE_PTYPE_L4_UDP,
+		[0x24] = RTE_PTYPE_L3_IPV4_EXT_UNKNOWN | RTE_PTYPE_L4_TCP,
+		[0x60] = RTE_PTYPE_L3_IPV4_EXT_UNKNOWN | RTE_PTYPE_L4_FRAG,
+		[0x62] = RTE_PTYPE_L3_IPV4_EXT_UNKNOWN | RTE_PTYPE_L4_UDP,
+		[0x64] = RTE_PTYPE_L3_IPV4_EXT_UNKNOWN | RTE_PTYPE_L4_TCP,
+		[0x10] = RTE_PTYPE_L3_IPV6_EXT_UNKNOWN | RTE_PTYPE_L4_NONFRAG,
+		[0x12] = RTE_PTYPE_L3_IPV6_EXT_UNKNOWN | RTE_PTYPE_L4_UDP,
+		[0x14] = RTE_PTYPE_L3_IPV6_EXT_UNKNOWN | RTE_PTYPE_L4_TCP,
+		[0x50] = RTE_PTYPE_L3_IPV6_EXT_UNKNOWN | RTE_PTYPE_L4_FRAG,
+		[0x52] = RTE_PTYPE_L3_IPV6_EXT_UNKNOWN | RTE_PTYPE_L4_UDP,
+		[0x54] = RTE_PTYPE_L3_IPV6_EXT_UNKNOWN | RTE_PTYPE_L4_TCP,
 		/* All others reserved */
 	};
 	cqrd_flags &= CQ_ENET_RQ_DESC_FLAGS_IPV4_FRAGMENT
@@ -185,9 +173,10 @@ static inline void
 enic_cq_rx_to_pkt_flags(struct cq_desc *cqd, struct rte_mbuf *mbuf)
 {
 	struct cq_enet_rq_desc *cqrd = (struct cq_enet_rq_desc *)cqd;
-	uint16_t ciflags, bwflags, pkt_flags = 0;
+	uint16_t ciflags, bwflags, pkt_flags = 0, vlan_tci;
 	ciflags = enic_cq_rx_desc_ciflags(cqrd);
 	bwflags = enic_cq_rx_desc_bwflags(cqrd);
+	vlan_tci = enic_cq_rx_desc_vlan(cqrd);
 
 	mbuf->ol_flags = 0;
 
@@ -195,13 +184,17 @@ enic_cq_rx_to_pkt_flags(struct cq_desc *cqd, struct rte_mbuf *mbuf)
 	if (unlikely(!enic_cq_rx_desc_eop(ciflags)))
 		goto mbuf_flags_done;
 
-	/* VLAN stripping */
+	/* VLAN STRIPPED flag. The L2 packet type updated here also */
 	if (bwflags & CQ_ENET_RQ_DESC_FLAGS_VLAN_STRIPPED) {
 		pkt_flags |= PKT_RX_VLAN_PKT | PKT_RX_VLAN_STRIPPED;
-		mbuf->vlan_tci = enic_cq_rx_desc_vlan(cqrd);
+		mbuf->packet_type |= RTE_PTYPE_L2_ETHER;
 	} else {
-		mbuf->vlan_tci = 0;
+		if (vlan_tci != 0)
+			mbuf->packet_type |= RTE_PTYPE_L2_ETHER_VLAN;
+		else
+			mbuf->packet_type |= RTE_PTYPE_L2_ETHER;
 	}
+	mbuf->vlan_tci = vlan_tci;
 
 	/* RSS flag */
 	if (enic_cq_rx_desc_rss_type(cqrd)) {
@@ -212,9 +205,12 @@ enic_cq_rx_to_pkt_flags(struct cq_desc *cqd, struct rte_mbuf *mbuf)
 	/* checksum flags */
 	if (!enic_cq_rx_desc_csum_not_calc(cqrd) &&
 		(mbuf->packet_type & RTE_PTYPE_L3_IPV4)) {
+		uint32_t l4_flags = mbuf->packet_type & RTE_PTYPE_L4_MASK;
+
 		if (unlikely(!enic_cq_rx_desc_ipv4_csum_ok(cqrd)))
 			pkt_flags |= PKT_RX_IP_CKSUM_BAD;
-		if (mbuf->packet_type & (RTE_PTYPE_L4_UDP | RTE_PTYPE_L4_TCP)) {
+		if (l4_flags == RTE_PTYPE_L4_UDP ||
+		    l4_flags == RTE_PTYPE_L4_TCP) {
 			if (unlikely(!enic_cq_rx_desc_tcp_udp_csum_ok(cqrd)))
 				pkt_flags |= PKT_RX_L4_CKSUM_BAD;
 		}
@@ -222,6 +218,17 @@ enic_cq_rx_to_pkt_flags(struct cq_desc *cqd, struct rte_mbuf *mbuf)
 
  mbuf_flags_done:
 	mbuf->ol_flags = pkt_flags;
+}
+
+/* dummy receive function to replace actual function in
+ * order to do safe reconfiguration operations.
+ */
+uint16_t
+enic_dummy_recv_pkts(__rte_unused void *rx_queue,
+		     __rte_unused struct rte_mbuf **rx_pkts,
+		     __rte_unused uint16_t nb_pkts)
+{
+	return 0;
 }
 
 uint16_t

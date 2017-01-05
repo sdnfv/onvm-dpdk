@@ -118,6 +118,8 @@ struct ecore_chain {
 	u16 next_page_mask;
 
 	struct ecore_chain_pbl pbl;
+
+	void *dp_ctx;
 };
 
 #define ECORE_CHAIN_PBL_ENTRY_SIZE	(8)
@@ -129,7 +131,7 @@ struct ecore_chain {
 	   (1 + ((sizeof(struct ecore_chain_next) - 1) /		\
 	   (elem_size))) : 0)
 
-#define USABLE_ELEMS_PER_PAGE(elem_size, mode)			\
+#define USABLE_ELEMS_PER_PAGE(elem_size, mode)		\
 	((u32)(ELEMS_PER_PAGE(elem_size) -			\
 	UNUSABLE_ELEMS_PER_PAGE(elem_size, mode)))
 
@@ -183,7 +185,7 @@ static OSAL_INLINE u16 ecore_chain_get_elem_left(struct ecore_chain *p_chain)
 		     (u32)p_chain->u.chain16.cons_idx);
 	if (p_chain->mode == ECORE_CHAIN_MODE_NEXT_PTR)
 		used -= p_chain->u.chain16.prod_idx / p_chain->elem_per_page -
-		    p_chain->u.chain16.cons_idx / p_chain->elem_per_page;
+			p_chain->u.chain16.cons_idx / p_chain->elem_per_page;
 
 	return (u16)(p_chain->capacity - used);
 }
@@ -196,11 +198,11 @@ ecore_chain_get_elem_left_u32(struct ecore_chain *p_chain)
 	OSAL_ASSERT(is_chain_u32(p_chain));
 
 	used = (u32)(((u64)ECORE_U32_MAX + 1 +
-		       (u64)(p_chain->u.chain32.prod_idx)) -
-		      (u64)p_chain->u.chain32.cons_idx);
+		      (u64)(p_chain->u.chain32.prod_idx)) -
+		     (u64)p_chain->u.chain32.cons_idx);
 	if (p_chain->mode == ECORE_CHAIN_MODE_NEXT_PTR)
 		used -= p_chain->u.chain32.prod_idx / p_chain->elem_per_page -
-		    p_chain->u.chain32.cons_idx / p_chain->elem_per_page;
+			p_chain->u.chain32.cons_idx / p_chain->elem_per_page;
 
 	return p_chain->capacity - used;
 }
@@ -307,21 +309,23 @@ ecore_chain_advance_page(struct ecore_chain *p_chain, void **p_next_elem,
 	(((p)->u.chain32.idx & (p)->elem_per_page_mask) == (p)->usable_per_page)
 
 #define is_unusable_next_idx(p, idx)		\
-	((((p)->u.chain16.idx + 1) & (p)->elem_per_page_mask) == \
-	(p)->usable_per_page)
+	((((p)->u.chain16.idx + 1) &		\
+	(p)->elem_per_page_mask) == (p)->usable_per_page)
 
 #define is_unusable_next_idx_u32(p, idx)	\
-	((((p)->u.chain32.idx + 1) & (p)->elem_per_page_mask) \
-	== (p)->usable_per_page)
+	((((p)->u.chain32.idx + 1) &		\
+	(p)->elem_per_page_mask) == (p)->usable_per_page)
 
 #define test_and_skip(p, idx)						\
 	do {								\
 		if (is_chain_u16(p)) {					\
 			if (is_unusable_idx(p, idx))			\
-				(p)->u.chain16.idx += (p)->elem_unusable; \
+				(p)->u.chain16.idx +=			\
+					(p)->elem_unusable;		\
 		} else {						\
 			if (is_unusable_idx_u32(p, idx))		\
-				(p)->u.chain32.idx += (p)->elem_unusable; \
+				(p)->u.chain32.idx +=			\
+					(p)->elem_unusable;		\
 		}							\
 	} while (0)
 
@@ -518,14 +522,14 @@ static OSAL_INLINE void ecore_chain_reset(struct ecore_chain *p_chain)
 	switch (p_chain->intended_use) {
 	case ECORE_CHAIN_USE_TO_CONSUME_PRODUCE:
 	case ECORE_CHAIN_USE_TO_PRODUCE:
-		/* Do nothing */
-		break;
+			/* Do nothing */
+			break;
 
 	case ECORE_CHAIN_USE_TO_CONSUME:
-		/* produce empty elements */
-		for (i = 0; i < p_chain->capacity; i++)
+			/* produce empty elements */
+			for (i = 0; i < p_chain->capacity; i++)
 			ecore_chain_recycle_consumed(p_chain);
-		break;
+			break;
 	}
 }
 
@@ -540,12 +544,13 @@ static OSAL_INLINE void ecore_chain_reset(struct ecore_chain *p_chain)
  * @param intended_use
  * @param mode
  * @param cnt_type
+ * @param dp_ctx
  */
 static OSAL_INLINE void
 ecore_chain_init_params(struct ecore_chain *p_chain, u32 page_cnt, u8 elem_size,
 			enum ecore_chain_use_mode intended_use,
 			enum ecore_chain_mode mode,
-			enum ecore_chain_cnt_type cnt_type)
+			enum ecore_chain_cnt_type cnt_type, void *dp_ctx)
 {
 	/* chain fixed parameters */
 	p_chain->p_virt_addr = OSAL_NULL;
@@ -569,6 +574,8 @@ ecore_chain_init_params(struct ecore_chain *p_chain, u32 page_cnt, u8 elem_size,
 	p_chain->pbl.p_phys_table = 0;
 	p_chain->pbl.p_virt_table = OSAL_NULL;
 	p_chain->pbl.pp_virt_addr_tbl = OSAL_NULL;
+
+	p_chain->dp_ctx = dp_ctx;
 }
 
 /**
@@ -720,5 +727,15 @@ static OSAL_INLINE void ecore_chain_pbl_zero_mem(struct ecore_chain *p_chain)
 		OSAL_MEM_ZERO(p_chain->pbl.pp_virt_addr_tbl[i],
 			      ECORE_CHAIN_PAGE_SIZE);
 }
+
+int ecore_chain_print(struct ecore_chain *p_chain, char *buffer,
+		      u32 buffer_size, u32 *element_indx, u32 stop_indx,
+		      bool print_metadata,
+		      int (*func_ptr_print_element)(struct ecore_chain *p_chain,
+						    void *p_element,
+						    char *buffer),
+		      int (*func_ptr_print_metadata)(struct ecore_chain
+						     *p_chain,
+						     char *buffer));
 
 #endif /* __ECORE_CHAIN_H__ */

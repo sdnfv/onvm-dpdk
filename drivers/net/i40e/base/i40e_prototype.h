@@ -124,6 +124,8 @@ enum i40e_status_code i40e_aq_set_phy_debug(struct i40e_hw *hw, u8 cmd_flags,
 				struct i40e_asq_cmd_details *cmd_details);
 enum i40e_status_code i40e_aq_set_default_vsi(struct i40e_hw *hw, u16 vsi_id,
 				struct i40e_asq_cmd_details *cmd_details);
+enum i40e_status_code i40e_aq_clear_default_vsi(struct i40e_hw *hw, u16 vsi_id,
+				struct i40e_asq_cmd_details *cmd_details);
 enum i40e_status_code i40e_aq_get_phy_capabilities(struct i40e_hw *hw,
 			bool qualified_modules, bool report_init,
 			struct i40e_aq_get_phy_abilities_resp *abilities,
@@ -438,6 +440,7 @@ enum i40e_status_code i40e_get_port_mac_addr(struct i40e_hw *hw, u8 *mac_addr);
 enum i40e_status_code i40e_read_pba_string(struct i40e_hw *hw, u8 *pba_num,
 					    u32 pba_num_size);
 void i40e_pre_tx_queue_cfg(struct i40e_hw *hw, u32 queue, bool enable);
+enum i40e_status_code i40e_get_san_mac_addr(struct i40e_hw *hw, u8 *mac_addr);
 enum i40e_aq_link_speed i40e_get_link_speed(struct i40e_hw *hw);
 /* prototype for functions used for NVM access */
 enum i40e_status_code i40e_init_nvm(struct i40e_hw *hw);

@@ -13,8 +13,6 @@
 #include "ecore_chain.h"
 #include "ecore_int_api.h"
 
-struct ecore_tunn_start_params;
-
 /**
  * @brief ecore_init_dp - initialize the debug level
  *
@@ -24,7 +22,9 @@ struct ecore_tunn_start_params;
  * @param dp_ctx
  */
 void ecore_init_dp(struct ecore_dev *p_dev,
-		   u32 dp_module, u8 dp_level, void *dp_ctx);
+		   u32 dp_module,
+		   u8 dp_level,
+		   void *dp_ctx);
 
 /**
  * @brief ecore_init_struct - initialize the device structure to
@@ -57,26 +57,31 @@ enum _ecore_status_t ecore_resc_alloc(struct ecore_dev *p_dev);
  */
 void ecore_resc_setup(struct ecore_dev *p_dev);
 
+struct ecore_hw_init_params {
+	/* tunnelling parameters */
+	struct ecore_tunn_start_params *p_tunn;
+	bool b_hw_start;
+	/* interrupt mode [msix, inta, etc.] to use */
+	enum ecore_int_mode int_mode;
+/* npar tx switching to be used for vports configured for tx-switching */
+
+	bool allow_npar_tx_switch;
+	/* binary fw data pointer in binary fw file */
+	const u8 *bin_fw_data;
+	/* the OS Epoch time in seconds */
+	u32 epoch;
+};
+
 /**
  * @brief ecore_hw_init -
  *
  * @param p_dev
- * @param p_tunn - tunneling parameters
- * @param b_hw_start
- * @param int_mode - interrupt mode [msix, inta, etc.] to use.
- * @param allow_npar_tx_switch - npar tx switching to be used
- *	  for vports configured for tx-switching.
- * @param bin_fw_data - binary fw data pointer in binary fw file.
- *			Pass NULL if not using binary fw file.
+ * @param p_params
  *
  * @return enum _ecore_status_t
  */
 enum _ecore_status_t ecore_hw_init(struct ecore_dev *p_dev,
-				   struct ecore_tunn_start_params *p_tunn,
-				   bool b_hw_start,
-				   enum ecore_int_mode int_mode,
-				   bool allow_npar_tx_switch,
-				   const u8 *bin_fw_data);
+				   struct ecore_hw_init_params *p_params);
 
 /**
  * @brief ecore_hw_timers_stop_all -
@@ -98,14 +103,15 @@ enum _ecore_status_t ecore_hw_stop(struct ecore_dev *p_dev);
 
 /**
  * @brief ecore_hw_stop_fastpath -should be called incase
- *        slowpath is still required for the device, but
- *        fastpath is not.
+ *        slowpath is still required for the device,
+ *        but fastpath is not.
  *
  * @param p_dev
  *
  */
 void ecore_hw_stop_fastpath(struct ecore_dev *p_dev);
 
+#ifndef LINUX_REMOVE
 /**
  * @brief ecore_prepare_hibernate -should be called when
  *        the system is going into the hibernate state
@@ -114,6 +120,7 @@ void ecore_hw_stop_fastpath(struct ecore_dev *p_dev);
  *
  */
 void ecore_prepare_hibernate(struct ecore_dev *p_dev);
+#endif
 
 /**
  * @brief ecore_hw_start_fastpath -restart fastpath traffic,
@@ -133,15 +140,25 @@ void ecore_hw_start_fastpath(struct ecore_hwfn *p_hwfn);
  */
 enum _ecore_status_t ecore_hw_reset(struct ecore_dev *p_dev);
 
+struct ecore_hw_prepare_params {
+	/* personality to initialize */
+	int personality;
+	/* force the driver's default resource allocation */
+	bool drv_resc_alloc;
+	/* check the reg_fifo after any register access */
+	bool chk_reg_fifo;
+};
+
 /**
  * @brief ecore_hw_prepare -
  *
  * @param p_dev
- * @param personality - personality to initialize
+ * @param p_params
  *
  * @return enum _ecore_status_t
  */
-enum _ecore_status_t ecore_hw_prepare(struct ecore_dev *p_dev, int personality);
+enum _ecore_status_t ecore_hw_prepare(struct ecore_dev *p_dev,
+				      struct ecore_hw_prepare_params *p_params);
 
 /**
  * @brief ecore_hw_remove -
@@ -172,7 +189,8 @@ struct ecore_ptt *ecore_ptt_acquire(struct ecore_hwfn *p_hwfn);
  * @param p_hwfn
  * @param p_ptt
  */
-void ecore_ptt_release(struct ecore_hwfn *p_hwfn, struct ecore_ptt *p_ptt);
+void ecore_ptt_release(struct ecore_hwfn *p_hwfn,
+		       struct ecore_ptt *p_ptt);
 
 #ifndef __EXTRACT__LINUX__
 struct ecore_eth_stats {
@@ -270,61 +288,66 @@ enum ecore_dmae_address_type_t {
 #define ECORE_DMAE_FLAG_COMPLETION_DST	0x00000008
 
 struct ecore_dmae_params {
-	u32 flags;		/* consists of ECORE_DMAE_FLAG_* values */
+	u32 flags; /* consists of ECORE_DMAE_FLAG_* values */
 	u8 src_vfid;
 	u8 dst_vfid;
 };
 
 /**
-* @brief ecore_dmae_host2grc - copy data from source addr to
-* dmae registers using the given ptt
-*
-* @param p_hwfn
-* @param p_ptt
-* @param source_addr
-* @param grc_addr (dmae_data_offset)
-* @param size_in_dwords
-* @param flags (one of the flags defined above)
-*/
+ * @brief ecore_dmae_host2grc - copy data from source addr to
+ * dmae registers using the given ptt
+ *
+ * @param p_hwfn
+ * @param p_ptt
+ * @param source_addr
+ * @param grc_addr (dmae_data_offset)
+ * @param size_in_dwords
+ * @param flags (one of the flags defined above)
+ */
 enum _ecore_status_t
 ecore_dmae_host2grc(struct ecore_hwfn *p_hwfn,
 		    struct ecore_ptt *p_ptt,
 		    u64 source_addr,
-		    u32 grc_addr, u32 size_in_dwords, u32 flags);
+		    u32 grc_addr,
+		    u32 size_in_dwords,
+		    u32 flags);
 
 /**
-* @brief ecore_dmae_grc2host - Read data from dmae data offset
-* to source address using the given ptt
-*
-* @param p_ptt
-* @param grc_addr (dmae_data_offset)
-* @param dest_addr
-* @param size_in_dwords
-* @param flags - one of the flags defined above
-*/
+ * @brief ecore_dmae_grc2host - Read data from dmae data offset
+ * to source address using the given ptt
+ *
+ * @param p_ptt
+ * @param grc_addr (dmae_data_offset)
+ * @param dest_addr
+ * @param size_in_dwords
+ * @param flags - one of the flags defined above
+ */
 enum _ecore_status_t
 ecore_dmae_grc2host(struct ecore_hwfn *p_hwfn,
 		    struct ecore_ptt *p_ptt,
 		    u32 grc_addr,
-		    dma_addr_t dest_addr, u32 size_in_dwords, u32 flags);
+		    dma_addr_t dest_addr,
+		    u32 size_in_dwords,
+		    u32 flags);
 
 /**
-* @brief ecore_dmae_host2host - copy data from to source address
-* to a destination address (for SRIOV) using the given ptt
-*
-* @param p_hwfn
-* @param p_ptt
-* @param source_addr
-* @param dest_addr
-* @param size_in_dwords
-* @param params
-*/
+ * @brief ecore_dmae_host2host - copy data from to source address
+ * to a destination address (for SRIOV) using the given ptt
+ *
+ * @param p_hwfn
+ * @param p_ptt
+ * @param source_addr
+ * @param dest_addr
+ * @param size_in_dwords
+ * @param params
+ */
 enum _ecore_status_t
 ecore_dmae_host2host(struct ecore_hwfn *p_hwfn,
 		     struct ecore_ptt *p_ptt,
 		     dma_addr_t source_addr,
 		     dma_addr_t dest_addr,
-		     u32 size_in_dwords, struct ecore_dmae_params *p_params);
+		     u32 size_in_dwords,
+		     struct ecore_dmae_params *p_params);
 
 /**
  * @brief ecore_chain_alloc - Allocate and initialize a chain
@@ -344,7 +367,8 @@ ecore_chain_alloc(struct ecore_dev *p_dev,
 		  enum ecore_chain_mode mode,
 		  enum ecore_chain_cnt_type cnt_type,
 		  u32 num_elems,
-		  osal_size_t elem_size, struct ecore_chain *p_chain);
+		  osal_size_t elem_size,
+		  struct ecore_chain *p_chain);
 
 /**
  * @brief ecore_chain_free - Free chain DMA memory
@@ -352,7 +376,8 @@ ecore_chain_alloc(struct ecore_dev *p_dev,
  * @param p_hwfn
  * @param p_chain
  */
-void ecore_chain_free(struct ecore_dev *p_dev, struct ecore_chain *p_chain);
+void ecore_chain_free(struct ecore_dev *p_dev,
+		      struct ecore_chain *p_chain);
 
 /**
  * @@brief ecore_fw_l2_queue - Get absolute L2 queue ID
@@ -364,7 +389,8 @@ void ecore_chain_free(struct ecore_dev *p_dev, struct ecore_chain *p_chain);
  *  @return enum _ecore_status_t
  */
 enum _ecore_status_t ecore_fw_l2_queue(struct ecore_hwfn *p_hwfn,
-				       u16 src_id, u16 *dst_id);
+				       u16 src_id,
+				       u16 *dst_id);
 
 /**
  * @@brief ecore_fw_vport - Get absolute vport ID
@@ -376,7 +402,8 @@ enum _ecore_status_t ecore_fw_l2_queue(struct ecore_hwfn *p_hwfn,
  *  @return enum _ecore_status_t
  */
 enum _ecore_status_t ecore_fw_vport(struct ecore_hwfn *p_hwfn,
-				    u8 src_id, u8 *dst_id);
+				    u8 src_id,
+				    u8 *dst_id);
 
 /**
  * @@brief ecore_fw_rss_eng - Get absolute RSS engine ID
@@ -388,7 +415,8 @@ enum _ecore_status_t ecore_fw_vport(struct ecore_hwfn *p_hwfn,
  *  @return enum _ecore_status_t
  */
 enum _ecore_status_t ecore_fw_rss_eng(struct ecore_hwfn *p_hwfn,
-				      u8 src_id, u8 *dst_id);
+				      u8 src_id,
+				      u8 *dst_id);
 
 /**
  * @brief ecore_llh_add_mac_filter - configures a MAC filter in llh
@@ -398,8 +426,8 @@ enum _ecore_status_t ecore_fw_rss_eng(struct ecore_hwfn *p_hwfn,
  * @param p_filter - MAC to add
  */
 enum _ecore_status_t ecore_llh_add_mac_filter(struct ecore_hwfn *p_hwfn,
-					      struct ecore_ptt *p_ptt,
-					      u8 *p_filter);
+					  struct ecore_ptt *p_ptt,
+					  u8 *p_filter);
 
 /**
  * @brief ecore_llh_remove_mac_filter - removes a MAC filtre from llh
@@ -409,28 +437,50 @@ enum _ecore_status_t ecore_llh_add_mac_filter(struct ecore_hwfn *p_hwfn,
  * @param p_filter - MAC to remove
  */
 void ecore_llh_remove_mac_filter(struct ecore_hwfn *p_hwfn,
-				 struct ecore_ptt *p_ptt, u8 *p_filter);
+			     struct ecore_ptt *p_ptt,
+			     u8 *p_filter);
+
+enum ecore_llh_port_filter_type_t {
+	ECORE_LLH_FILTER_ETHERTYPE,
+	ECORE_LLH_FILTER_TCP_SRC_PORT,
+	ECORE_LLH_FILTER_TCP_DEST_PORT,
+	ECORE_LLH_FILTER_TCP_SRC_AND_DEST_PORT,
+	ECORE_LLH_FILTER_UDP_SRC_PORT,
+	ECORE_LLH_FILTER_UDP_DEST_PORT,
+	ECORE_LLH_FILTER_UDP_SRC_AND_DEST_PORT
+};
 
 /**
- * @brief ecore_llh_add_ethertype_filter - configures a ethertype filter in llh
+ * @brief ecore_llh_add_protocol_filter - configures a protocol filter in llh
  *
  * @param p_hwfn
  * @param p_ptt
- * @param filter - ethertype to add
+ * @param source_port_or_eth_type - source port or ethertype to add
+ * @param dest_port - destination port to add
+ * @param type - type of filters and comparing
  */
-enum _ecore_status_t ecore_llh_add_ethertype_filter(struct ecore_hwfn *p_hwfn,
-						    struct ecore_ptt *p_ptt,
-						    u16 filter);
+enum _ecore_status_t
+ecore_llh_add_protocol_filter(struct ecore_hwfn *p_hwfn,
+			      struct ecore_ptt *p_ptt,
+			      u16 source_port_or_eth_type,
+			      u16 dest_port,
+			      enum ecore_llh_port_filter_type_t type);
 
 /**
- * @brief ecore_llh_remove_ethertype_filter - removes a ethertype llh filter
+ * @brief ecore_llh_remove_protocol_filter - remove a protocol filter in llh
  *
  * @param p_hwfn
  * @param p_ptt
- * @param filter - ethertype to remove
+ * @param source_port_or_eth_type - source port or ethertype to add
+ * @param dest_port - destination port to add
+ * @param type - type of filters and comparing
  */
-void ecore_llh_remove_ethertype_filter(struct ecore_hwfn *p_hwfn,
-				       struct ecore_ptt *p_ptt, u16 filter);
+void
+ecore_llh_remove_protocol_filter(struct ecore_hwfn *p_hwfn,
+				 struct ecore_ptt *p_ptt,
+				 u16 source_port_or_eth_type,
+				 u16 dest_port,
+				 enum ecore_llh_port_filter_type_t type);
 
 /**
  * @brief ecore_llh_clear_all_filters - removes all MAC filters from llh
@@ -439,10 +489,20 @@ void ecore_llh_remove_ethertype_filter(struct ecore_hwfn *p_hwfn,
  * @param p_ptt
  */
 void ecore_llh_clear_all_filters(struct ecore_hwfn *p_hwfn,
-				 struct ecore_ptt *p_ptt);
+			     struct ecore_ptt *p_ptt);
 
- /**
-*@brief Cleanup of previous driver remains prior to load
+/**
+ * @brief ecore_llh_set_function_as_default - set function as default per port
+ *
+ * @param p_hwfn
+ * @param p_ptt
+ */
+enum _ecore_status_t
+ecore_llh_set_function_as_default(struct ecore_hwfn *p_hwfn,
+				  struct ecore_ptt *p_ptt);
+
+/**
+ *@brief Cleanup of previous driver remains prior to load
  *
  * @param p_hwfn
  * @param p_ptt
@@ -451,47 +511,45 @@ void ecore_llh_clear_all_filters(struct ecore_hwfn *p_hwfn,
  *
  * @return enum _ecore_status_t
  */
-enum _ecore_status_t ecore_final_cleanup(struct ecore_hwfn *p_hwfn,
-					 struct ecore_ptt *p_ptt,
-					 u16 id, bool is_vf);
-
-/**
- * @brief ecore_test_registers - Perform register tests
- *
- * @param p_hwfn
- * @param p_ptt
- *
- *  @return enum _ecore_status_t
- */
-enum _ecore_status_t ecore_test_registers(struct ecore_hwfn *p_hwfn,
-					  struct ecore_ptt *p_ptt);
+enum _ecore_status_t ecore_final_cleanup(struct ecore_hwfn	*p_hwfn,
+					 struct ecore_ptt	*p_ptt,
+					 u16			id,
+					 bool			is_vf);
 
 /**
  * @brief ecore_set_rxq_coalesce - Configure coalesce parameters for an Rx queue
+ *    The fact that we can configure coalescing to up to 511, but on varying
+ *    accuracy [the bigger the value the less accurate] up to a mistake of 3usec
+ *    for the highest values.
  *
  * @param p_hwfn
  * @param p_ptt
  * @param coalesce - Coalesce value in micro seconds.
  * @param qid - Queue index.
+ * @param qid - SB Id
  *
  * @return enum _ecore_status_t
  */
 enum _ecore_status_t ecore_set_rxq_coalesce(struct ecore_hwfn *p_hwfn,
 					    struct ecore_ptt *p_ptt,
-					    u8 coalesce, u8 qid);
+					    u16 coalesce, u8 qid, u16 sb_id);
 
 /**
  * @brief ecore_set_txq_coalesce - Configure coalesce parameters for a Tx queue
+ *    While the API allows setting coalescing per-qid, all tx queues sharing a
+ *    SB should be in same range [i.e., either 0-0x7f, 0x80-0xff or 0x100-0x1ff]
+ *    otherwise configuration would break.
  *
  * @param p_hwfn
  * @param p_ptt
  * @param coalesce - Coalesce value in micro seconds.
  * @param qid - Queue index.
+ * @param qid - SB Id
  *
  * @return enum _ecore_status_t
  */
 enum _ecore_status_t ecore_set_txq_coalesce(struct ecore_hwfn *p_hwfn,
 					    struct ecore_ptt *p_ptt,
-					    u8 coalesce, u8 qid);
+					    u16 coalesce, u8 qid, u16 sb_id);
 
 #endif

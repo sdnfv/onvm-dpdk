@@ -37,19 +37,13 @@ ARCH_DIR ?= $(RTE_ARCH)
 EXPORT_MAP := rte_eal_version.map
 VPATH += $(RTE_SDK)/lib/librte_eal/common/arch/$(ARCH_DIR)
 
-LIBABIVER := 2
+LIBABIVER := 3
 
 VPATH += $(RTE_SDK)/lib/librte_eal/common
 
 CFLAGS += -I$(SRCDIR)/include
 CFLAGS += -I$(RTE_SDK)/lib/librte_eal/common
 CFLAGS += -I$(RTE_SDK)/lib/librte_eal/common/include
-ifeq ($(CONFIG_RTE_LIBRTE_IVSHMEM),y)
-# workaround for circular dependency eal -> ivshmem -> ring/mempool -> eal
-CFLAGS += -I$(RTE_SDK)/lib/librte_ring
-CFLAGS += -I$(RTE_SDK)/lib/librte_mempool
-CFLAGS += -I$(RTE_SDK)/lib/librte_ivshmem
-endif
 CFLAGS += $(WERROR_FLAGS) -O3
 
 LDLIBS += -ldl
@@ -76,9 +70,6 @@ SRCS-$(CONFIG_RTE_EXEC_ENV_LINUXAPP) += eal_lcore.c
 SRCS-$(CONFIG_RTE_EXEC_ENV_LINUXAPP) += eal_timer.c
 SRCS-$(CONFIG_RTE_EXEC_ENV_LINUXAPP) += eal_interrupts.c
 SRCS-$(CONFIG_RTE_EXEC_ENV_LINUXAPP) += eal_alarm.c
-ifeq ($(CONFIG_RTE_LIBRTE_IVSHMEM),y)
-SRCS-$(CONFIG_RTE_EXEC_ENV_LINUXAPP) += eal_ivshmem.c
-endif
 
 # from common dir
 SRCS-$(CONFIG_RTE_EXEC_ENV_LINUXAPP) += eal_common_lcore.c
@@ -86,6 +77,7 @@ SRCS-$(CONFIG_RTE_EXEC_ENV_LINUXAPP) += eal_common_timer.c
 SRCS-$(CONFIG_RTE_EXEC_ENV_LINUXAPP) += eal_common_memzone.c
 SRCS-$(CONFIG_RTE_EXEC_ENV_LINUXAPP) += eal_common_log.c
 SRCS-$(CONFIG_RTE_EXEC_ENV_LINUXAPP) += eal_common_launch.c
+SRCS-$(CONFIG_RTE_EXEC_ENV_LINUXAPP) += eal_common_vdev.c
 SRCS-$(CONFIG_RTE_EXEC_ENV_LINUXAPP) += eal_common_pci.c
 SRCS-$(CONFIG_RTE_EXEC_ENV_LINUXAPP) += eal_common_pci_uio.c
 SRCS-$(CONFIG_RTE_EXEC_ENV_LINUXAPP) += eal_common_memory.c

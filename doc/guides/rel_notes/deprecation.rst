@@ -8,64 +8,66 @@ API and ABI deprecation notices are to be posted here.
 Deprecation Notices
 -------------------
 
-* The log history is deprecated.
-  It is voided in 16.07 and will be removed in release 16.11.
+* igb_uio: iomem mapping and sysfs files created for iomem and ioport in
+  igb_uio will be removed, because we are able to detect these from what Linux
+  has exposed, like the way we have done with uio-pci-generic. This change
+  targets release 17.02.
 
-* The ethdev library file will be renamed from libethdev.* to librte_ethdev.*
-  in release 16.11 in order to have a more consistent namespace.
+* ABI/API changes are planned for 17.02: ``rte_device``, ``rte_driver`` will be
+  impacted because of introduction of a new ``rte_bus`` hierarchy. This would
+  also impact the way devices are identified by EAL. A bus-device-driver model
+  will be introduced providing a hierarchical view of devices.
 
-* In 16.11 ABI changes are planned: the ``rte_eth_dev`` structure will be
-  extended with new function pointer ``tx_pkt_prep`` allowing verification
+* ``eth_driver`` is planned to be removed in 17.02. This currently serves as
+  a placeholder for PMDs to register themselves. Changes for ``rte_bus`` will
+  provide a way to handle device initialization currently being done in
+  ``eth_driver``.
+
+* In 17.02 ABI changes are planned: the ``rte_eth_dev`` structure will be
+  extended with new function pointer ``tx_pkt_prepare`` allowing verification
   and processing of packet burst to meet HW specific requirements before
   transmit. Also new fields will be added to the ``rte_eth_desc_lim`` structure:
   ``nb_seg_max`` and ``nb_mtu_seg_max`` providing information about number of
   segments limit to be transmitted by device for TSO/non-TSO packets.
 
-* The ethdev hotplug API is going to be moved to EAL with a notification
-  mechanism added to crypto and ethdev libraries so that hotplug is now
-  available to both of them. This API will be stripped of the device arguments
-  so that it only cares about hotplugging.
+* In 17.02 ABI change is planned: the ``rte_eth_dev_info`` structure
+  will be extended with a new member ``fw_version`` in order to store
+  the NIC firmware version.
 
-* Structures embodying pci and vdev devices are going to be reworked to
-  integrate new common rte_device / rte_driver objects (see
-  http://dpdk.org/ml/archives/dev/2016-January/031390.html).
-  ethdev and crypto libraries will then only handle those objects so that they
-  do not need to care about the kind of devices that are being used, making it
-  easier to add new buses later.
+* ethdev: an API change is planned for 17.02 for the function
+  ``_rte_eth_dev_callback_process``. In 17.02 the function will return an ``int``
+  instead of ``void`` and a fourth parameter ``void *ret_param`` will be added.
 
-* ABI changes are planned for 16.11 in the ``rte_mbuf`` structure: some fields
+* ethdev: for 17.02 it is planned to deprecate the following five functions
+  and move them in ixgbe:
+
+  ``rte_eth_dev_set_vf_rxmode``
+
+  ``rte_eth_dev_set_vf_rx``
+
+  ``rte_eth_dev_set_vf_tx``
+
+  ``rte_eth_dev_set_vf_vlan_filter``
+
+  ``rte_eth_set_vf_rate_limit``
+
+* ABI changes are planned for 17.02 in the ``rte_mbuf`` structure: some fields
   may be reordered to facilitate the writing of ``data_off``, ``refcnt``, and
   ``nb_segs`` in one operation, because some platforms have an overhead if the
   store address is not naturally aligned. Other mbuf fields, such as the
-  ``port`` field, may be moved or removed as part of this mbuf work.
+  ``port`` field, may be moved or removed as part of this mbuf work. A
+  ``timestamp`` will also be added.
 
 * The mbuf flags PKT_RX_VLAN_PKT and PKT_RX_QINQ_PKT are deprecated and
   are respectively replaced by PKT_RX_VLAN_STRIPPED and
   PKT_RX_QINQ_STRIPPED, that are better described. The old flags and
-  their behavior will be kept in 16.07 and will be removed in 16.11.
+  their behavior will be kept until 16.11 and will be removed in 17.02.
 
-* The APIs rte_mempool_count and rte_mempool_free_count are being deprecated
-  on the basis that they are confusing to use - free_count actually returns
-  the number of allocated entries, not the number of free entries as expected.
-  They are being replaced by rte_mempool_avail_count and
-  rte_mempool_in_use_count respectively.
+* mempool: The functions ``rte_mempool_count`` and ``rte_mempool_free_count``
+  will be removed in 17.02.
+  They are replaced by ``rte_mempool_avail_count`` and
+  ``rte_mempool_in_use_count`` respectively.
 
-* The mempool functions for single/multi producer/consumer are deprecated and
-  will be removed in 16.11.
-  It is replaced by rte_mempool_generic_get/put functions.
-
-* The ``rte_ivshmem`` feature (including library and EAL code) will be removed
-  in 16.11 because it has some design issues which are not planned to be fixed.
-
-* The vhost-cuse will be removed in 16.11. Since v2.1, a large majority of
-  development effort has gone to vhost-user, such as multiple-queue, live
-  migration, reconnect etc. Therefore, vhost-user should be used instead.
-
-* Driver names are quite inconsistent among each others and they will be
-  renamed to something more consistent (net and crypto prefixes) in 16.11.
-  Some of these driver names are used publicly, to create virtual devices,
-  so a deprecation notice is necessary.
-
-* API will change for ``rte_port_source_params`` and ``rte_port_sink_params``
-  structures. The member ``file_name`` data type will be changed from
-  ``char *`` to ``const char *``. This change targets release 16.11.
+* mempool: The functions for single/multi producer/consumer are deprecated
+  and will be removed in 17.02.
+  It is replaced by ``rte_mempool_generic_get/put`` functions.

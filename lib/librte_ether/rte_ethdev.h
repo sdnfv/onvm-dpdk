@@ -190,6 +190,9 @@ struct rte_mbuf;
 
 /**
  * A structure used to retrieve statistics for an Ethernet port.
+ * Not all statistics fields in struct rte_eth_stats are supported
+ * by any type of network interface card (NIC). If any statistics
+ * field is not supported, its value is 0.
  */
 struct rte_eth_stats {
 	uint64_t ipackets;  /**< Total number of successfully received packets. */
@@ -198,7 +201,7 @@ struct rte_eth_stats {
 	uint64_t obytes;    /**< Total number of successfully transmitted bytes. */
 	uint64_t imissed;
 	/**< Total of RX packets dropped by the HW,
-	 * because there are no available mbufs (i.e. RX queues are full).
+	 * because there are no available buffer (i.e. RX queues are full).
 	 */
 	uint64_t ierrors;   /**< Total number of erroneous received packets. */
 	uint64_t oerrors;   /**< Total number of failed transmitted packets. */
@@ -255,6 +258,7 @@ struct rte_eth_stats {
 /**
  * A structure used to retrieve link-level information of an Ethernet port.
  */
+__extension__
 struct rte_eth_link {
 	uint32_t link_speed;        /**< ETH_SPEED_NUM_ */
 	uint16_t link_duplex  : 1;  /**< ETH_LINK_[HALF/FULL]_DUPLEX */
@@ -346,6 +350,7 @@ struct rte_eth_rxmode {
 	enum rte_eth_rx_mq_mode mq_mode;
 	uint32_t max_rx_pkt_len;  /**< Only used if jumbo_frame enabled. */
 	uint16_t split_hdr_size;  /**< hdr buf size (header_split enabled).*/
+	__extension__
 	uint16_t header_split : 1, /**< Header Split enable. */
 		hw_ip_checksum   : 1, /**< IP/UDP/TCP checksum offload enable. */
 		hw_vlan_filter   : 1, /**< VLAN filter enable. */
@@ -645,6 +650,7 @@ struct rte_eth_txmode {
 
 	/* For i40e specifically */
 	uint16_t pvid;
+	__extension__
 	uint8_t hw_vlan_reject_tagged : 1,
 		/**< If set, reject sending out tagged pkts */
 		hw_vlan_reject_untagged : 1,
@@ -864,6 +870,10 @@ struct rte_eth_conf {
 #define DEV_TX_OFFLOAD_UDP_TSO     0x00000040
 #define DEV_TX_OFFLOAD_OUTER_IPV4_CKSUM 0x00000080 /**< Used for tunneling packet. */
 #define DEV_TX_OFFLOAD_QINQ_INSERT 0x00000100
+#define DEV_TX_OFFLOAD_VXLAN_TNL_TSO    0x00000200    /**< Used for tunneling packet. */
+#define DEV_TX_OFFLOAD_GRE_TNL_TSO      0x00000400    /**< Used for tunneling packet. */
+#define DEV_TX_OFFLOAD_IPIP_TNL_TSO     0x00000800    /**< Used for tunneling packet. */
+#define DEV_TX_OFFLOAD_GENEVE_TNL_TSO   0x00001000    /**< Used for tunneling packet. */
 
 /**
  * Ethernet device information
@@ -1603,17 +1613,6 @@ struct rte_eth_rxtx_callback {
 };
 
 /**
- * The eth device type.
- */
-enum rte_eth_dev_type {
-	RTE_ETH_DEV_UNKNOWN,	/**< unknown device type */
-	RTE_ETH_DEV_PCI,
-		/**< Physical function and Virtual function of PCI devices */
-	RTE_ETH_DEV_VIRTUAL,	/**< non hardware device */
-	RTE_ETH_DEV_MAX		/**< max value of this enum */
-};
-
-/**
  * @internal
  * The generic data structure associated with each ethernet device.
  *
@@ -1643,7 +1642,6 @@ struct rte_eth_dev {
 	 */
 	struct rte_eth_rxtx_callback *pre_tx_burst_cbs[RTE_MAX_QUEUES_PER_PORT];
 	uint8_t attached; /**< Flag indicating the port is attached */
-	enum rte_eth_dev_type dev_type; /**< Flag indicating the device type */
 } __rte_cache_aligned;
 
 struct rte_eth_dev_sriov {
@@ -1691,6 +1689,7 @@ struct rte_eth_dev_data {
 	struct ether_addr* hash_mac_addrs;
 	/** Device Ethernet MAC addresses of hash filtering. */
 	uint8_t port_id;           /**< Device [external] port identifier. */
+	__extension__
 	uint8_t promiscuous   : 1, /**< RX promiscuous mode ON(1) / OFF(0). */
 		scattered_rx : 1,  /**< RX of scattered packets is ON(1) / OFF(0) */
 		all_multicast : 1, /**< RX all multicast mode ON(1) / OFF(0). */
@@ -1756,8 +1755,7 @@ struct rte_eth_dev *rte_eth_dev_allocated(const char *name);
  * @return
  *   - Slot in the rte_dev_devices array for a new device;
  */
-struct rte_eth_dev *rte_eth_dev_allocate(const char *name,
-		enum rte_eth_dev_type type);
+struct rte_eth_dev *rte_eth_dev_allocate(const char *name);
 
 /**
  * @internal
@@ -1776,7 +1774,7 @@ int rte_eth_dev_release_port(struct rte_eth_dev *eth_dev);
  * @param devargs
  *  A pointer to a strings array describing the new device
  *  to be attached. The strings should be a pci address like
- *  '0000:01:00.0' or virtual device name like 'eth_pcap0'.
+ *  '0000:01:00.0' or virtual device name like 'net_pcap0'.
  * @param port_id
  *  A pointer to a port identifier actually attached.
  * @return
@@ -1869,18 +1867,6 @@ struct eth_driver {
 	eth_dev_uninit_t eth_dev_uninit;  /**< Device uninit function. */
 	unsigned int dev_private_size;    /**< Size of device private data. */
 };
-
-/**
- * @internal
- * A function invoked by the initialization function of an Ethernet driver
- * to simultaneously register itself as a PCI driver and as an Ethernet
- * Poll Mode Driver (PMD).
- *
- * @param eth_drv
- *   The pointer to the *eth_driver* structure associated with
- *   the Ethernet driver.
- */
-void rte_eth_driver_register(struct eth_driver *eth_drv);
 
 /**
  * Convert a numerical speed in Mbps to a bitmap flag that can be used in
@@ -3047,6 +3033,7 @@ enum rte_eth_event_type {
 				/**< queue state event (enabled/disabled) */
 	RTE_ETH_EVENT_INTR_RESET,
 			/**< reset interrupt event, sent to VF on PF reset */
+	RTE_ETH_EVENT_VF_MBOX,  /**< message from the VF received by PF */
 	RTE_ETH_EVENT_MAX       /**< max value of this enum */
 };
 
@@ -3067,6 +3054,11 @@ typedef void (*rte_eth_dev_cb_fn)(uint8_t port_id, \
  *  User supplied callback function to be called.
  * @param cb_arg
  *  Pointer to the parameters for the registered callback.
+ *
+ *  The user data is overwritten in the case of RTE_ETH_EVENT_VF_MBOX.
+ *	This even occurs when a message from the VF is received by the PF.
+ *	The user data is overwritten with struct rte_pmd_ixgbe_mb_event_param.
+ *	This struct is defined in rte_pmd_ixgbe.h.
  *
  * @return
  *  - On success, zero.
@@ -3106,12 +3098,16 @@ int rte_eth_dev_callback_unregister(uint8_t port_id,
  *  Pointer to struct rte_eth_dev.
  * @param event
  *  Eth device interrupt event type.
+ * @param cb_arg
+ *  Update callback parameter to pass data back to user application.
+ *  This allows the user application to decide if a particular function
+ *  is permitted or not.
  *
  * @return
  *  void
  */
 void _rte_eth_dev_callback_process(struct rte_eth_dev *dev,
-				enum rte_eth_event_type event);
+				enum rte_eth_event_type event, void *cb_arg);
 
 /**
  * When there is no rx packet coming in Rx Queue for a long time, we can
@@ -4341,7 +4337,7 @@ rte_eth_dev_l2_tunnel_offload_set(uint8_t port_id,
 
 /**
 * Get the port id from pci adrress or device name
-* Ex: 0000:2:00.0 or vdev name eth_pcap0
+* Ex: 0000:2:00.0 or vdev name net_pcap0
 *
 * @param name
 *  pci address or name of the device
@@ -4367,6 +4363,21 @@ rte_eth_dev_get_port_by_name(const char *name, uint8_t *port_id);
 */
 int
 rte_eth_dev_get_name_by_port(uint8_t port_id, char *name);
+
+/**
+ * @internal
+ * Wrapper for use by pci drivers as a .probe function to attach to a ethdev
+ * interface.
+ */
+int rte_eth_dev_pci_probe(struct rte_pci_driver *pci_drv,
+			  struct rte_pci_device *pci_dev);
+
+/**
+ * @internal
+ * Wrapper for use by pci drivers as a .remove function to detach a ethdev
+ * interface.
+ */
+int rte_eth_dev_pci_remove(struct rte_pci_device *pci_dev);
 
 #ifdef __cplusplus
 }

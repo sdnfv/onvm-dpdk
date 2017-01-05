@@ -25,28 +25,49 @@
 					     rel_pfid)
 #define MCP_PF_ID(p_hwfn) MCP_PF_ID_BY_REL(p_hwfn, (p_hwfn)->rel_pf_id)
 
-/* TODO - this is only correct as long as only BB is supported, and
- * no port-swapping is implemented; Afterwards we'll need to fix it.
- */
 #define MFW_PORT(_p_hwfn)	((_p_hwfn)->abs_pf_id % \
-				 ((_p_hwfn)->p_dev->num_ports_in_engines * 2))
+				 ((_p_hwfn)->p_dev->num_ports_in_engines * \
+				  ecore_device_num_engines((_p_hwfn)->p_dev)))
+
 struct ecore_mcp_info {
-	osal_spinlock_t lock;	/* Spinlock used for accessing MCP mailbox */
-	u32 public_base;	/* Address of the MCP public area */
-	u32 drv_mb_addr;	/* Address of the driver mailbox */
-	u32 mfw_mb_addr;	/* Address of the MFW mailbox */
-	u32 port_addr;		/* Address of the port configuration (link) */
-	u16 drv_mb_seq;		/* Current driver mailbox sequence */
-	u16 drv_pulse_seq;	/* Current driver pulse sequence */
-	struct ecore_mcp_link_params link_input;
-	struct ecore_mcp_link_state link_output;
+	/* Spinlock used for protecting the access to the MFW mailbox */
+	osal_spinlock_t lock;
+	/* Flag to indicate whether sending a MFW mailbox is forbidden */
+	bool block_mb_sending;
+
+	/* Address of the MCP public area */
+	u32 public_base;
+	/* Address of the driver mailbox */
+	u32 drv_mb_addr;
+	/* Address of the MFW mailbox */
+	u32 mfw_mb_addr;
+	/* Address of the port configuration (link) */
+	u32 port_addr;
+
+	/* Current driver mailbox sequence */
+	u16 drv_mb_seq;
+	/* Current driver pulse sequence */
+	u16 drv_pulse_seq;
+
+	struct ecore_mcp_link_params       link_input;
+	struct ecore_mcp_link_state	   link_output;
 	struct ecore_mcp_link_capabilities link_capabilities;
-	struct ecore_mcp_function_info func_info;
+
+	struct ecore_mcp_function_info	   func_info;
 
 	u8 *mfw_mb_cur;
 	u8 *mfw_mb_shadow;
 	u16 mfw_mb_length;
 	u16 mcp_hist;
+};
+
+struct ecore_mcp_mb_params {
+	u32 cmd;
+	u32 param;
+	union drv_union_data *p_data_src;
+	union drv_union_data *p_data_dst;
+	u32 mcp_resp;
+	u32 mcp_param;
 };
 
 /**
@@ -140,7 +161,8 @@ enum _ecore_status_t ecore_mcp_load_req(struct ecore_hwfn *p_hwfn,
  * @param p_hwfn
  * @param p_ptt
  */
-void ecore_mcp_read_mb(struct ecore_hwfn *p_hwfn, struct ecore_ptt *p_ptt);
+void ecore_mcp_read_mb(struct ecore_hwfn *p_hwfn,
+		       struct ecore_ptt *p_ptt);
 
 /**
  * @brief Ack to mfw that driver finished FLR process for VFs
@@ -177,28 +199,6 @@ enum _ecore_status_t ecore_mcp_reset(struct ecore_hwfn *p_hwfn,
 				     struct ecore_ptt *p_ptt);
 
 /**
- * @brief - Sets the union data in the MCP mailbox and sends a mailbox command.
- *
- * @param p_hwfn       - hw function
- * @param p_ptt        - PTT required for register access
- * @param cmd          - command to be sent to the MCP
- * @param param        - optional param
- * @param p_union_data - pointer to a drv_union_data
- * @param o_mcp_resp   - the MCP response code (exclude sequence)
- * @param o_mcp_param  - optional parameter provided by the MCP response
- *
- * @return enum _ecore_status_t -
- *      ECORE_SUCCESS - operation was successful
- *      ECORE_BUSY    - operation failed
- */
-enum _ecore_status_t ecore_mcp_cmd_and_union(struct ecore_hwfn *p_hwfn,
-					     struct ecore_ptt *p_ptt,
-					     u32 cmd, u32 param,
-					     union drv_union_data *p_union_data,
-					     u32 *o_mcp_resp,
-					     u32 *o_mcp_param);
-
-/**
  * @brief - Sends an NVM write command request to the MFW with
  *          payload.
  *
@@ -220,7 +220,8 @@ enum _ecore_status_t ecore_mcp_nvm_wr_cmd(struct ecore_hwfn *p_hwfn,
 					  u32 param,
 					  u32 *o_mcp_resp,
 					  u32 *o_mcp_param,
-					  u32 i_txn_size, u32 *i_buf);
+					  u32 i_txn_size,
+					  u32 *i_buf);
 
 /**
  * @brief - Sends an NVM read command request to the MFW to get
@@ -244,7 +245,8 @@ enum _ecore_status_t ecore_mcp_nvm_rd_cmd(struct ecore_hwfn *p_hwfn,
 					  u32 param,
 					  u32 *o_mcp_resp,
 					  u32 *o_mcp_param,
-					  u32 *o_txn_size, u32 *o_buf);
+					  u32 *o_txn_size,
+					  u32 *o_buf);
 
 /**
  * @brief indicates whether the MFW objects [under mcp_info] are accessible
@@ -301,4 +303,65 @@ int __ecore_configure_pf_min_bandwidth(struct ecore_hwfn *p_hwfn,
 enum _ecore_status_t ecore_mcp_mask_parities(struct ecore_hwfn *p_hwfn,
 					     struct ecore_ptt *p_ptt,
 					     u32 mask_parities);
+/**
+ * @brief - Sends crash mdump related info to the MFW.
+ *
+ * @param p_hwfn
+ * @param p_ptt
+ *
+ * @param return ECORE_SUCCESS upon success.
+ */
+enum _ecore_status_t ecore_mcp_mdump_set_values(struct ecore_hwfn *p_hwfn,
+						struct ecore_ptt *p_ptt,
+						u32 epoch);
+
+/**
+ * @brief - Triggers a MFW crash dump procedure.
+ *
+ * @param p_hwfn
+ * @param p_ptt
+ *
+ * @param return ECORE_SUCCESS upon success.
+ */
+enum _ecore_status_t ecore_mcp_mdump_trigger(struct ecore_hwfn *p_hwfn,
+					     struct ecore_ptt *p_ptt);
+
+/**
+ * @brief - Clears the MFW crash dump logs.
+ *
+ * @param p_hwfn
+ * @param p_ptt
+ *
+ * @param return ECORE_SUCCESS upon success.
+ */
+enum _ecore_status_t ecore_mcp_mdump_clear_logs(struct ecore_hwfn *p_hwfn,
+						struct ecore_ptt *p_ptt);
+
+/**
+ * @brief - Gets the MFW crash dump configuration and logs info.
+ *
+ * @param p_hwfn
+ * @param p_ptt
+ *
+ * @param return ECORE_SUCCESS upon success.
+ */
+enum _ecore_status_t ecore_mcp_mdump_get_info(struct ecore_hwfn *p_hwfn,
+					      struct ecore_ptt *p_ptt);
+
+enum _ecore_status_t ecore_mcp_get_resc_info(struct ecore_hwfn *p_hwfn,
+					     struct ecore_ptt *p_ptt,
+					     struct resource_info *p_resc_info,
+					     u32 *p_mcp_resp, u32 *p_mcp_param);
+
+/**
+ * @brief - Initiates PF FLR
+ *
+ * @param p_hwfn
+ * @param p_ptt
+ *
+ * @param return ECORE_SUCCESS upon success.
+ */
+enum _ecore_status_t ecore_mcp_initiate_pf_flr(struct ecore_hwfn *p_hwfn,
+					       struct ecore_ptt *p_ptt);
+
 #endif /* __ECORE_MCP_H__ */

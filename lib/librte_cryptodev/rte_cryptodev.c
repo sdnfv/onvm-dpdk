@@ -59,7 +59,6 @@
 #include <rte_atomic.h>
 #include <rte_branch_prediction.h>
 #include <rte_common.h>
-#include <rte_ring.h>
 #include <rte_mempool.h>
 #include <rte_malloc.h>
 #include <rte_mbuf.h>
@@ -319,7 +318,7 @@ rte_cryptodev_find_free_device_index(void)
 }
 
 struct rte_cryptodev *
-rte_cryptodev_pmd_allocate(const char *name, enum pmd_type type, int socket_id)
+rte_cryptodev_pmd_allocate(const char *name, int socket_id)
 {
 	struct rte_cryptodev *cryptodev;
 	uint8_t dev_id;
@@ -358,29 +357,11 @@ rte_cryptodev_pmd_allocate(const char *name, enum pmd_type type, int socket_id)
 		cryptodev->data->dev_started = 0;
 
 		cryptodev->attached = RTE_CRYPTODEV_ATTACHED;
-		cryptodev->pmd_type = type;
 
 		cryptodev_globals.nb_devs++;
 	}
 
 	return cryptodev;
-}
-
-static inline int
-rte_cryptodev_create_unique_device_name(char *name, size_t size,
-		struct rte_pci_device *pci_dev)
-{
-	int ret;
-
-	if ((name == NULL) || (pci_dev == NULL))
-		return -EINVAL;
-
-	ret = snprintf(name, size, "%d:%d.%d",
-			pci_dev->addr.bus, pci_dev->addr.devid,
-			pci_dev->addr.function);
-	if (ret < 0)
-		return ret;
-	return 0;
 }
 
 int
@@ -407,7 +388,7 @@ rte_cryptodev_pmd_virtual_dev_init(const char *name, size_t dev_private_size,
 	struct rte_cryptodev *cryptodev;
 
 	/* allocate device structure */
-	cryptodev = rte_cryptodev_pmd_allocate(name, PMD_VDEV, socket_id);
+	cryptodev = rte_cryptodev_pmd_allocate(name, socket_id);
 	if (cryptodev == NULL)
 		return NULL;
 
@@ -430,9 +411,9 @@ rte_cryptodev_pmd_virtual_dev_init(const char *name, size_t dev_private_size,
 	return cryptodev;
 }
 
-static int
-rte_cryptodev_init(struct rte_pci_driver *pci_drv,
-		struct rte_pci_device *pci_dev)
+int
+rte_cryptodev_pci_probe(struct rte_pci_driver *pci_drv,
+			struct rte_pci_device *pci_dev)
 {
 	struct rte_cryptodev_driver *cryptodrv;
 	struct rte_cryptodev *cryptodev;
@@ -445,12 +426,10 @@ rte_cryptodev_init(struct rte_pci_driver *pci_drv,
 	if (cryptodrv == NULL)
 		return -ENODEV;
 
-	/* Create unique Crypto device name using PCI address */
-	rte_cryptodev_create_unique_device_name(cryptodev_name,
-			sizeof(cryptodev_name), pci_dev);
+	rte_eal_pci_device_name(&pci_dev->addr, cryptodev_name,
+			sizeof(cryptodev_name));
 
-	cryptodev = rte_cryptodev_pmd_allocate(cryptodev_name, PMD_PDEV,
-			rte_socket_id());
+	cryptodev = rte_cryptodev_pmd_allocate(cryptodev_name, rte_socket_id());
 	if (cryptodev == NULL)
 		return -ENOMEM;
 
@@ -479,7 +458,7 @@ rte_cryptodev_init(struct rte_pci_driver *pci_drv,
 		return 0;
 
 	CDEV_LOG_ERR("driver %s: crypto_dev_init(vendor_id=0x%x device_id=0x%x)"
-			" failed", pci_drv->name,
+			" failed", pci_drv->driver.name,
 			(unsigned) pci_dev->id.vendor_id,
 			(unsigned) pci_dev->id.device_id);
 
@@ -492,8 +471,8 @@ rte_cryptodev_init(struct rte_pci_driver *pci_drv,
 	return -ENXIO;
 }
 
-static int
-rte_cryptodev_uninit(struct rte_pci_device *pci_dev)
+int
+rte_cryptodev_pci_remove(struct rte_pci_device *pci_dev)
 {
 	const struct rte_cryptodev_driver *cryptodrv;
 	struct rte_cryptodev *cryptodev;
@@ -503,9 +482,8 @@ rte_cryptodev_uninit(struct rte_pci_device *pci_dev)
 	if (pci_dev == NULL)
 		return -EINVAL;
 
-	/* Create unique device name using PCI address */
-	rte_cryptodev_create_unique_device_name(cryptodev_name,
-			sizeof(cryptodev_name), pci_dev);
+	rte_eal_pci_device_name(&pci_dev->addr, cryptodev_name,
+			sizeof(cryptodev_name));
 
 	cryptodev = rte_cryptodev_pmd_get_named_dev(cryptodev_name);
 	if (cryptodev == NULL)
@@ -534,28 +512,6 @@ rte_cryptodev_uninit(struct rte_pci_device *pci_dev)
 
 	return 0;
 }
-
-int
-rte_cryptodev_pmd_driver_register(struct rte_cryptodev_driver *cryptodrv,
-		enum pmd_type type)
-{
-	/* Call crypto device initialization directly if device is virtual */
-	if (type == PMD_VDEV)
-		return rte_cryptodev_init((struct rte_pci_driver *)cryptodrv,
-				NULL);
-
-	/*
-	 * Register PCI driver for physical device intialisation during
-	 * PCI probing
-	 */
-	cryptodrv->pci_drv.devinit = rte_cryptodev_init;
-	cryptodrv->pci_drv.devuninit = rte_cryptodev_uninit;
-
-	rte_eal_pci_register(&cryptodrv->pci_drv);
-
-	return 0;
-}
-
 
 uint16_t
 rte_cryptodev_queue_pair_count(uint8_t dev_id)
@@ -913,7 +869,7 @@ rte_cryptodev_info_get(uint8_t dev_id, struct rte_cryptodev_info *dev_info)
 
 	dev_info->pci_dev = dev->pci_dev;
 	if (dev->driver)
-		dev_info->driver_name = dev->driver->pci_drv.name;
+		dev_info->driver_name = dev->driver->pci_drv.driver.name;
 }
 
 

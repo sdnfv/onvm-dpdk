@@ -56,7 +56,6 @@
 #include <rte_lcore.h>
 #include <rte_atomic.h>
 #include <rte_branch_prediction.h>
-#include <rte_ring.h>
 #include <rte_mempool.h>
 #include <rte_malloc.h>
 #include <rte_mbuf.h>
@@ -748,7 +747,9 @@ rx_desc_error_to_pkt_flags(uint32_t rx_status)
 	 */
 
 	static uint64_t error_to_pkt_flags_map[4] = {
-		0,  PKT_RX_L4_CKSUM_BAD, PKT_RX_IP_CKSUM_BAD,
+		PKT_RX_IP_CKSUM_GOOD | PKT_RX_L4_CKSUM_GOOD,
+		PKT_RX_IP_CKSUM_GOOD | PKT_RX_L4_CKSUM_BAD,
+		PKT_RX_IP_CKSUM_BAD | PKT_RX_L4_CKSUM_GOOD,
 		PKT_RX_IP_CKSUM_BAD | PKT_RX_L4_CKSUM_BAD
 	};
 	return error_to_pkt_flags_map[(rx_status >>
@@ -1528,7 +1529,7 @@ eth_igb_rx_queue_count(struct rte_eth_dev *dev, uint16_t rx_queue_id)
 				desc - rxq->nb_rx_desc]);
 	}
 
-	return 0;
+	return desc;
 }
 
 int

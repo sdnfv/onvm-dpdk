@@ -62,7 +62,6 @@ _LDLIBS-y += -L$(RTE_SDK_BIN)/lib
 
 ifeq ($(CONFIG_RTE_EXEC_ENV_LINUXAPP),y)
 _LDLIBS-$(CONFIG_RTE_LIBRTE_KNI)            += -lrte_kni
-_LDLIBS-$(CONFIG_RTE_LIBRTE_IVSHMEM)        += -lrte_ivshmem
 endif
 
 _LDLIBS-$(CONFIG_RTE_LIBRTE_PIPELINE)       += -lrte_pipeline
@@ -91,7 +90,8 @@ _LDLIBS-$(CONFIG_RTE_LIBRTE_VHOST)          += -lrte_vhost
 
 _LDLIBS-$(CONFIG_RTE_LIBRTE_KVARGS)         += -lrte_kvargs
 _LDLIBS-$(CONFIG_RTE_LIBRTE_MBUF)           += -lrte_mbuf
-_LDLIBS-$(CONFIG_RTE_LIBRTE_ETHER)          += -lethdev
+_LDLIBS-$(CONFIG_RTE_LIBRTE_NET)            += -lrte_net
+_LDLIBS-$(CONFIG_RTE_LIBRTE_ETHER)          += -lrte_ethdev
 _LDLIBS-$(CONFIG_RTE_LIBRTE_CRYPTODEV)      += -lrte_cryptodev
 _LDLIBS-$(CONFIG_RTE_LIBRTE_MEMPOOL)        += -lrte_mempool
 _LDLIBS-$(CONFIG_RTE_LIBRTE_RING)           += -lrte_ring
@@ -121,7 +121,7 @@ _LDLIBS-$(CONFIG_RTE_LIBRTE_MPIPE_PMD)      += -lrte_pmd_mpipe -lgxio
 _LDLIBS-$(CONFIG_RTE_LIBRTE_NFP_PMD)        += -lrte_pmd_nfp -lm
 _LDLIBS-$(CONFIG_RTE_LIBRTE_PMD_NULL)       += -lrte_pmd_null
 _LDLIBS-$(CONFIG_RTE_LIBRTE_PMD_PCAP)       += -lrte_pmd_pcap -lpcap
-_LDLIBS-$(CONFIG_RTE_LIBRTE_QEDE_PMD)       += -lrte_pmd_qede -lz
+_LDLIBS-$(CONFIG_RTE_LIBRTE_QEDE_PMD)       += -lrte_pmd_qede
 _LDLIBS-$(CONFIG_RTE_LIBRTE_PMD_RING)       += -lrte_pmd_ring
 _LDLIBS-$(CONFIG_RTE_LIBRTE_PMD_SZEDATA2)   += -lrte_pmd_szedata2 -lsze2
 _LDLIBS-$(CONFIG_RTE_LIBRTE_THUNDERX_NICVF_PMD) += -lrte_pmd_thunderx_nicvf -lm
@@ -132,16 +132,19 @@ endif # $(CONFIG_RTE_LIBRTE_VHOST)
 _LDLIBS-$(CONFIG_RTE_LIBRTE_VMXNET3_PMD)    += -lrte_pmd_vmxnet3_uio
 
 ifeq ($(CONFIG_RTE_LIBRTE_CRYPTODEV),y)
-_LDLIBS-$(CONFIG_RTE_LIBRTE_PMD_AESNI_MB)   += -lrte_pmd_aesni_mb
-_LDLIBS-$(CONFIG_RTE_LIBRTE_PMD_AESNI_MB)   += -L$(AESNI_MULTI_BUFFER_LIB_PATH) -lIPSec_MB
-_LDLIBS-$(CONFIG_RTE_LIBRTE_PMD_AESNI_GCM)  += -lrte_pmd_aesni_gcm -lcrypto
-_LDLIBS-$(CONFIG_RTE_LIBRTE_PMD_AESNI_GCM)  += -L$(AESNI_MULTI_BUFFER_LIB_PATH) -lIPSec_MB
+_LDLIBS-$(CONFIG_RTE_LIBRTE_PMD_AESNI_MB)    += -lrte_pmd_aesni_mb
+_LDLIBS-$(CONFIG_RTE_LIBRTE_PMD_AESNI_MB)    += -L$(AESNI_MULTI_BUFFER_LIB_PATH) -lIPSec_MB
+_LDLIBS-$(CONFIG_RTE_LIBRTE_PMD_AESNI_GCM)   += -lrte_pmd_aesni_gcm -lcrypto
+_LDLIBS-$(CONFIG_RTE_LIBRTE_PMD_AESNI_GCM)   += -L$(AESNI_MULTI_BUFFER_LIB_PATH) -lIPSec_MB
+_LDLIBS-$(CONFIG_RTE_LIBRTE_PMD_OPENSSL)     += -lrte_pmd_openssl -lcrypto
 _LDLIBS-$(CONFIG_RTE_LIBRTE_PMD_NULL_CRYPTO) += -lrte_pmd_null_crypto
-_LDLIBS-$(CONFIG_RTE_LIBRTE_PMD_QAT)        += -lrte_pmd_qat -lcrypto
-_LDLIBS-$(CONFIG_RTE_LIBRTE_PMD_SNOW3G)     += -lrte_pmd_snow3g
-_LDLIBS-$(CONFIG_RTE_LIBRTE_PMD_SNOW3G)     += -L$(LIBSSO_SNOW3G_PATH)/build -lsso_snow3g
-_LDLIBS-$(CONFIG_RTE_LIBRTE_PMD_KASUMI)     += -lrte_pmd_kasumi
-_LDLIBS-$(CONFIG_RTE_LIBRTE_PMD_KASUMI)     += -L$(LIBSSO_KASUMI_PATH)/build -lsso_kasumi
+_LDLIBS-$(CONFIG_RTE_LIBRTE_PMD_QAT)         += -lrte_pmd_qat -lcrypto
+_LDLIBS-$(CONFIG_RTE_LIBRTE_PMD_SNOW3G)      += -lrte_pmd_snow3g
+_LDLIBS-$(CONFIG_RTE_LIBRTE_PMD_SNOW3G)      += -L$(LIBSSO_SNOW3G_PATH)/build -lsso_snow3g
+_LDLIBS-$(CONFIG_RTE_LIBRTE_PMD_KASUMI)      += -lrte_pmd_kasumi
+_LDLIBS-$(CONFIG_RTE_LIBRTE_PMD_KASUMI)      += -L$(LIBSSO_KASUMI_PATH)/build -lsso_kasumi
+_LDLIBS-$(CONFIG_RTE_LIBRTE_PMD_ZUC)         += -lrte_pmd_zuc
+_LDLIBS-$(CONFIG_RTE_LIBRTE_PMD_ZUC)         += -L$(LIBSSO_ZUC_PATH)/build -lsso_zuc
 endif # CONFIG_RTE_LIBRTE_CRYPTODEV
 
 endif # !CONFIG_RTE_BUILD_SHARED_LIBS
@@ -157,9 +160,6 @@ _LDLIBS-$(CONFIG_RTE_LIBRTE_SCHED)          += -lrt
 _LDLIBS-$(CONFIG_RTE_LIBRTE_METER)          += -lm
 ifeq ($(CONFIG_RTE_LIBRTE_VHOST_NUMA),y)
 _LDLIBS-$(CONFIG_RTE_LIBRTE_VHOST)          += -lnuma
-endif
-ifeq ($(CONFIG_RTE_LIBRTE_VHOST_USER),n)
-_LDLIBS-$(CONFIG_RTE_LIBRTE_VHOST)          += -lfuse
 endif
 _LDLIBS-$(CONFIG_RTE_PORT_PCAP)             += -lpcap
 endif # !CONFIG_RTE_BUILD_SHARED_LIBS

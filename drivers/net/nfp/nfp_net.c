@@ -214,7 +214,7 @@ ring_dma_zone_reserve(struct rte_eth_dev *dev, const char *ring_name,
 	const struct rte_memzone *mz;
 
 	snprintf(z_name, sizeof(z_name), "%s_%s_%d_%d",
-		 dev->driver->pci_drv.name,
+		 dev->driver->pci_drv.driver.name,
 		 ring_name, dev->data->port_id, queue_id);
 
 	mz = rte_memzone_lookup(z_name);
@@ -607,24 +607,25 @@ nfp_net_rx_freelist_setup(struct rte_eth_dev *dev)
 static void
 nfp_net_params_setup(struct nfp_net_hw *hw)
 {
-	uint32_t *mac_address;
-
 	nn_cfg_writel(hw, NFP_NET_CFG_MTU, hw->mtu);
 	nn_cfg_writel(hw, NFP_NET_CFG_FLBUFSZ, hw->flbufsz);
-
-	/* A MAC address is 8 bytes long */
-	mac_address = (uint32_t *)(hw->mac_addr);
-
-	nn_cfg_writel(hw, NFP_NET_CFG_MACADDR,
-		      rte_cpu_to_be_32(*mac_address));
-	nn_cfg_writel(hw, NFP_NET_CFG_MACADDR + 4,
-		      rte_cpu_to_be_32(*(mac_address + 4)));
 }
 
 static void
 nfp_net_cfg_queue_setup(struct nfp_net_hw *hw)
 {
 	hw->qcp_cfg = hw->tx_bar + NFP_QCP_QUEUE_ADDR_SZ;
+}
+
+static void nfp_net_read_mac(struct nfp_net_hw *hw)
+{
+	uint32_t tmp;
+
+	tmp = rte_be_to_cpu_32(nn_cfg_readl(hw, NFP_NET_CFG_MACADDR));
+	memcpy(&hw->mac_addr[0], &tmp, sizeof(struct ether_addr));
+
+	tmp = rte_be_to_cpu_32(nn_cfg_readl(hw, NFP_NET_CFG_MACADDR + 4));
+	memcpy(&hw->mac_addr[4], &tmp, 2);
 }
 
 static int
@@ -731,6 +732,11 @@ nfp_net_close(struct rte_eth_dev *dev)
 
 	rte_intr_disable(&dev->pci_dev->intr_handle);
 	nn_cfg_writeb(hw, NFP_NET_CFG_LSC, 0xff);
+
+	/* unregister callback func from eal lib */
+	rte_intr_callback_unregister(&dev->pci_dev->intr_handle,
+				     nfp_net_dev_interrupt_handler,
+				     (void *)dev);
 
 	/*
 	 * The ixgbe PMD driver disables the pcie master on the
@@ -1000,7 +1006,7 @@ nfp_net_infos_get(struct rte_eth_dev *dev, struct rte_eth_dev_info *dev_info)
 
 	hw = NFP_NET_DEV_PRIVATE_TO_HW(dev->data->dev_private);
 
-	dev_info->driver_name = dev->driver->pci_drv.name;
+	dev_info->driver_name = dev->driver->pci_drv.driver.name;
 	dev_info->max_rx_queues = (uint16_t)hw->max_rx_queues;
 	dev_info->max_tx_queues = (uint16_t)hw->max_tx_queues;
 	dev_info->min_rx_bufsize = ETHER_MIN_MTU;
@@ -1213,7 +1219,7 @@ nfp_net_dev_interrupt_delayed_handler(void *param)
 	struct rte_eth_dev *dev = (struct rte_eth_dev *)param;
 
 	nfp_net_link_update(dev, 0);
-	_rte_eth_dev_callback_process(dev, RTE_ETH_EVENT_INTR_LSC);
+	_rte_eth_dev_callback_process(dev, RTE_ETH_EVENT_INTR_LSC, NULL);
 
 	nfp_net_dev_link_status_print(dev);
 
@@ -2413,12 +2419,15 @@ nfp_net_init(struct rte_eth_dev *eth_dev)
 		return -ENOMEM;
 	}
 
-	/* Using random mac addresses for VFs */
-	eth_random_addr(&hw->mac_addr[0]);
+	nfp_net_read_mac(hw);
+
+	if (!is_valid_assigned_ether_addr((struct ether_addr *)&hw->mac_addr))
+		/* Using random mac addresses for VFs */
+		eth_random_addr(&hw->mac_addr[0]);
 
 	/* Copying mac address to DPDK eth_dev struct */
-	ether_addr_copy(&eth_dev->data->mac_addrs[0],
-			(struct ether_addr *)hw->mac_addr);
+	ether_addr_copy((struct ether_addr *)hw->mac_addr,
+			&eth_dev->data->mac_addrs[0]);
 
 	PMD_INIT_LOG(INFO, "port %d VendorID=0x%x DeviceID=0x%x "
 		     "mac=%02x:%02x:%02x:%02x:%02x:%02x",
@@ -2459,35 +2468,19 @@ static struct rte_pci_id pci_id_nfp_net_map[] = {
 };
 
 static struct eth_driver rte_nfp_net_pmd = {
-	{
-		.name = "rte_nfp_net_pmd",
+	.pci_drv = {
 		.id_table = pci_id_nfp_net_map,
 		.drv_flags = RTE_PCI_DRV_NEED_MAPPING | RTE_PCI_DRV_INTR_LSC |
 			     RTE_PCI_DRV_DETACHABLE,
+		.probe = rte_eth_dev_pci_probe,
+		.remove = rte_eth_dev_pci_remove,
 	},
 	.eth_dev_init = nfp_net_init,
 	.dev_private_size = sizeof(struct nfp_net_adapter),
 };
 
-static int
-nfp_net_pmd_init(const char *name __rte_unused,
-		 const char *params __rte_unused)
-{
-	PMD_INIT_FUNC_TRACE();
-	PMD_INIT_LOG(INFO, "librte_pmd_nfp_net version %s\n",
-		     NFP_NET_PMD_VERSION);
-
-	rte_eth_driver_register(&rte_nfp_net_pmd);
-	return 0;
-}
-
-static struct rte_driver rte_nfp_net_driver = {
-	.type = PMD_PDEV,
-	.init = nfp_net_pmd_init,
-};
-
-PMD_REGISTER_DRIVER(rte_nfp_net_driver, nfp);
-DRIVER_REGISTER_PCI_TABLE(nfp, pci_id_nfp_net_map);
+RTE_PMD_REGISTER_PCI(net_nfp, rte_nfp_net_pmd.pci_drv);
+RTE_PMD_REGISTER_PCI_TABLE(net_nfp, pci_id_nfp_net_map);
 
 /*
  * Local variables:

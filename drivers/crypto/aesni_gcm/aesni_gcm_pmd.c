@@ -37,7 +37,7 @@
 #include <rte_hexdump.h>
 #include <rte_cryptodev.h>
 #include <rte_cryptodev_pmd.h>
-#include <rte_dev.h>
+#include <rte_vdev.h>
 #include <rte_malloc.h>
 #include <rte_cpuflags.h>
 
@@ -230,9 +230,18 @@ process_gcm_crypto_op(struct aesni_gcm_qp *qp, struct rte_crypto_sym_op *op,
 					op->cipher.data.offset);
 
 	/* sanity checks */
-	if (op->cipher.iv.length != 16 && op->cipher.iv.length != 0) {
+	if (op->cipher.iv.length != 16 && op->cipher.iv.length != 12 &&
+			op->cipher.iv.length != 0) {
 		GCM_LOG_ERR("iv");
 		return -1;
+	}
+
+	/*
+	 * GCM working in 12B IV mode => 16B pre-counter block we need
+	 * to set BE LSB to 1, driver expects that 16B is allocated
+	 */
+	if (op->cipher.iv.length == 12) {
+		op->cipher.iv.data[15] = 1;
 	}
 
 	if (op->auth.aad.length != 12 && op->auth.aad.length != 8 &&
@@ -395,7 +404,7 @@ aesni_gcm_pmd_dequeue_burst(void *queue_pair,
 	return nb_dequeued;
 }
 
-static int aesni_gcm_uninit(const char *name);
+static int aesni_gcm_remove(const char *name);
 
 static int
 aesni_gcm_create(const char *name,
@@ -477,12 +486,12 @@ aesni_gcm_create(const char *name,
 init_error:
 	GCM_LOG_ERR("driver %s: create failed", name);
 
-	aesni_gcm_uninit(crypto_dev_name);
+	aesni_gcm_remove(crypto_dev_name);
 	return -EFAULT;
 }
 
 static int
-aesni_gcm_init(const char *name, const char *input_args)
+aesni_gcm_probe(const char *name, const char *input_args)
 {
 	struct rte_crypto_vdev_init_params init_params = {
 		RTE_CRYPTODEV_VDEV_DEFAULT_MAX_NB_QUEUE_PAIRS,
@@ -503,7 +512,7 @@ aesni_gcm_init(const char *name, const char *input_args)
 }
 
 static int
-aesni_gcm_uninit(const char *name)
+aesni_gcm_remove(const char *name)
 {
 	if (name == NULL)
 		return -EINVAL;
@@ -514,14 +523,14 @@ aesni_gcm_uninit(const char *name)
 	return 0;
 }
 
-static struct rte_driver aesni_gcm_pmd_drv = {
-	.type = PMD_VDEV,
-	.init = aesni_gcm_init,
-	.uninit = aesni_gcm_uninit
+static struct rte_vdev_driver aesni_gcm_pmd_drv = {
+	.probe = aesni_gcm_probe,
+	.remove = aesni_gcm_remove
 };
 
-PMD_REGISTER_DRIVER(aesni_gcm_pmd_drv, CRYPTODEV_NAME_AESNI_GCM_PMD);
-DRIVER_REGISTER_PARAM_STRING(CRYPTODEV_NAME_AESNI_GCM_PMD,
+RTE_PMD_REGISTER_VDEV(CRYPTODEV_NAME_AESNI_GCM_PMD, aesni_gcm_pmd_drv);
+RTE_PMD_REGISTER_ALIAS(CRYPTODEV_NAME_AESNI_GCM_PMD, cryptodev_aesni_gcm_pmd);
+RTE_PMD_REGISTER_PARAM_STRING(CRYPTODEV_NAME_AESNI_GCM_PMD,
 	"max_nb_queue_pairs=<int> "
 	"max_nb_sessions=<int> "
 	"socket_id=<int>");

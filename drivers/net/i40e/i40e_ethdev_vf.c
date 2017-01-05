@@ -126,8 +126,6 @@ static void i40evf_dev_promiscuous_enable(struct rte_eth_dev *dev);
 static void i40evf_dev_promiscuous_disable(struct rte_eth_dev *dev);
 static void i40evf_dev_allmulticast_enable(struct rte_eth_dev *dev);
 static void i40evf_dev_allmulticast_disable(struct rte_eth_dev *dev);
-static int i40evf_get_link_status(struct rte_eth_dev *dev,
-				  struct rte_eth_link *link);
 static int i40evf_init_vlan(struct rte_eth_dev *dev);
 static int i40evf_dev_rx_queue_start(struct rte_eth_dev *dev,
 				     uint16_t rx_queue_id);
@@ -1084,31 +1082,6 @@ i40evf_del_vlan(struct rte_eth_dev *dev, uint16_t vlanid)
 	return err;
 }
 
-static int
-i40evf_get_link_status(struct rte_eth_dev *dev, struct rte_eth_link *link)
-{
-	struct i40e_vf *vf = I40EVF_DEV_PRIVATE_TO_VF(dev->data->dev_private);
-	int err;
-	struct vf_cmd_info args;
-	struct rte_eth_link *new_link;
-
-	args.ops = (enum i40e_virtchnl_ops)I40E_VIRTCHNL_OP_GET_LINK_STAT;
-	args.in_args = NULL;
-	args.in_args_size = 0;
-	args.out_buffer = vf->aq_resp;
-	args.out_size = I40E_AQ_BUF_SZ;
-	err = i40evf_execute_vf_cmd(dev, &args);
-	if (err) {
-		PMD_DRV_LOG(ERR, "fail to execute command OP_GET_LINK_STAT");
-		return err;
-	}
-
-	new_link = (struct rte_eth_link *)args.out_buffer;
-	(void)rte_memcpy(link, new_link, sizeof(*link));
-
-	return 0;
-}
-
 static const struct rte_pci_id pci_id_i40evf_map[] = {
 	{ RTE_PCI_DEVICE(I40E_INTEL_VENDOR_ID, I40E_DEV_ID_VF) },
 	{ RTE_PCI_DEVICE(I40E_INTEL_VENDOR_ID, I40E_DEV_ID_VF_HV) },
@@ -1341,7 +1314,7 @@ i40evf_handle_pf_event(__rte_unused struct rte_eth_dev *dev,
 	switch (pf_msg->event) {
 	case I40E_VIRTCHNL_EVENT_RESET_IMPENDING:
 		PMD_DRV_LOG(DEBUG, "VIRTCHNL_EVENT_RESET_IMPENDING event\n");
-		_rte_eth_dev_callback_process(dev, RTE_ETH_EVENT_INTR_RESET);
+		_rte_eth_dev_callback_process(dev, RTE_ETH_EVENT_INTR_RESET, NULL);
 		break;
 	case I40E_VIRTCHNL_EVENT_LINK_CHANGE:
 		PMD_DRV_LOG(DEBUG, "VIRTCHNL_EVENT_LINK_CHANGE event\n");
@@ -1554,38 +1527,18 @@ i40evf_dev_uninit(struct rte_eth_dev *eth_dev)
  */
 static struct eth_driver rte_i40evf_pmd = {
 	.pci_drv = {
-		.name = "rte_i40evf_pmd",
 		.id_table = pci_id_i40evf_map,
 		.drv_flags = RTE_PCI_DRV_NEED_MAPPING | RTE_PCI_DRV_DETACHABLE,
+		.probe = rte_eth_dev_pci_probe,
+		.remove = rte_eth_dev_pci_remove,
 	},
 	.eth_dev_init = i40evf_dev_init,
 	.eth_dev_uninit = i40evf_dev_uninit,
 	.dev_private_size = sizeof(struct i40e_adapter),
 };
 
-/*
- * VF Driver initialization routine.
- * Invoked one at EAL init time.
- * Register itself as the [Virtual Poll Mode] Driver of PCI Fortville devices.
- */
-static int
-rte_i40evf_pmd_init(const char *name __rte_unused,
-		    const char *params __rte_unused)
-{
-	PMD_INIT_FUNC_TRACE();
-
-	rte_eth_driver_register(&rte_i40evf_pmd);
-
-	return 0;
-}
-
-static struct rte_driver rte_i40evf_driver = {
-	.type = PMD_PDEV,
-	.init = rte_i40evf_pmd_init,
-};
-
-PMD_REGISTER_DRIVER(rte_i40evf_driver, i40evf);
-DRIVER_REGISTER_PCI_TABLE(i40evf, pci_id_i40evf_map);
+RTE_PMD_REGISTER_PCI(net_i40e_vf, rte_i40evf_pmd.pci_drv);
+RTE_PMD_REGISTER_PCI_TABLE(net_i40e_vf, pci_id_i40evf_map);
 
 static int
 i40evf_dev_configure(struct rte_eth_dev *dev)
@@ -2166,35 +2119,33 @@ i40evf_dev_link_update(struct rte_eth_dev *dev,
 	 * DPDK pf host provide interfacet to acquire link status
 	 * while Linux driver does not
 	 */
-	if (vf->version_major == I40E_DPDK_VERSION_MAJOR)
-		i40evf_get_link_status(dev, &new_link);
-	else {
-		/* Linux driver PF host */
-		switch (vf->link_speed) {
-		case I40E_LINK_SPEED_100MB:
-			new_link.link_speed = ETH_SPEED_NUM_100M;
-			break;
-		case I40E_LINK_SPEED_1GB:
-			new_link.link_speed = ETH_SPEED_NUM_1G;
-			break;
-		case I40E_LINK_SPEED_10GB:
-			new_link.link_speed = ETH_SPEED_NUM_10G;
-			break;
-		case I40E_LINK_SPEED_20GB:
-			new_link.link_speed = ETH_SPEED_NUM_20G;
-			break;
-		case I40E_LINK_SPEED_40GB:
-			new_link.link_speed = ETH_SPEED_NUM_40G;
-			break;
-		default:
-			new_link.link_speed = ETH_SPEED_NUM_100M;
-			break;
-		}
-		/* full duplex only */
-		new_link.link_duplex = ETH_LINK_FULL_DUPLEX;
-		new_link.link_status = vf->link_up ? ETH_LINK_UP :
-						     ETH_LINK_DOWN;
+
+	/* Linux driver PF host */
+	switch (vf->link_speed) {
+	case I40E_LINK_SPEED_100MB:
+		new_link.link_speed = ETH_SPEED_NUM_100M;
+		break;
+	case I40E_LINK_SPEED_1GB:
+		new_link.link_speed = ETH_SPEED_NUM_1G;
+		break;
+	case I40E_LINK_SPEED_10GB:
+		new_link.link_speed = ETH_SPEED_NUM_10G;
+		break;
+	case I40E_LINK_SPEED_20GB:
+		new_link.link_speed = ETH_SPEED_NUM_20G;
+		break;
+	case I40E_LINK_SPEED_40GB:
+		new_link.link_speed = ETH_SPEED_NUM_40G;
+		break;
+	default:
+		new_link.link_speed = ETH_SPEED_NUM_100M;
+		break;
 	}
+	/* full duplex only */
+	new_link.link_duplex = ETH_LINK_FULL_DUPLEX;
+	new_link.link_status = vf->link_up ? ETH_LINK_UP :
+					     ETH_LINK_DOWN;
+
 	i40evf_dev_atomic_write_link_status(dev, &new_link);
 
 	return 0;
@@ -2568,8 +2519,11 @@ i40evf_hw_rss_hash_set(struct i40e_vf *vf, struct rte_eth_rss_conf *rss_conf)
 	rss_hf = rss_conf->rss_hf;
 	hena = (uint64_t)i40e_read_rx_ctl(hw, I40E_VFQF_HENA(0));
 	hena |= ((uint64_t)i40e_read_rx_ctl(hw, I40E_VFQF_HENA(1))) << 32;
-	hena &= ~I40E_RSS_HENA_ALL;
-	hena |= i40e_config_hena(rss_hf);
+	if (hw->mac.type == I40E_MAC_X722)
+		hena &= ~I40E_RSS_HENA_ALL_X722;
+	else
+		hena &= ~I40E_RSS_HENA_ALL;
+	hena |= i40e_config_hena(rss_hf, hw->mac.type);
 	i40e_write_rx_ctl(hw, I40E_VFQF_HENA(0), (uint32_t)hena);
 	i40e_write_rx_ctl(hw, I40E_VFQF_HENA(1), (uint32_t)(hena >> 32));
 	I40EVF_WRITE_FLUSH(hw);
@@ -2585,7 +2539,10 @@ i40evf_disable_rss(struct i40e_vf *vf)
 
 	hena = (uint64_t)i40e_read_rx_ctl(hw, I40E_VFQF_HENA(0));
 	hena |= ((uint64_t)i40e_read_rx_ctl(hw, I40E_VFQF_HENA(1))) << 32;
-	hena &= ~I40E_RSS_HENA_ALL;
+	if (hw->mac.type == I40E_MAC_X722)
+		hena &= ~I40E_RSS_HENA_ALL_X722;
+	else
+		hena &= ~I40E_RSS_HENA_ALL;
 	i40e_write_rx_ctl(hw, I40E_VFQF_HENA(0), (uint32_t)hena);
 	i40e_write_rx_ctl(hw, I40E_VFQF_HENA(1), (uint32_t)(hena >> 32));
 	I40EVF_WRITE_FLUSH(hw);
@@ -2646,7 +2603,9 @@ i40evf_dev_rss_hash_update(struct rte_eth_dev *dev,
 
 	hena = (uint64_t)i40e_read_rx_ctl(hw, I40E_VFQF_HENA(0));
 	hena |= ((uint64_t)i40e_read_rx_ctl(hw, I40E_VFQF_HENA(1))) << 32;
-	if (!(hena & I40E_RSS_HENA_ALL)) { /* RSS disabled */
+	if (!(hena & ((hw->mac.type == I40E_MAC_X722)
+		 ? I40E_RSS_HENA_ALL_X722
+		 : I40E_RSS_HENA_ALL))) { /* RSS disabled */
 		if (rss_hf != 0) /* Enable RSS */
 			return -EINVAL;
 		return 0;

@@ -26,8 +26,10 @@ T: git://dpdk.org/dpdk
 F: MAINTAINERS
 F: scripts/check-maintainers.sh
 F: scripts/check-git-log.sh
+F: scripts/check-includes.sh
 F: scripts/checkpatches.sh
-F: scripts/load-devel-config.sh
+F: scripts/git-log-fixes.sh
+F: scripts/load-devel-config
 F: scripts/test-build.sh
 
 Stable Branches
@@ -41,7 +43,6 @@ M: maintainers@dpdk.org
 
 Documentation (with overlaps)
 -------------
-M: Siobhan Butler <siobhan.a.butler@intel.com>
 M: John McNamara <john.mcnamara@intel.com>
 F: README
 F: doc/
@@ -74,6 +75,7 @@ F: scripts/validate-abi.sh
 Driver information
 F: buildtools/pmdinfogen/
 F: tools/dpdk-pmdinfo.py
+F: doc/guides/tools/pmdinfo.rst
 
 
 Environment Abstraction Layer
@@ -150,6 +152,8 @@ F: lib/librte_acl/acl_run_neon.*
 F: lib/librte_lpm/rte_lpm_neon.h
 F: lib/librte_hash/rte*_arm64.h
 F: drivers/net/ixgbe/ixgbe_rxtx_vec_neon.c
+F: drivers/net/i40e/i40e_rxtx_vec_neon.c
+F: drivers/net/virtio/virtio_rxtx_simple_neon.c
 
 EZchip TILE-Gx
 M: Zhigang Lu <zlu@ezchip.com>
@@ -185,6 +189,7 @@ M: Anatoly Burakov <anatoly.burakov@intel.com>
 F: lib/librte_eal/linuxapp/eal/*vfio*
 
 Linux Xen
+M: Jianfeng Tan <jianfeng.tan@intel.com>
 F: lib/librte_eal/linuxapp/xen_dom0/
 F: lib/librte_eal/linuxapp/eal/*xen*
 F: lib/librte_eal/linuxapp/eal/include/exec-env/rte_dom0_common.h
@@ -278,6 +283,7 @@ F: doc/guides/nics/ena.rst
 
 Broadcom bnxt
 M: Stephen Hurd <stephen.hurd@broadcom.com>
+M: Ajit Khaparde <ajit.khaparde@broadcom.com>
 F: drivers/net/bnxt/
 F: doc/guides/nics/bnxt.rst
 
@@ -398,6 +404,8 @@ F: drivers/net/null/
 
 Crypto Drivers
 --------------
+M: Pablo de Lara <pablo.de.lara.guarch@intel.com>
+T: git://dpdk.org/next/dpdk-next-crypto
 
 Intel AES-NI GCM PMD
 M: Declan Doherty <declan.doherty@intel.com>
@@ -426,6 +434,16 @@ M: Pablo de Lara <pablo.de.lara.guarch@intel.com>
 F: drivers/crypto/kasumi/
 F: doc/guides/cryptodevs/kasumi.rst
 
+ZUC PMD
+M: Pablo de Lara <pablo.de.lara.guarch@intel.com>
+F: drivers/crypto/zuc/
+F: doc/guides/cryptodevs/zuc.rst
+
+OpenSSL PMD
+M: Declan Doherty <declan.doherty@intel.com>
+F: drivers/crypto/openssl/
+F: doc/guides/cryptodevs/openssl.rst
+
 Null Crypto PMD
 M: Declan Doherty <declan.doherty@intel.com>
 F: drivers/crypto/null/
@@ -436,6 +454,7 @@ Packet processing
 -----------------
 
 Network headers
+M: Olivier Matz <olivier.matz@6wind.com>
 F: lib/librte_net/
 
 IP fragmentation & reassembly
@@ -477,7 +496,7 @@ M: Reshma Pattan <reshma.pattan@intel.com>
 F: lib/librte_pdump/
 F: doc/guides/prog_guide/pdump_lib.rst
 F: app/pdump/
-F: doc/guides/sample_app_ug/pdump.rst
+F: doc/guides/tools/pdump.rst
 
 
 Packet Framework
@@ -546,14 +565,6 @@ F: app/test/test_cmdline*
 F: examples/cmdline/
 F: doc/guides/sample_app_ug/cmd_line.rst
 
-Qemu IVSHMEM
-M: Anatoly Burakov <anatoly.burakov@intel.com>
-F: lib/librte_ivshmem/
-F: lib/librte_eal/linuxapp/eal/eal_ivshmem.c
-F: doc/guides/prog_guide/ivshmem_lib.rst
-F: app/test/test_ivshmem.c
-F: examples/l2fwd-ivshmem/
-
 Key/Value parsing
 M: Olivier Matz <olivier.matz@6wind.com>
 F: lib/librte_kvargs/
@@ -609,6 +620,7 @@ Dump tool
 M: Maryam Tahhan <maryam.tahhan@intel.com>
 M: John McNamara <john.mcnamara@intel.com>
 F: app/proc_info/
+F: doc/guides/tools/proc_info.rst
 
 
 Other Example Applications

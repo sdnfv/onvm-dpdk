@@ -56,7 +56,6 @@
 #include <rte_lcore.h>
 #include <rte_atomic.h>
 #include <rte_branch_prediction.h>
-#include <rte_ring.h>
 #include <rte_memory.h>
 #include <rte_mempool.h>
 #include <rte_mbuf.h>
@@ -223,6 +222,14 @@ pkt_burst_transmit(struct fwd_stream *fs)
 				return;
 			break;
 		}
+
+		/*
+		 * Using raw alloc is good to improve performance,
+		 * but some consumers may use the headroom and so
+		 * decrement data_off. We need to make sure it is
+		 * reset to default value.
+		 */
+		rte_pktmbuf_reset_headroom(pkt);
 		pkt->data_len = tx_pkt_seg_lengths[0];
 		pkt_seg = pkt;
 		if (tx_pkt_split == TX_PKT_SPLIT_RND)

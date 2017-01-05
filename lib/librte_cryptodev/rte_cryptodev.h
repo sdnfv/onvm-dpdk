@@ -48,18 +48,23 @@ extern "C" {
 #include "rte_kvargs.h"
 #include "rte_crypto.h"
 #include "rte_dev.h"
+#include <rte_common.h>
 
-#define CRYPTODEV_NAME_NULL_PMD		cryptodev_null_pmd
+#define CRYPTODEV_NAME_NULL_PMD		crypto_null
 /**< Null crypto PMD device name */
-#define CRYPTODEV_NAME_AESNI_MB_PMD	cryptodev_aesni_mb_pmd
+#define CRYPTODEV_NAME_AESNI_MB_PMD	crypto_aesni_mb
 /**< AES-NI Multi buffer PMD device name */
-#define CRYPTODEV_NAME_AESNI_GCM_PMD	cryptodev_aesni_gcm_pmd
+#define CRYPTODEV_NAME_AESNI_GCM_PMD	crypto_aesni_gcm
 /**< AES-NI GCM PMD device name */
-#define CRYPTODEV_NAME_QAT_SYM_PMD	cryptodev_qat_sym_pmd
+#define CRYPTODEV_NAME_OPENSSL_PMD	crypto_openssl
+/**< Open SSL Crypto PMD device name */
+#define CRYPTODEV_NAME_QAT_SYM_PMD	crypto_qat
 /**< Intel QAT Symmetric Crypto PMD device name */
-#define CRYPTODEV_NAME_SNOW3G_PMD	cryptodev_snow3g_pmd
+#define CRYPTODEV_NAME_SNOW3G_PMD	crypto_snow3g
 /**< SNOW 3G PMD device name */
-#define CRYPTODEV_NAME_KASUMI_PMD	cryptodev_kasumi_pmd
+#define CRYPTODEV_NAME_KASUMI_PMD	crypto_kasumi
+/**< KASUMI PMD device name */
+#define CRYPTODEV_NAME_ZUC_PMD		crypto_zuc
 /**< KASUMI PMD device name */
 
 /** Crypto device type */
@@ -70,32 +75,38 @@ enum rte_cryptodev_type {
 	RTE_CRYPTODEV_QAT_SYM_PMD,	/**< QAT PMD Symmetric Crypto */
 	RTE_CRYPTODEV_SNOW3G_PMD,	/**< SNOW 3G PMD */
 	RTE_CRYPTODEV_KASUMI_PMD,	/**< KASUMI PMD */
+	RTE_CRYPTODEV_ZUC_PMD,		/**< ZUC PMD */
+	RTE_CRYPTODEV_OPENSSL_PMD,    /**<  OpenSSL PMD */
 };
 
 extern const char **rte_cyptodev_names;
 
 /* Logging Macros */
 
-#define CDEV_LOG_ERR(fmt, args...)					\
-		RTE_LOG(ERR, CRYPTODEV, "%s() line %u: " fmt "\n",	\
-				__func__, __LINE__, ## args)
+#define CDEV_LOG_ERR(...) \
+	RTE_LOG(ERR, CRYPTODEV, \
+		RTE_FMT("%s() line %u: " RTE_FMT_HEAD(__VA_ARGS__,) "\n", \
+			__func__, __LINE__, RTE_FMT_TAIL(__VA_ARGS__,)))
 
-#define CDEV_PMD_LOG_ERR(dev, fmt, args...)				\
-		RTE_LOG(ERR, CRYPTODEV, "[%s] %s() line %u: " fmt "\n", \
-				dev, __func__, __LINE__, ## args)
+#define CDEV_PMD_LOG_ERR(dev, ...) \
+	RTE_LOG(ERR, CRYPTODEV, \
+		RTE_FMT("[%s] %s() line %u: " RTE_FMT_HEAD(__VA_ARGS__,) "\n", \
+			dev, __func__, __LINE__, RTE_FMT_TAIL(__VA_ARGS__,)))
 
 #ifdef RTE_LIBRTE_CRYPTODEV_DEBUG
-#define CDEV_LOG_DEBUG(fmt, args...)					\
-		RTE_LOG(DEBUG, CRYPTODEV, "%s() line %u: " fmt "\n",	\
-				__func__, __LINE__, ## args)		\
+#define CDEV_LOG_DEBUG(...) \
+	RTE_LOG(DEBUG, CRYPTODEV, \
+		RTE_FMT("%s() line %u: " RTE_FMT_HEAD(__VA_ARGS__,) "\n", \
+			__func__, __LINE__, RTE_FMT_TAIL(__VA_ARGS__,)))
 
-#define CDEV_PMD_TRACE(fmt, args...)					\
-		RTE_LOG(DEBUG, CRYPTODEV, "[%s] %s: " fmt "\n",		\
-				dev, __func__, ## args)
+#define CDEV_PMD_TRACE(...) \
+	RTE_LOG(DEBUG, CRYPTODEV, \
+		RTE_FMT("[%s] %s: " RTE_FMT_HEAD(__VA_ARGS__,) "\n", \
+			dev, __func__, RTE_FMT_TAIL(__VA_ARGS__,)))
 
 #else
-#define CDEV_LOG_DEBUG(fmt, args...)
-#define CDEV_PMD_TRACE(fmt, args...)
+#define CDEV_LOG_DEBUG(...) (void)0
+#define CDEV_PMD_TRACE(...) (void)0
 #endif
 
 /**
@@ -104,6 +115,7 @@ extern const char **rte_cyptodev_names;
 struct rte_cryptodev_symmetric_capability {
 	enum rte_crypto_sym_xform_type xform_type;
 	/**< Transform type : Authentication / Cipher */
+	RTE_STD_C11
 	union {
 		struct {
 			enum rte_crypto_auth_algorithm algo;
@@ -177,6 +189,7 @@ struct rte_cryptodev_capabilities {
 	enum rte_crypto_op_type op;
 	/**< Operation type */
 
+	RTE_STD_C11
 	union {
 		struct rte_cryptodev_symmetric_capability sym;
 		/**< Symmetric operation capability parameters */
@@ -613,12 +626,11 @@ struct rte_cryptodev {
 
 	enum rte_cryptodev_type dev_type;
 	/**< Crypto device type */
-	enum pmd_type pmd_type;
-	/**< PMD type - PDEV / VDEV */
 
 	struct rte_cryptodev_cb_list link_intr_cbs;
 	/**< User application callback for interrupts if present */
 
+	__extension__
 	uint8_t attached : 1;
 	/**< Flag indicating the device is attached */
 } __rte_cache_aligned;
@@ -642,6 +654,7 @@ struct rte_cryptodev_data {
 	char name[RTE_CRYPTODEV_NAME_MAX_LEN];
 	/**< Unique identifier name */
 
+	__extension__
 	uint8_t dev_started : 1;
 	/**< Device state: STARTED(1)/STOPPED(0) */
 
@@ -749,6 +762,7 @@ rte_cryptodev_enqueue_burst(uint8_t dev_id, uint16_t qp_id,
 
 /** Cryptodev symmetric crypto session */
 struct rte_cryptodev_sym_session {
+	RTE_STD_C11
 	struct {
 		uint8_t dev_id;
 		/**< Device Id */
@@ -759,7 +773,7 @@ struct rte_cryptodev_sym_session {
 	} __rte_aligned(8);
 	/**< Public symmetric session details */
 
-	char _private[0];
+	__extension__ char _private[0];
 	/**< Private session material */
 };
 

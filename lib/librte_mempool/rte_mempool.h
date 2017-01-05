@@ -75,6 +75,7 @@
 #include <rte_branch_prediction.h>
 #include <rte_ring.h>
 #include <rte_memcpy.h>
+#include <rte_common.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -216,6 +217,7 @@ struct rte_mempool {
 	 * RTE_MEMPOOL_NAMESIZE next time the ABI changes
 	 */
 	char name[RTE_MEMZONE_NAMESIZE]; /**< Name of mempool. */
+	RTE_STD_C11
 	union {
 		void *pool_data;         /**< Ring or pool to store objects. */
 		uint64_t pool_id;        /**< External mempool identifier. */
@@ -587,10 +589,8 @@ typedef void (rte_mempool_ctor_t)(struct rte_mempool *, void *);
 /**
  * Create a new mempool named *name* in memory.
  *
- * This function uses ``memzone_reserve()`` to allocate memory. The
+ * This function uses ``rte_memzone_reserve()`` to allocate memory. The
  * pool contains n elements of elt_size. Its size is set to n.
- * All elements of the mempool are allocated together with the mempool header,
- * in one physically continuous chunk of memory.
  *
  * @param name
  *   The name of the mempool.
@@ -746,7 +746,7 @@ rte_mempool_xmem_create(const char *name, unsigned n, unsigned elt_size,
  *
  * The mempool is allocated and initialized, but it is not populated: no
  * memory is allocated for the mempool elements. The user has to call
- * rte_mempool_populate_*() or to add memory chunks to the pool. Once
+ * rte_mempool_populate_*() to add memory chunks to the pool. Once
  * populated, the user may also want to initialize each object with
  * rte_mempool_obj_iter().
  *
@@ -797,6 +797,10 @@ rte_mempool_free(struct rte_mempool *mp);
  *
  * Add a virtually and physically contiguous memory chunk in the pool
  * where objects can be instanciated.
+ *
+ * If the given physical address is unknown (paddr = RTE_BAD_PHYS_ADDR),
+ * the chunk doesn't need to be physically contiguous (only virtually),
+ * and allocated objects may span two pages.
  *
  * @param mp
  *   A pointer to the mempool structure.
@@ -946,7 +950,7 @@ uint32_t rte_mempool_mem_iter(struct rte_mempool *mp,
 	rte_mempool_mem_cb_t *mem_cb, void *mem_cb_arg);
 
 /**
- * Dump the status of the mempool to the console.
+ * Dump the status of the mempool to a file.
  *
  * @param f
  *   A pointer to a file for output

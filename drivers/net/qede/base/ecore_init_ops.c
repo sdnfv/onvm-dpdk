@@ -251,9 +251,9 @@ static enum _ecore_status_t ecore_init_cmd_array(struct ecore_hwfn *p_hwfn,
 							   b_can_dmae);
 				if (rc)
 					break;
-			}
-			break;
 		}
+		break;
+	}
 	case INIT_ARR_STANDARD:
 		size = GET_FIELD(data, INIT_ARRAY_STANDARD_HDR_SIZE);
 		rc = ecore_init_array_dmae(p_hwfn, p_ptt, addr,
@@ -525,7 +525,7 @@ void ecore_gtt_init(struct ecore_hwfn *p_hwfn)
 		 * not too bright, but it should work on the simple FPGA/EMUL
 		 * scenarios.
 		 */
-		bool initialized = false; /* @DPDK */
+		static bool initialized;
 		int poll_cnt = 500;
 		u32 val;
 
@@ -573,9 +573,10 @@ enum _ecore_status_t ecore_init_fw_data(struct ecore_dev *p_dev,
 		return ECORE_INVAL;
 	}
 
-	buf_hdr = (struct bin_buffer_hdr *)(uintptr_t)data;
+	/* First Dword contains metadata and should be skipped */
+	buf_hdr = (struct bin_buffer_hdr *)((uintptr_t)(data + sizeof(u32)));
 
-	offset = buf_hdr[BIN_BUF_FW_VER_INFO].offset;
+	offset = buf_hdr[BIN_BUF_INIT_FW_VER_INFO].offset;
 	fw->fw_ver_info = (struct fw_ver_info *)((uintptr_t)(data + offset));
 
 	offset = buf_hdr[BIN_BUF_INIT_CMD].offset;

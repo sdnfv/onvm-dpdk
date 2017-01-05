@@ -52,11 +52,11 @@
  * PCI test
  * ========
  *
- * - Register a driver with a ``devinit()`` function.
+ * - Register a driver with a ``probe()`` function.
  *
  * - Dump all PCI devices.
  *
- * - Check that the ``devinit()`` function is called at least once.
+ * - Check that the ``probe()`` function is called at least once.
  */
 
 int test_pci_run = 0; /* value checked by the multiprocess test */
@@ -78,15 +78,19 @@ struct rte_pci_id my_driver_id2[] = {
 };
 
 struct rte_pci_driver my_driver = {
-	.name = "test_driver",
-	.devinit = my_driver_init,
+	.driver = {
+		.name = "test_driver"
+	},
+	.probe = my_driver_init,
 	.id_table = my_driver_id,
 	.drv_flags = 0,
 };
 
 struct rte_pci_driver my_driver2 = {
-	.name = "test_driver2",
-	.devinit = my_driver_init,
+	.driver = {
+		.name = "test_driver2"
+	},
+	.probe = my_driver_init,
 	.id_table = my_driver_id2,
 	.drv_flags = 0,
 };
@@ -95,7 +99,7 @@ static int
 my_driver_init(__attribute__((unused)) struct rte_pci_driver *dr,
 	       struct rte_pci_device *dev)
 {
-	printf("My driver init called in %s\n", dr->name);
+	printf("My driver init called in %s\n", dr->driver.name);
 	printf("%x:%x:%x.%d", dev->addr.domain, dev->addr.bus,
 	       dev->addr.devid, dev->addr.function);
 	printf(" - vendor:%x device:%x\n", dev->id.vendor_id, dev->id.device_id);

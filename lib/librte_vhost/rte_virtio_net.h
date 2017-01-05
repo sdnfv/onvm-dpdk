@@ -53,16 +53,13 @@
 
 #define RTE_VHOST_USER_CLIENT		(1ULL << 0)
 #define RTE_VHOST_USER_NO_RECONNECT	(1ULL << 1)
+#define RTE_VHOST_USER_DEQUEUE_ZERO_COPY	(1ULL << 2)
 
 /* Enum for virtqueue management. */
 enum {VIRTIO_RXQ, VIRTIO_TXQ, VIRTIO_QNUM};
 
 /**
  * Device and vring operations.
- *
- * Make sure to set VIRTIO_DEV_RUNNING to the device flags in new_device and
- * remove it in destroy_device.
- *
  */
 struct virtio_net_device_ops {
 	int (*new_device)(int vid);		/**< Add device. */
@@ -126,9 +123,8 @@ int rte_vhost_get_numa_node(int vid);
 uint32_t rte_vhost_get_queue_num(int vid);
 
 /**
- * Get the virtio net device's ifname. For vhost-cuse, ifname is the
- * path of the char device. For vhost-user, ifname is the vhost-user
- * socket file path.
+ * Get the virtio net device's ifname, which is the vhost-user socket
+ * file path.
  *
  * @param vid
  *  virtio-net device ID

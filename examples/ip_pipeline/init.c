@@ -34,6 +34,14 @@
 #include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
+#include <netinet/in.h>
+#ifdef RTE_EXEC_ENV_LINUXAPP
+#include <linux/if.h>
+#include <linux/if_tun.h>
+#endif
+#include <fcntl.h>
+#include <sys/ioctl.h>
+#include <unistd.h>
 
 #include <rte_cycles.h>
 #include <rte_ethdev.h>
@@ -236,7 +244,7 @@ app_init_eal(struct app_params *app)
 	}
 
 	if (p->add_driver) {
-		snprintf(buffer, sizeof(buffer), "-d=%s", p->add_driver);
+		snprintf(buffer, sizeof(buffer), "-d%s", p->add_driver);
 		app->eal_argv[n_args++] = strdup(buffer);
 	}
 
@@ -606,28 +614,11 @@ app_link_set_tcp_syn_filter(struct app_params *app, struct app_link_params *cp)
 	}
 }
 
-static int
-app_link_is_virtual(struct app_link_params *p)
-{
-	uint32_t pmd_id = p->pmd_id;
-	struct rte_eth_dev *dev = &rte_eth_devices[pmd_id];
-
-	if (dev->dev_type == RTE_ETH_DEV_VIRTUAL)
-		return 1;
-
-	return 0;
-}
-
 void
 app_link_up_internal(struct app_params *app, struct app_link_params *cp)
 {
 	uint32_t i;
 	int status;
-
-	if (app_link_is_virtual(cp)) {
-		cp->state = 1;
-		return;
-	}
 
 	/* For each link, add filters for IP of current link */
 	if (cp->ip != 0) {
@@ -735,11 +726,6 @@ app_link_down_internal(struct app_params *app, struct app_link_params *cp)
 {
 	uint32_t i;
 	int status;
-
-	if (app_link_is_virtual(cp)) {
-		cp->state = 0;
-		return;
-	}
 
 	/* PMD link down */
 	status = rte_eth_dev_set_link_down(cp->pmd_id);
@@ -1176,6 +1162,44 @@ app_init_tm(struct app_params *app)
 	}
 }
 
+#ifndef RTE_EXEC_ENV_LINUXAPP
+static void
+app_init_tap(struct app_params *app) {
+	if (app->n_pktq_tap == 0)
+		return;
+
+	rte_panic("TAP device not supported.\n");
+}
+#else
+static void
+app_init_tap(struct app_params *app)
+{
+	uint32_t i;
+
+	for (i = 0; i < app->n_pktq_tap; i++) {
+		struct app_pktq_tap_params *p_tap = &app->tap_params[i];
+		struct ifreq ifr;
+		int fd, status;
+
+		APP_LOG(app, HIGH, "Initializing %s ...", p_tap->name);
+
+		fd = open("/dev/net/tun", O_RDWR | O_NONBLOCK);
+		if (fd < 0)
+			rte_panic("Cannot open file /dev/net/tun\n");
+
+		memset(&ifr, 0, sizeof(ifr));
+		ifr.ifr_flags = IFF_TAP | IFF_NO_PI; /* No packet information */
+		snprintf(ifr.ifr_name, IFNAMSIZ, "%s", p_tap->name);
+
+		status = ioctl(fd, TUNSETIFF, (void *) &ifr);
+		if (status < 0)
+			rte_panic("TAP setup error\n");
+
+		app->tap[i] = fd;
+	}
+}
+#endif
+
 #ifdef RTE_LIBRTE_KNI
 static int
 kni_config_network_interface(uint8_t port_id, uint8_t if_up) {
@@ -1392,6 +1416,24 @@ void app_pipeline_params_get(struct app_params *app,
 			out->burst_size = app->tm_params[in->id].burst_read;
 			break;
 		}
+#ifdef RTE_EXEC_ENV_LINUXAPP
+		case APP_PKTQ_IN_TAP:
+		{
+			struct app_pktq_tap_params *tap_params =
+				&app->tap_params[in->id];
+			struct app_mempool_params *mempool_params =
+				&app->mempool_params[tap_params->mempool_id];
+			struct rte_mempool *mempool =
+				app->mempool[tap_params->mempool_id];
+
+			out->type = PIPELINE_PORT_IN_FD_READER;
+			out->params.fd.fd = app->tap[in->id];
+			out->params.fd.mtu = mempool_params->buffer_size;
+			out->params.fd.mempool = mempool;
+			out->burst_size = app->tap_params[in->id].burst_read;
+			break;
+		}
+#endif
 #ifdef RTE_LIBRTE_KNI
 		case APP_PKTQ_IN_KNI:
 		{
@@ -1536,6 +1578,19 @@ void app_pipeline_params_get(struct app_params *app,
 				app->tm_params[in->id].burst_write;
 			break;
 		}
+#ifdef RTE_EXEC_ENV_LINUXAPP
+		case APP_PKTQ_OUT_TAP:
+		{
+			struct rte_port_fd_writer_params *params =
+				&out->params.fd;
+
+			out->type = PIPELINE_PORT_OUT_FD_WRITER;
+			params->fd = app->tap[in->id];
+			params->tx_burst_sz =
+				app->tap_params[in->id].burst_write;
+			break;
+		}
+#endif
 #ifdef RTE_LIBRTE_KNI
 		case APP_PKTQ_OUT_KNI:
 		{
@@ -1752,6 +1807,7 @@ int app_init(struct app_params *app)
 	app_init_link(app);
 	app_init_swq(app);
 	app_init_tm(app);
+	app_init_tap(app);
 	app_init_kni(app);
 	app_init_msgq(app);
 

@@ -35,7 +35,7 @@
 #include <rte_ethdev.h>
 #include <rte_malloc.h>
 #include <rte_memcpy.h>
-#include <rte_dev.h>
+#include <rte_vdev.h>
 #include <rte_kvargs.h>
 #include <rte_spinlock.h>
 
@@ -517,7 +517,7 @@ eth_dev_null_create(const char *name,
 		goto error;
 
 	/* reserve an ethdev entry */
-	eth_dev = rte_eth_dev_allocate(name, RTE_ETH_DEV_VIRTUAL);
+	eth_dev = rte_eth_dev_allocate(name);
 	if (eth_dev == NULL)
 		goto error;
 
@@ -611,7 +611,7 @@ get_packet_copy_arg(const char *key __rte_unused,
 }
 
 static int
-rte_pmd_null_devinit(const char *name, const char *params)
+rte_pmd_null_probe(const char *name, const char *params)
 {
 	unsigned numa_node;
 	unsigned packet_size = default_packet_size;
@@ -663,7 +663,7 @@ free_kvlist:
 }
 
 static int
-rte_pmd_null_devuninit(const char *name)
+rte_pmd_null_remove(const char *name)
 {
 	struct rte_eth_dev *eth_dev = NULL;
 
@@ -686,13 +686,13 @@ rte_pmd_null_devuninit(const char *name)
 	return 0;
 }
 
-static struct rte_driver pmd_null_drv = {
-	.type = PMD_VDEV,
-	.init = rte_pmd_null_devinit,
-	.uninit = rte_pmd_null_devuninit,
+static struct rte_vdev_driver pmd_null_drv = {
+	.probe = rte_pmd_null_probe,
+	.remove = rte_pmd_null_remove,
 };
 
-PMD_REGISTER_DRIVER(pmd_null_drv, eth_null);
-DRIVER_REGISTER_PARAM_STRING(eth_null,
+RTE_PMD_REGISTER_VDEV(net_null, pmd_null_drv);
+RTE_PMD_REGISTER_ALIAS(net_null, eth_null);
+RTE_PMD_REGISTER_PARAM_STRING(net_null,
 	"size=<int> "
 	"copy=<int>");

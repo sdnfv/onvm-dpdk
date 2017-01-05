@@ -21,12 +21,12 @@ struct ecore_sp_init_data {
 	 * e.g., in IOV scenarios. CID might defer between SPQ and
 	 * other elements.
 	 */
-	u32 cid;
-	u16 opaque_fid;
+	u32				cid;
+	u16				opaque_fid;
 
 	/* Information regarding operation upon sending & completion */
-	enum spq_mode comp_mode;
-	struct ecore_spq_comp_cb *p_comp_data;
+	enum spq_mode			comp_mode;
+	struct ecore_spq_comp_cb	*p_comp_data;
 
 };
 
@@ -133,5 +133,35 @@ enum _ecore_status_t ecore_sp_pf_stop(struct ecore_hwfn *p_hwfn);
  */
 
 enum _ecore_status_t ecore_sp_heartbeat_ramrod(struct ecore_hwfn *p_hwfn);
+
+struct ecore_rl_update_params {
+	u8 qcn_update_param_flg;
+	u8 dcqcn_update_param_flg;
+	u8 rl_init_flg;
+	u8 rl_start_flg;
+	u8 rl_stop_flg;
+	u8 rl_id_first;
+	u8 rl_id_last;
+	u8 rl_dc_qcn_flg; /* If set, RL will used for DCQCN */
+	u32 rl_bc_rate; /* Byte Counter Limit */
+	u16 rl_max_rate; /* Maximum rate in 1.6 Mbps resolution */
+	u16 rl_r_ai; /* Active increase rate */
+	u16 rl_r_hai; /* Hyper active increase rate */
+	u16 dcqcn_g; /* DCQCN Alpha update gain in 1/64K resolution */
+	u32 dcqcn_k_us; /* DCQCN Alpha update interval */
+	u32 dcqcn_timeuot_us;
+	u32 qcn_timeuot_us;
+};
+
+/**
+ * @brief ecore_sp_rl_update - Update rate limiters
+ *
+ * @param p_hwfn
+ * @param params
+ *
+ * @return enum _ecore_status_t
+ */
+enum _ecore_status_t ecore_sp_rl_update(struct ecore_hwfn *p_hwfn,
+					struct ecore_rl_update_params *params);
 
 #endif /*__ECORE_SP_COMMANDS_H__*/

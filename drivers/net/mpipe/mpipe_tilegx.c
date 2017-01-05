@@ -33,7 +33,7 @@
 #include <unistd.h>
 
 #include <rte_eal.h>
-#include <rte_dev.h>
+#include <rte_vdev.h>
 #include <rte_eal_memconfig.h>
 #include <rte_ethdev.h>
 #include <rte_malloc.h>
@@ -1549,7 +1549,7 @@ mpipe_link_mac(const char *ifname, uint8_t *mac)
 }
 
 static int
-rte_pmd_mpipe_devinit(const char *ifname,
+rte_pmd_mpipe_probe(const char *ifname,
 		      const char *params __rte_unused)
 {
 	gxio_mpipe_context_t *context;
@@ -1587,7 +1587,7 @@ rte_pmd_mpipe_devinit(const char *ifname,
 		return -ENODEV;
 	}
 
-	eth_dev = rte_eth_dev_allocate(ifname, RTE_ETH_DEV_VIRTUAL);
+	eth_dev = rte_eth_dev_allocate(ifname);
 	if (!eth_dev) {
 		RTE_LOG(ERR, PMD, "%s: Failed to allocate device.\n", ifname);
 		rte_free(priv);
@@ -1623,18 +1623,18 @@ rte_pmd_mpipe_devinit(const char *ifname,
 	return 0;
 }
 
-static struct rte_driver pmd_mpipe_xgbe_drv = {
-	.type = PMD_VDEV,
-	.init = rte_pmd_mpipe_devinit,
+static struct rte_vdev_driver pmd_mpipe_xgbe_drv = {
+	.probe = rte_pmd_mpipe_probe,
 };
 
-static struct rte_driver pmd_mpipe_gbe_drv = {
-	.type = PMD_VDEV,
-	.init = rte_pmd_mpipe_devinit,
+static struct rte_vdev_driver pmd_mpipe_gbe_drv = {
+	.probe = rte_pmd_mpipe_probe,
 };
 
-PMD_REGISTER_DRIVER(pmd_mpipe_xgbe_drv, xgbe);
-PMD_REGISTER_DRIVER(pmd_mpipe_gbe_drv, gbe);
+RTE_PMD_REGISTER_VDEV(net_mpipe_xgbe, pmd_mpipe_xgbe_drv);
+RTE_PMD_REGISTER_ALIAS(net_mpipe_xgbe, xgbe);
+RTE_PMD_REGISTER_VDEV(net_mpipe_gbe, pmd_mpipe_gbe_drv);
+RTE_PMD_REGISTER_ALIAS(net_mpipe_gbe, gbe);
 
 static void __attribute__((constructor, used))
 mpipe_init_contexts(void)

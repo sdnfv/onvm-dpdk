@@ -391,22 +391,16 @@ eth_em_dev_uninit(struct rte_eth_dev *eth_dev)
 
 static struct eth_driver rte_em_pmd = {
 	.pci_drv = {
-		.name = "rte_em_pmd",
 		.id_table = pci_id_em_map,
 		.drv_flags = RTE_PCI_DRV_NEED_MAPPING | RTE_PCI_DRV_INTR_LSC |
 			RTE_PCI_DRV_DETACHABLE,
+		.probe = rte_eth_dev_pci_probe,
+		.remove = rte_eth_dev_pci_remove,
 	},
 	.eth_dev_init = eth_em_dev_init,
 	.eth_dev_uninit = eth_em_dev_uninit,
 	.dev_private_size = sizeof(struct e1000_adapter),
 };
-
-static int
-rte_em_pmd_init(const char *name __rte_unused, const char *params __rte_unused)
-{
-	rte_eth_driver_register(&rte_em_pmd);
-	return 0;
-}
 
 static int
 em_hw_init(struct e1000_hw *hw)
@@ -645,6 +639,7 @@ eth_em_start(struct rte_eth_dev *dev)
 	speeds = &dev->data->dev_conf.link_speeds;
 	if (*speeds == ETH_LINK_SPEED_AUTONEG) {
 		hw->phy.autoneg_advertised = E1000_ALL_SPEED_DUPLEX;
+		hw->mac.autoneg = 1;
 	} else {
 		num_speeds = 0;
 		autoneg = (*speeds & ETH_LINK_SPEED_FIXED) == 0;
@@ -680,6 +675,17 @@ eth_em_start(struct rte_eth_dev *dev)
 		}
 		if (num_speeds == 0 || (!autoneg && (num_speeds > 1)))
 			goto error_invalid_config;
+
+		/* Set/reset the mac.autoneg based on the link speed,
+		 * fixed or not
+		 */
+		if (!autoneg) {
+			hw->mac.autoneg = 0;
+			hw->mac.forced_speed_duplex =
+					hw->phy.autoneg_advertised;
+		} else {
+			hw->mac.autoneg = 1;
+		}
 	}
 
 	e1000_setup_link(hw);
@@ -1605,7 +1611,7 @@ eth_em_interrupt_handler(__rte_unused struct rte_intr_handle *handle,
 
 	eth_em_interrupt_get_status(dev);
 	eth_em_interrupt_action(dev);
-	_rte_eth_dev_callback_process(dev, RTE_ETH_EVENT_INTR_LSC);
+	_rte_eth_dev_callback_process(dev, RTE_ETH_EVENT_INTR_LSC, NULL);
 }
 
 static int
@@ -1799,10 +1805,5 @@ eth_em_set_mc_addr_list(struct rte_eth_dev *dev,
 	return 0;
 }
 
-struct rte_driver em_pmd_drv = {
-	.type = PMD_PDEV,
-	.init = rte_em_pmd_init,
-};
-
-PMD_REGISTER_DRIVER(em_pmd_drv, em);
-DRIVER_REGISTER_PCI_TABLE(em, pci_id_em_map);
+RTE_PMD_REGISTER_PCI(net_e1000_em, rte_em_pmd.pci_drv);
+RTE_PMD_REGISTER_PCI_TABLE(net_e1000_em, pci_id_em_map);

@@ -82,7 +82,9 @@ extern "C" {
 #include <stdint.h>
 #include <inttypes.h>
 
+#include <rte_debug.h>
 #include <rte_interrupts.h>
+#include <rte_dev.h>
 
 TAILQ_HEAD(pci_device_list, rte_pci_device); /**< PCI devices in D-linked Q. */
 TAILQ_HEAD(pci_driver_list, rte_pci_driver); /**< PCI drivers in D-linked Q. */
@@ -95,6 +97,7 @@ const char *pci_get_sysfs_path(void);
 
 /** Formatting string for PCI device identifier: Ex: 0000:00:01.0 */
 #define PCI_PRI_FMT "%.4" PRIx16 ":%.2" PRIx8 ":%.2" PRIx8 ".%" PRIx8
+#define PCI_PRI_STR_SIZE sizeof("XXXX:XX:XX.X")
 
 /** Short formatting string, without domain, for PCI device: Ex: 00:01.0 */
 #define PCI_SHORT_PRI_FMT "%.2" PRIx8 ":%.2" PRIx8 ".%" PRIx8
@@ -104,15 +107,6 @@ const char *pci_get_sysfs_path(void);
 
 /** Nb. of values in PCI resource format. */
 #define PCI_RESOURCE_FMT_NVAL 3
-
-/**
- * A structure describing a PCI resource.
- */
-struct rte_pci_resource {
-	uint64_t phys_addr;   /**< Physical address, 0 if no resource. */
-	uint64_t len;         /**< Length of the resource. */
-	void *addr;           /**< Virtual address, NULL when not mapped. */
-};
 
 /** Maximum number of PCI resources. */
 #define PCI_MAX_RESOURCE 6
@@ -155,14 +149,14 @@ enum rte_kernel_driver {
  */
 struct rte_pci_device {
 	TAILQ_ENTRY(rte_pci_device) next;       /**< Next probed PCI device. */
+	struct rte_device device;               /**< Inherit core device */
 	struct rte_pci_addr addr;               /**< PCI location. */
 	struct rte_pci_id id;                   /**< PCI ID. */
-	struct rte_pci_resource mem_resource[PCI_MAX_RESOURCE];   /**< PCI Memory Resource */
+	struct rte_mem_resource mem_resource[PCI_MAX_RESOURCE];
+						/**< PCI Memory Resource */
 	struct rte_intr_handle intr_handle;     /**< Interrupt handle */
 	struct rte_pci_driver *driver;          /**< Associated driver */
 	uint16_t max_vfs;                       /**< sriov enable if not zero */
-	int numa_node;                          /**< NUMA node connection */
-	struct rte_devargs *devargs;            /**< Device user arguments */
 	enum rte_kernel_driver kdrv;            /**< Kernel driver passthrough */
 };
 
@@ -193,21 +187,21 @@ struct rte_pci_driver;
 /**
  * Initialisation function for the driver called during PCI probing.
  */
-typedef int (pci_devinit_t)(struct rte_pci_driver *, struct rte_pci_device *);
+typedef int (pci_probe_t)(struct rte_pci_driver *, struct rte_pci_device *);
 
 /**
  * Uninitialisation function for the driver called during hotplugging.
  */
-typedef int (pci_devuninit_t)(struct rte_pci_device *);
+typedef int (pci_remove_t)(struct rte_pci_device *);
 
 /**
  * A structure describing a PCI driver.
  */
 struct rte_pci_driver {
 	TAILQ_ENTRY(rte_pci_driver) next;       /**< Next in list. */
-	const char *name;                       /**< Driver name. */
-	pci_devinit_t *devinit;                 /**< Device init. function. */
-	pci_devuninit_t *devuninit;             /**< Device uninit function. */
+	struct rte_driver driver;               /**< Inherit core driver. */
+	pci_probe_t *probe;                     /**< Device Probe function. */
+	pci_remove_t *remove;                   /**< Device Remove function. */
 	const struct rte_pci_id *id_table;	/**< ID table, NULL terminated. */
 	uint32_t drv_flags;                     /**< Flags contolling handling of device. */
 };
@@ -307,6 +301,28 @@ eal_parse_pci_DomBDF(const char *input, struct rte_pci_addr *dev_addr)
 	return 0;
 }
 #undef GET_PCIADDR_FIELD
+
+/**
+ * Utility function to write a pci device name, this device name can later be
+ * used to retrieve the corresponding rte_pci_addr using eal_parse_pci_*
+ * BDF helpers.
+ *
+ * @param addr
+ *	The PCI Bus-Device-Function address
+ * @param output
+ *	The output buffer string
+ * @param size
+ *	The output buffer size
+ */
+static inline void
+rte_eal_pci_device_name(const struct rte_pci_addr *addr,
+		    char *output, size_t size)
+{
+	RTE_VERIFY(size >= PCI_PRI_STR_SIZE);
+	RTE_VERIFY(snprintf(output, size, PCI_PRI_FMT,
+			    addr->domain, addr->bus,
+			    addr->devid, addr->function) >= 0);
+}
 
 /* Compare two PCI device addresses. */
 /**
@@ -442,7 +458,7 @@ int rte_eal_pci_probe_one(const struct rte_pci_addr *addr);
  * Close the single PCI device.
  *
  * Scan the content of the PCI bus, and find the pci device specified by pci
- * address, then call the devuninit() function for registered driver that has a
+ * address, then call the remove() function for registered driver that has a
  * matching entry in its id_table for discovered device.
  *
  * @param addr
@@ -469,6 +485,16 @@ void rte_eal_pci_dump(FILE *f);
  *   to be registered.
  */
 void rte_eal_pci_register(struct rte_pci_driver *driver);
+
+/** Helper for PCI device registration from driver (eth, crypto) instance */
+#define RTE_PMD_REGISTER_PCI(nm, pci_drv) \
+RTE_INIT(pciinitfn_ ##nm); \
+static void pciinitfn_ ##nm(void) \
+{\
+	(pci_drv).driver.name = RTE_STR(nm);\
+	rte_eal_pci_register(&pci_drv); \
+} \
+RTE_PMD_EXPORT_NAME(nm, __COUNTER__)
 
 /**
  * Unregister a PCI driver.

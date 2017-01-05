@@ -167,7 +167,6 @@ SRCS-$(CONFIG_RTE_LIBRTE_KNI) += test_kni.c
 SRCS-$(CONFIG_RTE_LIBRTE_POWER) += test_power.c test_power_acpi_cpufreq.c
 SRCS-$(CONFIG_RTE_LIBRTE_POWER) += test_power_kvm_vm.c
 SRCS-y += test_common.c
-SRCS-$(CONFIG_RTE_LIBRTE_IVSHMEM) += test_ivshmem.c
 
 SRCS-$(CONFIG_RTE_LIBRTE_DISTRIBUTOR) += test_distributor.c
 SRCS-$(CONFIG_RTE_LIBRTE_DISTRIBUTOR) += test_distributor_perf.c
@@ -194,7 +193,7 @@ endif
 SRCS-$(CONFIG_RTE_LIBRTE_PMD_RING) += test_pmd_ring.c
 SRCS-$(CONFIG_RTE_LIBRTE_PMD_RING) += test_pmd_ring_perf.c
 
-SRCS-$(CONFIG_RTE_LIBRTE_CRYPTODEV) += test_cryptodev_aes.c
+SRCS-$(CONFIG_RTE_LIBRTE_CRYPTODEV) += test_cryptodev_blockcipher.c
 SRCS-$(CONFIG_RTE_LIBRTE_CRYPTODEV) += test_cryptodev_perf.c
 SRCS-$(CONFIG_RTE_LIBRTE_CRYPTODEV) += test_cryptodev.c
 

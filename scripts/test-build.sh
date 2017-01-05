@@ -48,7 +48,8 @@ default_path=$PATH
 # - DPDK_NOTIFY (notify-send)
 # - LIBSSO_SNOW3G_PATH
 # - LIBSSO_KASUMI_PATH
-. $(dirname $(readlink -e $0))/load-devel-config.sh
+# - LIBSSO_ZUC_PATH
+. $(dirname $(readlink -e $0))/load-devel-config
 
 print_usage () {
 	echo "usage: $(basename $0) [-h] [-jX] [-s] [config1 [config2] ...]]"
@@ -128,6 +129,7 @@ reset_env ()
 	unset AESNI_MULTI_BUFFER_LIB_PATH
 	unset LIBSSO_SNOW3G_PATH
 	unset LIBSSO_KASUMI_PATH
+	unset LIBSSO_ZUC_PATH
 	unset PQOS_INSTALL_PATH
 }
 
@@ -169,8 +171,6 @@ config () # <directory> <target> <options>
 		sed -ri       's,(PMD_SZEDATA2=)n,\1y,' $1/.config
 		test "$DPDK_DEP_ZLIB" != y || \
 		sed -ri          's,(BNX2X_PMD=)n,\1y,' $1/.config
-		test "$DPDK_DEP_ZLIB" != y || \
-		sed -ri           's,(QEDE_PMD=)n,\1y,' $1/.config
 		sed -ri            's,(NFP_PMD=)n,\1y,' $1/.config
 		test "$DPDK_DEP_PCAP" != y || \
 		sed -ri               's,(PCAP=)n,\1y,' $1/.config
@@ -182,6 +182,10 @@ config () # <directory> <target> <options>
 		sed -ri         's,(PMD_SNOW3G=)n,\1y,' $1/.config
 		test -z "$LIBSSO_KASUMI_PATH" || \
 		sed -ri         's,(PMD_KASUMI=)n,\1y,' $1/.config
+		test -z "$LIBSSO_ZUC_PATH" || \
+		sed -ri            's,(PMD_ZUC=)n,\1y,' $1/.config
+		test "$DPDK_DEP_SSL" != y || \
+		sed -ri        's,(PMD_OPENSSL=)n,\1y,' $1/.config
 		test "$DPDK_DEP_SSL" != y || \
 		sed -ri            's,(PMD_QAT=)n,\1y,' $1/.config
 		sed -ri        's,(KNI_VHOST.*=)n,\1y,' $1/.config
@@ -211,7 +215,7 @@ for conf in $configs ; do
 	# reload config with DPDK_TARGET set
 	DPDK_TARGET=$target
 	reset_env
-	. $(dirname $(readlink -e $0))/load-devel-config.sh
+	. $(dirname $(readlink -e $0))/load-devel-config
 
 	options=$(echo $conf | sed 's,[^~+]*,,')
 	dir=$conf

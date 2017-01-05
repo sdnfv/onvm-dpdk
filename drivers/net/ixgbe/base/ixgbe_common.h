@@ -133,7 +133,7 @@ s32 ixgbe_clear_vmdq_generic(struct ixgbe_hw *hw, u32 rar, u32 vmdq);
 s32 ixgbe_insert_mac_addr_generic(struct ixgbe_hw *hw, u8 *addr, u32 vmdq);
 s32 ixgbe_init_uta_tables_generic(struct ixgbe_hw *hw);
 s32 ixgbe_set_vfta_generic(struct ixgbe_hw *hw, u32 vlan,
-			   u32 vind, bool vlan_on, bool vlvf_bypass);
+			 u32 vind, bool vlan_on, bool vlvf_bypass);
 s32 ixgbe_set_vlvf_generic(struct ixgbe_hw *hw, u32 vlan, u32 vind,
 			   bool vlan_on, u32 *vfta_delta, u32 vfta,
 			   bool vlvf_bypass);
@@ -159,6 +159,7 @@ s32 ixgbe_set_fw_drv_ver_generic(struct ixgbe_hw *hw, u8 maj, u8 min,
 u8 ixgbe_calculate_checksum(u8 *buffer, u32 length);
 s32 ixgbe_host_interface_command(struct ixgbe_hw *hw, u32 *buffer,
 				 u32 length, u32 timeout, bool return_data);
+s32 ixgbe_hic_unlocked(struct ixgbe_hw *, u32 *buffer, u32 length, u32 timeout);
 
 void ixgbe_clear_tx_pending(struct ixgbe_hw *hw);
 

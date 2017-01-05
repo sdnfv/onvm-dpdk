@@ -35,7 +35,7 @@
 #include <rte_hexdump.h>
 #include <rte_cryptodev.h>
 #include <rte_cryptodev_pmd.h>
-#include <rte_dev.h>
+#include <rte_vdev.h>
 #include <rte_malloc.h>
 #include <rte_cpuflags.h>
 
@@ -107,7 +107,7 @@ snow3g_set_session_parameters(struct snow3g_session *sess,
 {
 	const struct rte_crypto_sym_xform *auth_xform = NULL;
 	const struct rte_crypto_sym_xform *cipher_xform = NULL;
-	int mode;
+	enum snow3g_operation mode;
 
 	/* Select Crypto operation - hash then cipher / cipher then hash */
 	mode = snow3g_get_mode(xform);
@@ -125,9 +125,9 @@ snow3g_set_session_parameters(struct snow3g_session *sess,
 		/* Fall-through */
 	case SNOW3G_OP_ONLY_AUTH:
 		auth_xform = xform;
-	}
-
-	if (mode == SNOW3G_OP_NOT_SUPPORTED) {
+		break;
+	case SNOW3G_OP_NOT_SUPPORTED:
+	default:
 		SNOW3G_LOG_ERR("Unsupported operation chain order parameter");
 		return -EINVAL;
 	}
@@ -545,7 +545,7 @@ snow3g_pmd_dequeue_burst(void *queue_pair,
 	return nb_dequeued;
 }
 
-static int cryptodev_snow3g_uninit(const char *name);
+static int cryptodev_snow3g_remove(const char *name);
 
 static int
 cryptodev_snow3g_create(const char *name,
@@ -599,12 +599,12 @@ cryptodev_snow3g_create(const char *name,
 init_error:
 	SNOW3G_LOG_ERR("driver %s: cryptodev_snow3g_create failed", name);
 
-	cryptodev_snow3g_uninit(crypto_dev_name);
+	cryptodev_snow3g_remove(crypto_dev_name);
 	return -EFAULT;
 }
 
 static int
-cryptodev_snow3g_init(const char *name,
+cryptodev_snow3g_probe(const char *name,
 		const char *input_args)
 {
 	struct rte_crypto_vdev_init_params init_params = {
@@ -626,26 +626,26 @@ cryptodev_snow3g_init(const char *name,
 }
 
 static int
-cryptodev_snow3g_uninit(const char *name)
+cryptodev_snow3g_remove(const char *name)
 {
 	if (name == NULL)
 		return -EINVAL;
 
-	RTE_LOG(INFO, PMD, "Closing SNOW3G crypto device %s"
+	RTE_LOG(INFO, PMD, "Closing SNOW 3G crypto device %s"
 			" on numa socket %u\n",
 			name, rte_socket_id());
 
 	return 0;
 }
 
-static struct rte_driver cryptodev_snow3g_pmd_drv = {
-	.type = PMD_VDEV,
-	.init = cryptodev_snow3g_init,
-	.uninit = cryptodev_snow3g_uninit
+static struct rte_vdev_driver cryptodev_snow3g_pmd_drv = {
+	.probe = cryptodev_snow3g_probe,
+	.remove = cryptodev_snow3g_remove
 };
 
-PMD_REGISTER_DRIVER(cryptodev_snow3g_pmd_drv, CRYPTODEV_NAME_SNOW3G_PMD);
-DRIVER_REGISTER_PARAM_STRING(CRYPTODEV_NAME_SNOW3G_PMD,
+RTE_PMD_REGISTER_VDEV(CRYPTODEV_NAME_SNOW3G_PMD, cryptodev_snow3g_pmd_drv);
+RTE_PMD_REGISTER_ALIAS(CRYPTODEV_NAME_SNOW3G_PMD, cryptodev_snow3g_pmd);
+RTE_PMD_REGISTER_PARAM_STRING(CRYPTODEV_NAME_SNOW3G_PMD,
 	"max_nb_queue_pairs=<int> "
 	"max_nb_sessions=<int> "
 	"socket_id=<int>");

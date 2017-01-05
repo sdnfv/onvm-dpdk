@@ -49,11 +49,11 @@ fi
 
 range=${1:-origin/master..}
 
-commits=$(git log --format='%h' $range)
-headlines=$(git log --format='%s' $range)
-bodylines=$(git log --format='%b' $range)
-fixes=$(git log --format='%h %s' $range | grep -i ': *fix' | cut -d' ' -f1)
-tags=$(git log --format='%b' $range | grep -i -e 'by *:' -e 'fix.*:')
+commits=$(git log --format='%h' --reverse $range)
+headlines=$(git log --format='%s' --reverse $range)
+bodylines=$(git log --format='%b' --reverse $range)
+fixes=$(git log --format='%h %s' --reverse $range | grep -i ': *fix' | cut -d' ' -f1)
+tags=$(git log --format='%b' --reverse $range | grep -i -e 'by *:' -e 'fix.*:')
 bytag='\(Reported\|Suggested\|Signed-off\|Acked\|Reviewed\|Tested\)-by:'
 
 # check headline format (spacing, no punctuation, no code)
@@ -112,20 +112,23 @@ bad=$(echo "$headlines" | grep -E --color=always \
 	-e '\<[hsf]w\>' \
 	-e '\<l[234]\>' \
 	-e ':.*\<api\>' \
-	-e ':.*\<dma\>' \
-	-e ':.*\<pci\>' \
-	-e ':.*\<mtu\>' \
-	-e ':.*\<mac\>' \
-	-e ':.*\<numa\>' \
-	-e ':.*\<vlan\>' \
-	-e ':.*\<rss\>' \
-	-e ':.*\<freebsd\>' \
-	-e ':.*\<linux\>' \
-	-e ':.*\<tilegx\>' \
-	-e ':.*\<tile-gx\>' \
 	-e ':.*\<arm\>' \
 	-e ':.*\<armv7\>' \
 	-e ':.*\<armv8\>' \
+	-e ':.*\<dma\>' \
+	-e ':.*\<freebsd\>' \
+	-e ':.*\<linux\>' \
+	-e ':.*\<lro\>' \
+	-e ':.*\<mac\>' \
+	-e ':.*\<mtu\>' \
+	-e ':.*\<nic\>' \
+	-e ':.*\<numa\>' \
+	-e ':.*\<pci\>' \
+	-e ':.*\<pmd\>' \
+	-e ':.*\<rss\>' \
+	-e ':.*\<tile-gx\>' \
+	-e ':.*\<tilegx\>' \
+	-e ':.*\<vlan\>' \
 	| sed 's,^,\t,')
 [ -z "$bad" ] || printf "Wrong headline lowercase:\n$bad\n"
 
@@ -180,7 +183,7 @@ IFS='
 fixtags=$(echo "$tags" | grep '^Fixes: ')
 bad=$(for fixtag in $fixtags ; do
 	hash=$(echo "$fixtag" | sed 's,^Fixes: \([0-9a-f]*\).*,\1,')
-	if git branch --contains $hash | grep -q '^\*' ; then
+	if git branch --contains $hash 2>&- | grep -q '^\*' ; then
 		good="Fixes: $hash "$(git log --format='("%s")' -1 $hash 2>&-)
 	else
 		good="reference not in current branch"
