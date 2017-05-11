@@ -3,7 +3,9 @@
 # check if there is only one additional command-line argument
 if [ $# -ne 4 ]
 then
-    echo "This script is used to setup ifconfig interfaces for dpdk"
+    echo "This script is used to setup a network adapter for a DPDK managed network interface."
+    echo "If you run ifconfig after using this script, there will be an entry for a DPDK interface. The interface will look similar to one managed by the kernel, but instead, this interface is managed by DPDK."
+    echo ""
     echo "Usage:"
     echo "sudo $0 <interface name> <ip address> <netmask> <up/down>"
     exit 1
