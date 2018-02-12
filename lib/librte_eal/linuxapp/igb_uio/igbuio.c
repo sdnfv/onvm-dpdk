@@ -53,8 +53,8 @@ struct rte_uio_pci_dev {
 
 static char *intr_mode;
 static enum rte_intr_mode igbuio_intr_mode_preferred = RTE_INTR_MODE_MSIX;
-struct stats_struct sarrays[MAX_DEVICES][MAX_QID] = {{{0, 0, 0, 0, 0, 0}}};
-struct stats_struct old_sarrays[MAX_DEVICES][MAX_QID] = {{{0, 0, 0, 0, 0, 0}}};
+struct stats_struct sarrays[MAX_DEVICES][MAX_QID] = {{{0, 0, 0, 0, 0, 0, 0, 0, 0}}};
+struct stats_struct old_sarrays[MAX_DEVICES][MAX_QID] = {{{0, 0, 0, 0, 0, 0, 0, 0, 0}}};
 
 /* sriov sysfs */
 static ssize_t
@@ -218,7 +218,7 @@ igbuio_dom0_mmap_phys(struct uio_info *info, struct vm_area_struct *vma)
 	vma->vm_page_prot.pgprot |= _PAGE_IOMAP;
 #else
 	vma->vm_page_prot.pgprot |= _PAGE_SOFTW2;
-#endif
+#endif	
 #endif
 
 	return remap_pfn_range(vma,
@@ -376,6 +376,7 @@ igbuio_pci_probe(struct pci_dev *dev, const struct pci_device_id *id)
 	struct net_adapter *adapter = NULL;
 	struct ixgbe_hw *hw_i = NULL;
 	struct e1000_hw *hw_e = NULL;
+	struct i40e_hw *hw_i4 = NULL;	
 
 	udev = kzalloc(sizeof(struct rte_uio_pci_dev), GFP_KERNEL);
 	if (!udev)
@@ -428,11 +429,16 @@ igbuio_pci_probe(struct pci_dev *dev, const struct pci_device_id *id)
 	udev->pdev = dev;
 
 	switch (igbuio_intr_mode_preferred) {
-	case RTE_INTR_MODE_MSIX:
+	case RTE_INTR_MODE_MSIX:		
 		/* Only 1 msi-x vector needed */
 #ifdef HAVE_PCI_ENABLE_MSIX
 		msix_entry.entry = 0;
-		if (pci_enable_msix(dev, &msix_entry, 1) == 0) {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 12, 0)
+		if (pci_enable_msix(dev, &msix_entry, 1) == 0)
+#else
+		if (pci_enable_msix_exact(dev, &msix_entry, 1) == 0)			
+#endif
+		{
 			dev_dbg(&dev->dev, "using MSI-X");
 			udev->info.irq_flags = IRQF_NO_THREAD;
 			udev->info.irq = msix_entry.vector;
@@ -485,7 +491,7 @@ igbuio_pci_probe(struct pci_dev *dev, const struct pci_device_id *id)
         adapter->netdev = netdev;
         adapter->pdev = dev;
         udev->adapter = adapter;
-        adapter->type = retrieve_dev_specs(id);
+        adapter->type = retrieve_dev_specs(dev);
 	/* recover device-specific mac address */
         switch (adapter->type) {
         case IXGBE:
@@ -508,6 +514,17 @@ igbuio_pci_probe(struct pci_dev *dev, const struct pci_device_id *id)
                         goto fail_ioremap;
                 }
                 break;
+	case I40E:
+		hw_i4 = &adapter->hw._i40e_hw;
+		hw_i4->back = adapter;
+
+		if (i40e_get_local_mac_addr(dev, id, hw_i4->mac.addr)) {
+			err = -EIO;
+			goto fail_ioremap;
+		}
+		break;
+	default:
+		dev_info(&dev->dev, "Failed to identify adapter type\n");
         }
 	
         netdev_assign_netdev_ops(netdev);
@@ -522,9 +539,8 @@ igbuio_pci_probe(struct pci_dev *dev, const struct pci_device_id *id)
 	if (sscanf(netdev->name, "dpdk%hu", &adapter->bd_number) <= 0)
                 goto fail_bdnumber;
 
-        //printk(KERN_DEBUG "ifindex picked: %hu\n", adapter->bd_number);                             
         dev_info(&dev->dev, "ifindex picked: %hu\n", adapter->bd_number);
-
+	
 	/* register uio driver */
 	err = uio_register_device(&dev->dev, &udev->info);
 	if (err != 0)
@@ -535,9 +551,30 @@ igbuio_pci_probe(struct pci_dev *dev, const struct pci_device_id *id)
 	dev_info(&dev->dev, "uio device registered with irq %lx\n",
 		 udev->info.irq);
 
+	/*
+	 * Doing a harmless dma mapping for attaching the device to
+	 * the iommu identity mapping if kernel boots with iommu=pt.
+	 * Note this is not a problem if no IOMMU at all.
+	 */
+	map_addr = dma_alloc_coherent(&dev->dev, 1024, &map_dma_addr,
+			GFP_KERNEL);
+	if (map_addr)
+		memset(map_addr, 0, 1024);
+
+	if (!map_addr)
+		dev_info(&dev->dev, "dma mapping failed\n");
+	else {
+		dev_info(&dev->dev, "mapping 1K dma=%#llx host=%p\n",
+			 (unsigned long long)map_dma_addr, map_addr);
+
+		dma_free_coherent(&dev->dev, 1024, map_addr, map_dma_addr);
+		dev_info(&dev->dev, "unmapping 1K dma=%#llx host=%p\n",
+			 (unsigned long long)map_dma_addr, map_addr);
+	}
+
         /* reset nstats */
 	memset(&adapter->nstats, 0, sizeof(struct net_device_stats));
-
+	
 	return 0;
 
  fail_bdnumber:
@@ -564,12 +601,12 @@ igbuio_pci_remove(struct pci_dev *dev)
 {
 	struct rte_uio_pci_dev *udev = pci_get_drvdata(dev);
 	struct net_device *netdev;
-	struct net_adapter *adapter;
+	struct net_adapter *adapter;	
 
 	/* unregister device from netdev */
 	netdev = udev->adapter->netdev;
 	adapter = netdev_priv(netdev);
-
+	
 	if (udev->adapter->netdev_registered) {
 		unregister_netdev(netdev);
 		udev->adapter->netdev_registered = false;
@@ -581,9 +618,12 @@ igbuio_pci_remove(struct pci_dev *dev)
 	case IGB:
 		iounmap(udev->adapter->hw._e1000_hw.hw_addr);
 		break;
+	case I40E:
+		/* do nothing */
+		break;
 	}
-	free_netdev(netdev);	
-
+	free_netdev(netdev);
+	
 	sysfs_remove_group(&dev->dev.kobj, &dev_attr_grp);
 	uio_unregister_device(&udev->info);
 	igbuio_pci_release_iomem(&udev->info);
@@ -617,7 +657,7 @@ igbuio_config_intr_mode(char *intr_str)
 }
 
 static int
-update_stats(struct stats_struct __user *stats)
+update_stats(struct stats_struct *stats)
 {
 	uint8_t qid = stats->qid;
 	uint8_t device = stats->dev;
@@ -629,12 +669,18 @@ update_stats(struct stats_struct __user *stats)
 		old_sarrays[device][qid].rx_pkts += sarrays[device][qid].rx_pkts;
 		old_sarrays[device][qid].tx_bytes += sarrays[device][qid].tx_bytes;
 		old_sarrays[device][qid].tx_pkts += sarrays[device][qid].tx_pkts;
+		old_sarrays[device][qid].rmiss += sarrays[device][qid].rmiss;
+		old_sarrays[device][qid].rerr += sarrays[device][qid].rerr;
+		old_sarrays[device][qid].terr += sarrays[device][qid].terr;		
 	}
 
 	sarrays[device][qid].rx_bytes = stats->rx_bytes;
 	sarrays[device][qid].rx_pkts = stats->rx_pkts;
 	sarrays[device][qid].tx_bytes = stats->tx_bytes;
 	sarrays[device][qid].tx_pkts = stats->tx_pkts;
+	sarrays[device][qid].rmiss = stats->rmiss;
+	sarrays[device][qid].rerr = stats->rerr;
+	sarrays[device][qid].terr = stats->terr;	
 
 #if 0
 	printk(KERN_ALERT "Dev: %d, Qid: %d, RXP: %llu, RXB: %llu, TXP: %llu, TXB: %llu\n",
@@ -664,10 +710,17 @@ igb_net_ioctl(struct file *filp,
 	 unsigned int cmd, unsigned long arg)
 {
 	int ret = 0;
+	struct stats_struct ss;
+
+	ret = copy_from_user(&ss,
+			     (struct stats_struct __user *)arg,
+			     sizeof(struct stats_struct));
+	if (ret)
+		return -EFAULT;
 
 	switch (cmd) {
 	case SEND_STATS:
-		ret = update_stats((struct stats_struct __user *) arg);
+		ret = update_stats(&ss);
 		break;
 	default:
 		ret = -ENOTTY;
@@ -704,7 +757,7 @@ igbuio_pci_init_module(void)
 		printk(KERN_ERR "register_chrdev failed\n");
 		return ret;
 	}
-
+	
 	return pci_register_driver(&igbuio_pci_driver);
 }
 
