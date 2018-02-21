@@ -1,3 +1,7 @@
+This DPDK repository contains modifications and enhancements to work better with 
+[OpenNetVM](https://github.com/sdnfv/openNetVM) and [mTCP](https://github.com/eunyoung14/mtcp). 
+These changes were made by developers of the respective projects.
+
 DPDK is a set of libraries and drivers for fast packet processing.
 It supports many processor architectures and both FreeBSD and Linux.
 
